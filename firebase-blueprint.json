@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile information including role.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Contribution": {
+      "title": "Monthly Contribution",
+      "description": "A record of a monthly payment of 1000rs.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "month": { "type": "integer" },
+        "year": { "type": "integer" },
+        "amount": { "type": "integer" },
+        "status": { "type": "string", "enum": ["paid", "pending"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "month", "year", "amount", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and roles."
+    },
+    "/contributions/{contributionId}": {
+      "schema": "Contribution",
+      "description": "Monthly contributions records."
+    }
+  }
+}

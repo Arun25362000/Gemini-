@@ -1,0 +1,5 @@
+{
+  "name": "FinTrack - Monthly Savings Tracker",
+  "description": "A financial services platform for monthly savings groups. Users contribute 1000 INR before the 10th of every month, with admin management and user dashboards.",
+  "requestFramePermissions": []
+}

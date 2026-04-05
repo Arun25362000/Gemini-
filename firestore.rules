@@ -1,0 +1,101 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users
+// Document ID: userId
+// Fields:
+//   - uid: string (required)
+//   - email: string (required, email format)
+//   - displayName: string (optional)
+//   - role: string (required, enum: ['admin', 'user'])
+//
+// Collection: contributions
+// Document ID: auto-generated
+// Fields:
+//   - userId: string (required)
+//   - userEmail: string (required)
+//   - month: number (required, 1-12)
+//   - year: number (required)
+//   - amount: number (required, usually 1000)
+//   - status: string (required, enum: ['paid', 'pending'])
+//   - timestamp: timestamp (required)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "arun2102000@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role']) &&
+             data.uid is string && data.uid.size() < 128 &&
+             data.email is string && data.email.size() < 256 &&
+             data.role in ['admin', 'user'];
+    }
+
+    function isValidContribution(data) {
+      return data.keys().hasAll(['userId', 'userEmail', 'month', 'year', 'amount', 'status', 'timestamp']) &&
+             data.userId is string && data.userId.size() < 128 &&
+             data.userEmail is string && data.userEmail.size() < 256 &&
+             data.month is int && data.month >= 1 && data.month <= 12 &&
+             data.year is int && data.year >= 2024 && data.year <= 2100 &&
+             data.amount is int && data.amount == 1000 &&
+             data.status in ['paid', 'pending'] &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can read any profile (to see who else is in the group)
+      allow read: if isAuthenticated();
+      
+      // Users can create their own profile on first login
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    (request.resource.data.role == 'user' || 
+                     (request.resource.data.role == 'admin' && request.auth.token.email == "arun2102000@gmail.com"));
+      
+      // Only admins can change roles or edit other users
+      allow update: if isAdmin() && isValidUser(request.resource.data);
+    }
+
+    match /contributions/{contributionId} {
+      // Everyone can see contributions
+      allow read: if isAuthenticated();
+      
+      // Users can add their own contribution, Admins can add for anyone
+      allow create: if isAuthenticated() && 
+                    (request.resource.data.userId == request.auth.uid || isAdmin()) &&
+                    isValidContribution(request.resource.data);
+      
+      // Only admins can edit or delete contributions
+      allow update: if isAdmin() && 
+                    isValidContribution(request.resource.data) &&
+                    request.resource.data.userId == resource.data.userId &&
+                    request.resource.data.timestamp == resource.data.timestamp;
+      
+      allow delete: if isAdmin();
+    }
+  }
+}
