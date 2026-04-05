@@ -4,7 +4,9 @@ import {
   GoogleAuthProvider, 
   onAuthStateChanged, 
   signOut, 
-  User 
+  User,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword 
 } from 'firebase/auth';
 import { 
   collection, 
@@ -33,7 +35,9 @@ import {
   Clock, 
   AlertCircle,
   Trash2,
-  Edit2
+  Edit2,
+  MessageSquare,
+  Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -42,7 +46,7 @@ import { cn } from './lib/utils';
 // --- Constants ---
 const MONTHLY_AMOUNT = 1000;
 const DUE_DAY = 10;
-const ADMIN_EMAIL = 'arun2102000@gmail.com';
+const ADMIN_EMAILS = ['arun2102000@gmail.com', 'unnati@gmail.com'];
 
 // --- Types ---
 enum OperationType {
@@ -125,11 +129,17 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [activeTab, setActiveTab] = useState<'contributions' | 'members'>('contributions');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [newMember, setNewMember] = useState({ name: '', email: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+  const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+  const [loginMethod, setLoginMethod] = useState<'google' | 'password'>('google');
+  const [credentials, setCredentials] = useState({ username: '', password: '' });
+  const [isLocalAdmin, setIsLocalAdmin] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [showInitButton, setShowInitButton] = useState(false);
 
   // --- Auth & Profile ---
   useEffect(() => {
@@ -174,8 +184,8 @@ export default function App() {
             const newProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: email,
-              displayName: firebaseUser.displayName || '',
-              role: email === ADMIN_EMAIL ? 'admin' : 'user',
+              displayName: firebaseUser.displayName || (email === 'unnati@gmail.com' ? 'System Admin' : ''),
+              role: ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
               joinDate: format(new Date(), 'yyyy-MM-dd')
             };
             try {
@@ -231,7 +241,66 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => signOut(auth);
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const inputUsername = credentials.username.toLowerCase().trim();
+    const password = credentials.password.toLowerCase().trim();
+
+    if (!inputUsername || !password) {
+      alert("Please enter both username and password.");
+      return;
+    }
+
+    // Map 'unnati' to 'unnati@gmail.com'
+    const loginEmail = inputUsername === 'unnati' ? 'unnati@gmail.com' : inputUsername;
+
+    setIsLoggingIn(true);
+    setShowInitButton(false);
+    try {
+      await signInWithEmailAndPassword(auth, loginEmail, password);
+      setIsLocalAdmin(true);
+    } catch (err: any) {
+      console.error("Login error:", err);
+      if (err.code === 'auth/operation-not-allowed') {
+        alert("Email/Password login is not enabled in your Firebase Console. Please go to Authentication > Sign-in method and enable 'Email/Password'.");
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential' || err.code === 'auth/invalid-email') {
+        if (inputUsername === 'unnati') {
+          setShowInitButton(true);
+          alert("Admin account not found. You can now click the 'Initialize Admin Account' button that appeared below.");
+        } else {
+          alert("Invalid credentials. If you are the admin, use 'unnati' as username.");
+        }
+      } else {
+        alert("Login error: " + err.message);
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const initializeAdminAccount = async () => {
+    setIsLoggingIn(true);
+    try {
+      await createUserWithEmailAndPassword(auth, 'unnati@gmail.com', 'unnati');
+      alert("Admin account created successfully! You are now logged in.");
+      setIsLocalAdmin(true);
+      setShowInitButton(false);
+    } catch (err: any) {
+      if (err.code === 'auth/operation-not-allowed') {
+        alert("Email/Password login is not enabled in your Firebase Console. Please enable it first.");
+      } else {
+        alert("Error creating account: " + err.message);
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    signOut(auth);
+    setIsLocalAdmin(false);
+    setProfile(null);
+  };
 
   const addContribution = async (month: number, year: number, targetUserId?: string) => {
     if (!user || !profile) return;
@@ -272,14 +341,46 @@ export default function App() {
       await setDoc(doc(db, 'users', newMember.email), {
         email: newMember.email,
         displayName: newMember.name,
+        phoneNumber: newMember.phoneNumber,
         role: 'user',
         joinDate: newMember.joinDate
       });
       setIsAddingMember(false);
-      setNewMember({ name: '', email: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+      setNewMember({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, `users/${newMember.email}`);
     }
+  };
+
+  const updateMember = async () => {
+    if (profile?.role !== 'admin' || !editingUser) return;
+    try {
+      const userRef = doc(db, 'users', editingUser.uid || editingUser.email);
+      await updateDoc(userRef, {
+        displayName: editingUser.displayName,
+        phoneNumber: editingUser.phoneNumber
+      });
+      setEditingUser(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${editingUser.uid || editingUser.email}`);
+    }
+  };
+
+  const sendWhatsAppReminder = (u: UserProfile) => {
+    if (!u.phoneNumber) {
+      alert("No phone number found for this user.");
+      return;
+    }
+    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment. Thanks!`;
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/${u.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+  };
+
+  const sendEmailReminder = (u: UserProfile) => {
+    const subject = `Payment Reminder: Unnati Contribution - ${format(new Date(), 'MMMM yyyy')}`;
+    const body = `Hi ${u.displayName || 'Member'},\n\nThis is a reminder for your monthly Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment on the app.\n\nThanks!`;
+    const mailtoUrl = `mailto:${u.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoUrl;
   };
 
   const updateStatus = async (id: string, status: 'paid' | 'pending') => {
@@ -301,6 +402,23 @@ export default function App() {
     }
   };
 
+  const toggleUserRole = async (targetUser: UserProfile) => {
+    if (profile?.role !== 'admin') return;
+    if (targetUser.email === 'arun2102000@gmail.com' || targetUser.email === 'unnati@gmail.com') {
+      alert("Cannot change role of the primary administrators.");
+      return;
+    }
+
+    const newRole = targetUser.role === 'admin' ? 'user' : 'admin';
+    const id = targetUser.uid || targetUser.email;
+    
+    try {
+      await updateDoc(doc(db, 'users', id), { role: newRole });
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${id}`);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -315,7 +433,7 @@ export default function App() {
 
   if (error) return <ErrorBoundary error={error} />;
 
-  if (!user) {
+  if (!user && !isLocalAdmin) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
         <motion.div 
@@ -329,13 +447,88 @@ export default function App() {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Unnati</h1>
           <p className="text-gray-600 mb-8">Securely track your monthly savings group contributions.</p>
           
-          <button 
-            onClick={handleLogin}
-            className="w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95"
-          >
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
-            Continue with Google
-          </button>
+          <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
+            <button 
+              onClick={() => setLoginMethod('google')}
+              className={cn(
+                "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
+                loginMethod === 'google' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+              )}
+            >
+              Google
+            </button>
+            <button 
+              onClick={() => setLoginMethod('password')}
+              className={cn(
+                "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
+                loginMethod === 'password' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+              )}
+            >
+              Password
+            </button>
+          </div>
+
+          {loginMethod === 'google' ? (
+            <button 
+              onClick={handleLogin}
+              className="w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95"
+            >
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
+              Continue with Google
+            </button>
+          ) : (
+            <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Username</label>
+                <input 
+                  type="text"
+                  value={credentials.username}
+                  onChange={(e) => setCredentials({...credentials, username: e.target.value})}
+                  className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="Enter username"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
+                <input 
+                  type="password"
+                  value={credentials.password}
+                  onChange={(e) => setCredentials({...credentials, password: e.target.value})}
+                  className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="Enter password"
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={isLoggingIn}
+                className={cn(
+                  "w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2",
+                  isLoggingIn && "opacity-70 cursor-not-allowed"
+                )}
+              >
+                {isLoggingIn ? (
+                  <>
+                    <motion.div 
+                      animate={{ rotate: 360 }}
+                      transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                      className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
+                    />
+                    Logging in...
+                  </>
+                ) : 'Login'}
+              </button>
+
+              {showInitButton && (
+                <button 
+                  type="button"
+                  onClick={initializeAdminAccount}
+                  className="w-full py-3 bg-emerald-50 text-emerald-700 rounded-2xl font-bold hover:bg-emerald-100 transition-all border border-emerald-100 mt-2 text-sm"
+                >
+                  Initialize Admin Account
+                </button>
+              )}
+            </form>
+          )}
           
           <div className="mt-8 pt-8 border-t border-gray-100 text-sm text-gray-400">
             Monthly contribution: ₹1,000 before 10th
@@ -346,10 +539,10 @@ export default function App() {
   }
 
   const isAdmin = profile?.role === 'admin';
-  const myContributions = contributions.filter(c => c.userId === user.uid);
+  const myContributions = contributions.filter(c => c.userId === (user?.uid || 'local-admin'));
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
-  const hasPaidCurrent = contributions.some(c => c.userId === user.uid && c.month === currentMonth && c.year === currentYear);
+  const hasPaidCurrent = contributions.some(c => c.userId === (user?.uid || 'local-admin') && c.month === currentMonth && c.year === currentYear);
   const isLate = !hasPaidCurrent && new Date().getDate() > DUE_DAY;
 
   return (
@@ -364,16 +557,18 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="hidden sm:flex flex-col items-end">
-              <span className="text-sm font-semibold">{user.displayName}</span>
-              <span className="text-xs text-slate-500 flex items-center gap-1">
+            <div className="flex flex-col items-end">
+              <span className="text-sm font-bold text-slate-900">
+                {profile?.displayName || user?.displayName || 'User'}
+              </span>
+              <span className="text-[10px] sm:text-xs text-slate-500 flex items-center gap-1 font-medium uppercase tracking-wider">
                 {isAdmin ? <Shield className="w-3 h-3 text-indigo-600" /> : <UserIcon className="w-3 h-3" />}
                 {isAdmin ? 'Administrator' : 'Member'}
               </span>
             </div>
             <button 
               onClick={handleLogout}
-              className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+              className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
               title="Logout"
             >
               <LogOut className="w-5 h-5" />
@@ -383,6 +578,13 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+            Welcome back, {profile?.displayName?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User'}!
+          </h1>
+          <p className="text-slate-500 font-medium mt-1">Here's what's happening with your Unnati savings.</p>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
@@ -512,6 +714,7 @@ export default function App() {
                   <tr className="bg-slate-50/50 border-b border-slate-100">
                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Name</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Email</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Phone</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Join Date</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Total Paid</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
@@ -539,6 +742,9 @@ export default function App() {
                           <span className="text-sm text-slate-500">{u.email}</span>
                         </td>
                         <td className="px-6 py-4">
+                          <span className="text-sm text-slate-500">{u.phoneNumber || '—'}</span>
+                        </td>
+                        <td className="px-6 py-4">
                           <span className="text-sm text-slate-500">{u.joinDate}</span>
                         </td>
                         <td className="px-6 py-4">
@@ -553,15 +759,52 @@ export default function App() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <button 
-                            onClick={() => {
-                              setSelectedUserId(u.uid || u.email);
-                              setIsAdding(true);
-                            }}
-                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"
-                          >
-                            Record Payment
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            {!paidThisMonth && (
+                              <>
+                                <button 
+                                  onClick={() => sendWhatsAppReminder(u)}
+                                  className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                  title="Send WhatsApp Reminder"
+                                >
+                                  <MessageSquare className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => sendEmailReminder(u)}
+                                  className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  title="Send Email Reminder"
+                                >
+                                  <Mail className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                            <button 
+                              onClick={() => setEditingUser(u)}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                              title="Edit Member"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => toggleUserRole(u)}
+                              className={cn(
+                                "text-xs font-bold px-3 py-1.5 rounded-lg transition-all",
+                                u.role === 'admin' ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-200" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                              )}
+                              title={u.role === 'admin' ? "Demote to User" : "Promote to Admin"}
+                            >
+                              {u.role === 'admin' ? 'Admin' : 'Make Admin'}
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setSelectedUserId(u.uid || u.email);
+                                setIsAdding(true);
+                              }}
+                              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"
+                            >
+                              Record Payment
+                            </button>
+                          </div>
                         </td>
                       </motion.tr>
                     );
@@ -698,6 +941,16 @@ export default function App() {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Phone Number (for WhatsApp)</label>
+                  <input 
+                    type="tel"
+                    value={newMember.phoneNumber}
+                    onChange={(e) => setNewMember({ ...newMember, phoneNumber: e.target.value })}
+                    placeholder="+91 98765 43210"
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Join Date</label>
                   <input 
                     type="date"
@@ -719,6 +972,62 @@ export default function App() {
                     className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
                   >
                     Add Member
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {editingUser && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingUser(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Edit Member</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Full Name</label>
+                  <input 
+                    type="text"
+                    value={editingUser.displayName || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, displayName: e.target.value })}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Phone Number (for WhatsApp)</label>
+                  <input 
+                    type="tel"
+                    value={editingUser.phoneNumber || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, phoneNumber: e.target.value })}
+                    placeholder="+91 98765 43210"
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setEditingUser(null)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={updateMember}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                  >
+                    Save Changes
                   </button>
                 </div>
               </div>

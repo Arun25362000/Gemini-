@@ -41,15 +41,20 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "arun2102000@gmail.com" && request.auth.token.email_verified == true));
+        (
+          request.auth.token.email == "arun2102000@gmail.com" ||
+          request.auth.token.email == "unnati@gmail.com" ||
+          request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2" ||
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        );
     }
 
     function isValidUser(data) {
-      return data.keys().hasAll(['email', 'role', 'joinDate']) &&
-             data.email is string && data.email.size() < 256 &&
+      // Basic type checks for required fields
+      return data.email is string &&
              data.role in ['admin', 'user'] &&
-             data.joinDate is string && data.joinDate.size() < 64;
+             data.joinDate is string;
     }
 
     function isValidContribution(data) {
@@ -74,10 +79,10 @@ service cloud.firestore {
       allow create: if (isOwner(userId) || isAdmin()) && 
                     isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'user' || 
-                     (request.resource.data.role == 'admin' && request.auth.token.email == "arun2102000@gmail.com"));
+                     (request.resource.data.role == 'admin' && (request.auth.token.email == "arun2102000@gmail.com" || request.auth.token.email == "unnati@gmail.com" || request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2")));
       
       // Only admins can change roles or edit other users, or users can update their own profile (e.g. adding UID)
-      allow update: if (isAdmin() || isOwner(userId)) && isValidUser(request.resource.data);
+      allow update: if isAdmin() || (isOwner(userId) && isValidUser(request.resource.data));
     }
 
     match /contributions/{contributionId} {
