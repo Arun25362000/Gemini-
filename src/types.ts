@@ -1,10 +1,11 @@
 export type UserRole = 'admin' | 'user';
 
 export interface UserProfile {
-  uid: string;
+  uid?: string; // Optional until they log in
   email: string;
   displayName?: string;
   role: UserRole;
+  joinDate: string; // ISO date string
 }
 
 export interface Contribution {

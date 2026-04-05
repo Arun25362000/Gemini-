@@ -124,9 +124,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [activeTab, setActiveTab] = useState<'contributions' | 'members'>('contributions');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [newMember, setNewMember] = useState({ name: '', email: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
 
   // --- Auth & Profile ---
   useEffect(() => {
@@ -151,20 +154,36 @@ export default function App() {
       setUser(firebaseUser);
       if (firebaseUser) {
         const userRef = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await getDoc(userRef);
+        let userSnap = await getDoc(userRef);
         
         if (!userSnap.exists()) {
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || '',
-            role: firebaseUser.email === ADMIN_EMAIL ? 'admin' : 'user'
-          };
-          try {
-            await setDoc(userRef, newProfile);
-            setProfile(newProfile);
-          } catch (err: any) {
-            handleFirestoreError(err, OperationType.CREATE, `users/${firebaseUser.uid}`);
+          // Check if admin pre-added this user by email
+          const email = firebaseUser.email || '';
+          const emailRef = doc(db, 'users', email);
+          const emailSnap = await getDoc(emailRef);
+
+          if (emailSnap.exists()) {
+            // Link UID to existing record
+            const existingData = emailSnap.data() as UserProfile;
+            const updatedProfile = { ...existingData, uid: firebaseUser.uid, displayName: firebaseUser.displayName || existingData.displayName };
+            await setDoc(userRef, updatedProfile);
+            await deleteDoc(emailRef); // Remove the email-keyed doc
+            setProfile(updatedProfile);
+          } else {
+            // Create new
+            const newProfile: UserProfile = {
+              uid: firebaseUser.uid,
+              email: email,
+              displayName: firebaseUser.displayName || '',
+              role: email === ADMIN_EMAIL ? 'admin' : 'user',
+              joinDate: format(new Date(), 'yyyy-MM-dd')
+            };
+            try {
+              await setDoc(userRef, newProfile);
+              setProfile(newProfile);
+            } catch (err: any) {
+              handleFirestoreError(err, OperationType.CREATE, `users/${firebaseUser.uid}`);
+            }
           }
         } else {
           setProfile(userSnap.data() as UserProfile);
@@ -218,10 +237,11 @@ export default function App() {
     if (!user || !profile) return;
     
     const uid = targetUserId || user.uid;
-    const targetUser = allUsers.find(u => u.uid === uid);
+    // Find user by UID or Email (since pre-added users use email as ID)
+    const targetUser = allUsers.find(u => u.uid === uid || u.email === uid);
     if (!targetUser) return;
 
-    const existing = contributions.find(c => c.userId === uid && c.month === month && c.year === year);
+    const existing = contributions.find(c => (c.userId === uid || c.userEmail === targetUser.email) && c.month === month && c.year === year);
     if (existing) {
       alert("Contribution for this month already recorded.");
       return;
@@ -229,7 +249,7 @@ export default function App() {
 
     try {
       await addDoc(collection(db, 'contributions'), {
-        userId: uid,
+        userId: targetUser.uid || '',
         userEmail: targetUser.email,
         month,
         year,
@@ -240,6 +260,25 @@ export default function App() {
       setIsAdding(false);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'contributions');
+    }
+  };
+
+  const addMember = async () => {
+    if (profile?.role !== 'admin') return;
+    if (!newMember.email || !newMember.name) return;
+
+    try {
+      // Use email as ID for pre-added users
+      await setDoc(doc(db, 'users', newMember.email), {
+        email: newMember.email,
+        displayName: newMember.name,
+        role: 'user',
+        joinDate: newMember.joinDate
+      });
+      setIsAddingMember(false);
+      setNewMember({ name: '', email: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, `users/${newMember.email}`);
     }
   };
 
@@ -287,7 +326,7 @@ export default function App() {
           <div className="w-20 h-20 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
             <TrendingUp className="w-10 h-10 text-indigo-600" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">FinTrack</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Unnati</h1>
           <p className="text-gray-600 mb-8">Securely track your monthly savings group contributions.</p>
           
           <button 
@@ -321,7 +360,7 @@ export default function App() {
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
               <TrendingUp className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-bold tracking-tight">FinTrack</span>
+            <span className="text-xl font-bold tracking-tight text-indigo-600">Unnati</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -383,11 +422,18 @@ export default function App() {
               <div className="p-3 bg-emerald-50 rounded-2xl">
                 <TrendingUp className="w-6 h-6 text-emerald-600" />
               </div>
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg uppercase">Total Savings</span>
+              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg uppercase">
+                {isAdmin ? 'Total Group Savings' : 'Your Total Savings'}
+              </span>
             </div>
-            <h3 className="text-slate-500 text-sm font-medium">Your Contributions</h3>
+            <h3 className="text-slate-500 text-sm font-medium">
+              {isAdmin ? 'Total Collected' : 'Your Contributions'}
+            </h3>
             <div className="mt-2 text-3xl font-black text-slate-900">
-              ₹{(myContributions.length * MONTHLY_AMOUNT).toLocaleString()}
+              ₹{(isAdmin 
+                ? contributions.reduce((acc, c) => acc + c.amount, 0) 
+                : myContributions.reduce((acc, c) => acc + c.amount, 0)
+              ).toLocaleString()}
             </div>
           </motion.div>
 
@@ -409,108 +455,277 @@ export default function App() {
           </motion.div>
         </div>
 
+        {isAdmin && (
+          <div className="flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit">
+            <button 
+              onClick={() => setActiveTab('contributions')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
+                activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Contributions
+            </button>
+            <button 
+              onClick={() => setActiveTab('members')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
+                activeTab === 'members' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Members
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
           <h2 className="text-2xl font-bold text-slate-900">
-            {isAdmin ? 'All Contributions' : 'Your History'}
+            {isAdmin 
+              ? (activeTab === 'contributions' ? 'All Contributions' : 'Group Members') 
+              : 'Your History'}
           </h2>
-          {!hasPaidCurrent && (
-            <button 
-              onClick={() => setIsAdding(true)}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
-            >
-              <Plus className="w-5 h-5" /> Record Payment
-            </button>
-          )}
-        </div>
-
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-100">
-                  {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>}
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Month / Year</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                  {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {(isAdmin ? contributions : myContributions).map((c, idx) => (
-                  <motion.tr 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    key={c.id} 
-                    className="hover:bg-slate-50/50 transition-colors"
-                  >
-                    {isAdmin && (
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-semibold text-slate-900">{c.userEmail.split('@')[0]}</span>
-                          <span className="text-xs text-slate-500">{c.userEmail}</span>
-                        </div>
-                      </td>
-                    )}
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-medium text-slate-700">
-                        {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString()}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
-                        c.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-                      )}>
-                        {c.status === 'paid' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                        {c.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-xs text-slate-500">
-                        {c.timestamp?.toDate ? format(c.timestamp.toDate(), 'MMM dd, hh:mm a') : 'Just now'}
-                      </span>
-                    </td>
-                    {isAdmin && (
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={() => updateStatus(c.id!, c.status === 'paid' ? 'pending' : 'paid')}
-                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                            title="Toggle Status"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => deleteContribution(c.id!)}
-                            className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    )}
-                  </motion.tr>
-                ))}
-                {(isAdmin ? contributions : myContributions).length === 0 && (
-                  <tr>
-                    <td colSpan={isAdmin ? 6 : 4} className="px-6 py-12 text-center text-slate-400 italic">
-                      No records found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="flex gap-3 w-full sm:w-auto">
+            {isAdmin && activeTab === 'members' && (
+              <button 
+                onClick={() => setIsAddingMember(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-600 border border-indigo-100 rounded-2xl font-bold hover:bg-indigo-50 transition-all active:scale-95"
+              >
+                <Plus className="w-5 h-5" /> Add Member
+              </button>
+            )}
+            {!hasPaidCurrent && (
+              <button 
+                onClick={() => setIsAdding(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+              >
+                <Plus className="w-5 h-5" /> Record Payment
+              </button>
+            )}
           </div>
         </div>
+
+        {isAdmin && activeTab === 'members' ? (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50 border-b border-slate-100">
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Email</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Join Date</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Total Paid</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {allUsers.map((u, idx) => {
+                    const userContribs = contributions.filter(c => c.userId === u.uid || c.userEmail === u.email);
+                    const totalPaid = userContribs.reduce((acc, c) => acc + c.amount, 0);
+                    const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear);
+                    
+                    return (
+                      <motion.tr 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        key={u.uid || u.email} 
+                        className="hover:bg-slate-50/50 transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <span className="text-sm font-semibold text-slate-900">{u.displayName || 'Unnamed'}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-sm text-slate-500">{u.email}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-sm text-slate-500">{u.joinDate}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-sm font-bold text-slate-900">₹{totalPaid.toLocaleString()}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
+                            paidThisMonth ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                          )}>
+                            {paidThisMonth ? 'Active' : 'Pending'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button 
+                            onClick={() => {
+                              setSelectedUserId(u.uid || u.email);
+                              setIsAdding(true);
+                            }}
+                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"
+                          >
+                            Record Payment
+                          </button>
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50 border-b border-slate-100">
+                    {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>}
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Month / Year</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                    {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(isAdmin ? contributions : myContributions).map((c, idx) => (
+                    <motion.tr 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      key={c.id} 
+                      className="hover:bg-slate-50/50 transition-colors"
+                    >
+                      {isAdmin && (
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-semibold text-slate-900">{c.userEmail.split('@')[0]}</span>
+                            <span className="text-xs text-slate-500">{c.userEmail}</span>
+                          </div>
+                        </td>
+                      )}
+                      <td className="px-6 py-4">
+                        <span className="text-sm font-medium text-slate-700">
+                          {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString()}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={cn(
+                          "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
+                          c.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                        )}>
+                          {c.status === 'paid' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          {c.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-xs text-slate-500">
+                          {c.timestamp?.toDate ? format(c.timestamp.toDate(), 'MMM dd, hh:mm a') : 'Just now'}
+                        </span>
+                      </td>
+                      {isAdmin && (
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => updateStatus(c.id!, c.status === 'paid' ? 'pending' : 'paid')}
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                              title="Toggle Status"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => deleteContribution(c.id!)}
+                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </motion.tr>
+                  ))}
+                  {(isAdmin ? contributions : myContributions).length === 0 && (
+                    <tr>
+                      <td colSpan={isAdmin ? 6 : 4} className="px-6 py-12 text-center text-slate-400 italic">
+                        No records found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </main>
 
       <AnimatePresence>
+        {isAddingMember && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddingMember(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Add New Member</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Full Name</label>
+                  <input 
+                    type="text"
+                    value={newMember.name}
+                    onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+                    placeholder="John Doe"
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Email Address</label>
+                  <input 
+                    type="email"
+                    value={newMember.email}
+                    onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
+                    placeholder="john@example.com"
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Join Date</label>
+                  <input 
+                    type="date"
+                    value={newMember.joinDate}
+                    onChange={(e) => setNewMember({ ...newMember, joinDate: e.target.value })}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setIsAddingMember(false)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={addMember}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                  >
+                    Add Member
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {isAdding && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
@@ -537,7 +752,7 @@ export default function App() {
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
                       {allUsers.map(u => (
-                        <option key={u.uid} value={u.uid}>{u.displayName || u.email}</option>
+                        <option key={u.uid || u.email} value={u.uid || u.email}>{u.displayName || u.email}</option>
                       ))}
                     </select>
                   </div>
@@ -600,7 +815,7 @@ export default function App() {
           Rules: ₹1,000 contribution due before the 10th of every month.
         </p>
         <p className="text-xs text-slate-300 mt-2">
-          &copy; {new Date().getFullYear()} FinTrack Services. All rights reserved.
+          &copy; {new Date().getFullYear()} Unnati Services. All rights reserved.
         </p>
       </footer>
     </div>

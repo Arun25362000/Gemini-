@@ -46,15 +46,14 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email', 'role']) &&
-             data.uid is string && data.uid.size() < 128 &&
+      return data.keys().hasAll(['email', 'role', 'joinDate']) &&
              data.email is string && data.email.size() < 256 &&
-             data.role in ['admin', 'user'];
+             data.role in ['admin', 'user'] &&
+             data.joinDate is string && data.joinDate.size() < 64;
     }
 
     function isValidContribution(data) {
-      return data.keys().hasAll(['userId', 'userEmail', 'month', 'year', 'amount', 'status', 'timestamp']) &&
-             data.userId is string && data.userId.size() < 128 &&
+      return data.keys().hasAll(['userEmail', 'month', 'year', 'amount', 'status', 'timestamp']) &&
              data.userEmail is string && data.userEmail.size() < 256 &&
              data.month is int && data.month >= 1 && data.month <= 12 &&
              data.year is int && data.year >= 2024 && data.year <= 2100 &&
@@ -71,13 +70,14 @@ service cloud.firestore {
       // Users can read any profile (to see who else is in the group)
       allow read: if isAuthenticated();
       
-      // Users can create their own profile on first login
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+      // Users can create their own profile on first login, or Admin can create any profile
+      allow create: if (isOwner(userId) || isAdmin()) && 
+                    isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'user' || 
                      (request.resource.data.role == 'admin' && request.auth.token.email == "arun2102000@gmail.com"));
       
-      // Only admins can change roles or edit other users
-      allow update: if isAdmin() && isValidUser(request.resource.data);
+      // Only admins can change roles or edit other users, or users can update their own profile (e.g. adding UID)
+      allow update: if (isAdmin() || isOwner(userId)) && isValidUser(request.resource.data);
     }
 
     match /contributions/{contributionId} {

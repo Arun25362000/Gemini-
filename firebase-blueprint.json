@@ -8,9 +8,10 @@
         "uid": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
-        "role": { "type": "string", "enum": ["admin", "user"] }
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "joinDate": { "type": "string", "format": "date" }
       },
-      "required": ["uid", "email", "role"]
+      "required": ["email", "role", "joinDate"]
     },
     "Contribution": {
       "title": "Monthly Contribution",
