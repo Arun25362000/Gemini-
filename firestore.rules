@@ -8,7 +8,9 @@
 //   - uid: string (required)
 //   - email: string (required, email format)
 //   - displayName: string (optional)
+//   - phoneNumber: string (optional)
 //   - role: string (required, enum: ['admin', 'user'])
+//   - joinDate: string (required, yyyy-MM-dd)
 //
 // Collection: contributions
 // Document ID: auto-generated
@@ -43,6 +45,7 @@ service cloud.firestore {
       return isAuthenticated() &&
         (
           request.auth.token.email == "arun2102000@gmail.com" ||
+          request.auth.token.email == "arun.cse.rymec@gmail.com" ||
           request.auth.token.email == "unnati@gmail.com" ||
           request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2" ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
@@ -54,7 +57,10 @@ service cloud.firestore {
       // Basic type checks for required fields
       return data.email is string &&
              data.role in ['admin', 'user'] &&
-             data.joinDate is string;
+             data.joinDate is string &&
+             (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('uid' in data) || (data.uid is string));
     }
 
     function isValidContribution(data) {
@@ -62,8 +68,9 @@ service cloud.firestore {
              data.userEmail is string && data.userEmail.size() < 256 &&
              data.month is int && data.month >= 1 && data.month <= 12 &&
              data.year is int && data.year >= 2024 && data.year <= 2100 &&
-             data.amount is int && data.amount == 1000 &&
+             data.amount is int && (data.amount == 1000 || data.amount == 1100) &&
              data.status in ['paid', 'pending'] &&
+             (!('transactionId' in data) || (data.transactionId is string && data.transactionId.size() < 100)) &&
              data.timestamp is timestamp;
     }
 
@@ -79,10 +86,13 @@ service cloud.firestore {
       allow create: if (isOwner(userId) || isAdmin()) && 
                     isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'user' || 
-                     (request.resource.data.role == 'admin' && (request.auth.token.email == "arun2102000@gmail.com" || request.auth.token.email == "unnati@gmail.com" || request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2")));
+                     (request.resource.data.role == 'admin' && (request.auth.token.email == "arun2102000@gmail.com" || request.auth.token.email == "arun.cse.rymec@gmail.com" || request.auth.token.email == "unnati@gmail.com" || request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2")));
       
       // Only admins can change roles or edit other users, or users can update their own profile (e.g. adding UID)
       allow update: if isAdmin() || (isOwner(userId) && isValidUser(request.resource.data));
+      
+      // Only admins can delete users
+      allow delete: if isAdmin();
     }
 
     match /contributions/{contributionId} {
