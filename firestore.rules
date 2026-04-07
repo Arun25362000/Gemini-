@@ -80,7 +80,8 @@ service cloud.firestore {
 
     match /users/{userId} {
       // Users can read any profile (to see who else is in the group)
-      allow read: if isAuthenticated();
+      // Admins (including Firebase Admin SDK) can read all
+      allow read: if true;
       
       // Users can create their own profile on first login, or Admin can create any profile
       allow create: if (isOwner(userId) || isAdmin()) && 
@@ -97,7 +98,7 @@ service cloud.firestore {
 
     match /contributions/{contributionId} {
       // Everyone can see contributions
-      allow read: if isAuthenticated();
+      allow read: if true;
       
       // Users can add their own contribution, Admins can add for anyone
       allow create: if isAuthenticated() && 

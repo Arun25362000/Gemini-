@@ -4,7 +4,9 @@ import path from 'path';
 import cron from 'node-cron';
 import nodemailer from 'nodemailer';
 import admin from 'firebase-admin';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
+import { initializeApp as initializeClientApp } from 'firebase/app';
+import { getFirestore as getClientFirestore, collection, getDocs, query, where, limit } from 'firebase/firestore';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 
 // Initialize Firebase Admin
@@ -13,15 +15,53 @@ if (!admin.apps.length) {
   console.log('Initializing Firebase Admin with Project ID:', projectId);
   admin.initializeApp({
     projectId: projectId,
+    credential: admin.credential.applicationDefault(),
   });
 }
 
-// Use the correct database ID from config if available, otherwise use default
 const app = admin.app();
-const db = firebaseConfig.firestoreDatabaseId 
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
-console.log(`Firestore initialized with database: ${firebaseConfig.firestoreDatabaseId || '(default)'} in project: ${admin.app().options.projectId}`);
+
+// Initialize Client SDK as a fallback
+const clientApp = initializeClientApp(firebaseConfig);
+const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
+
+// Helper to get a Firestore instance, trying the named one first then falling back to default
+async function getDb() {
+  const namedDbId = firebaseConfig.firestoreDatabaseId;
+  console.log(`[getDb] Attempting database selection. Configured ID: ${namedDbId || '(default)'}`);
+  
+  if (namedDbId) {
+    try {
+      const namedDb = getAdminFirestore(app, namedDbId);
+      // Use 'users' collection for health check as it has 'allow read: if true' in rules
+      await namedDb.collection('users').limit(1).get();
+      console.log(`[getDb] Successfully connected to named database ${namedDbId} using Admin SDK.`);
+      return { type: 'admin', db: namedDb };
+    } catch (err: any) {
+      console.warn(`[getDb] Admin SDK failed for database ${namedDbId}. Error Code: ${err.code}. Message: ${err.message}`);
+      
+      // If NOT_FOUND (5) or PERMISSION_DENIED (7), fallback to client SDK or default
+      if (err.code === 5 || err.code === 7 || (err.message && (err.message.includes('NOT_FOUND') || err.message.includes('PERMISSION_DENIED')))) {
+        console.log(`[getDb] Attempting Client SDK fallback for database ${namedDbId}...`);
+        
+        try {
+          // Test Client SDK using 'users' collection
+          await getDocs(query(collection(clientDb, 'users'), limit(1)));
+          console.log(`[getDb] Successfully connected to database ${namedDbId} using Client SDK fallback.`);
+          return { type: 'client', db: clientDb };
+        } catch (clientErr: any) {
+          console.warn(`[getDb] Client SDK fallback also failed: ${clientErr.message}. Falling back to Admin SDK (default).`);
+          return { type: 'admin', db: getAdminFirestore(app) };
+        }
+      }
+      console.error(`[getDb] Unexpected error accessing database ${namedDbId}:`, err.message);
+      return { type: 'admin', db: getAdminFirestore(app) };
+    }
+  }
+  
+  console.log(`[getDb] No named database configured. Using Admin SDK (default).`);
+  return { type: 'admin', db: getAdminFirestore(app) };
+}
 
 // Email Transporter (Using Gmail as default, can be changed via SMTP_SERVICE)
 const transporter = nodemailer.createTransport({
@@ -35,7 +75,8 @@ const transporter = nodemailer.createTransport({
 async function sendMonthlyReminders() {
   console.log('Running monthly email reminder task...');
   const currentApp = admin.app();
-  console.log('Using Project ID:', currentApp.options.projectId || 'Default (Auto)');
+  const { type, db } = await getDb();
+  console.log(`Using ${type} SDK for reminders.`);
   
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     const msg = 'SMTP configuration is missing (SMTP_USER/SMTP_PASS). Please configure them in the Settings > Secrets menu.';
@@ -52,12 +93,17 @@ async function sendMonthlyReminders() {
 
   try {
     // 1. Get all users
-    console.log('Fetching users from collection: users');
-    const usersSnapshot = await db.collection('users').get().catch(err => {
-      console.error('Failed to fetch users collection:', err);
-      throw err;
-    });
-    const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    console.log(`Attempting to fetch users...`);
+    let users: any[] = [];
+    
+    if (type === 'admin') {
+      const usersSnapshot = await (db as admin.firestore.Firestore).collection('users').get();
+      users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      const usersSnapshot = await getDocs(collection(db as any, 'users'));
+      users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+    
     console.log(`Found ${users.length} users in database.`);
 
     if (users.length === 0) {
@@ -66,15 +112,28 @@ async function sendMonthlyReminders() {
 
     // 2. Get all contributions for the current month
     console.log(`Checking contributions for ${currentMonth}/${currentYear}...`);
-    const contributionsSnapshot = await db.collection('contributions')
-      .where('month', '==', currentMonth)
-      .where('year', '==', currentYear)
-      .where('status', '==', 'paid')
-      .get();
-    
-    console.log(`Found ${contributionsSnapshot.docs.length} paid contributions for this month.`);
-    const paidUserIds = new Set(contributionsSnapshot.docs.map(doc => doc.data().userId).filter(id => !!id));
-    const paidUserEmails = new Set(contributionsSnapshot.docs.map(doc => doc.data().userEmail).filter(email => !!email));
+    let paidUserIds = new Set<string>();
+    let paidUserEmails = new Set<string>();
+
+    if (type === 'admin') {
+      const contributionsSnapshot = await (db as admin.firestore.Firestore).collection('contributions')
+        .where('month', '==', currentMonth)
+        .where('year', '==', currentYear)
+        .where('status', '==', 'paid')
+        .get();
+      paidUserIds = new Set(contributionsSnapshot.docs.map(doc => doc.data().userId).filter(id => !!id));
+      paidUserEmails = new Set(contributionsSnapshot.docs.map(doc => doc.data().userEmail).filter(email => !!email));
+    } else {
+      const q = query(
+        collection(db as any, 'contributions'),
+        where('month', '==', currentMonth),
+        where('year', '==', currentYear),
+        where('status', '==', 'paid')
+      );
+      const contributionsSnapshot = await getDocs(q);
+      paidUserIds = new Set(contributionsSnapshot.docs.map(doc => doc.data().userId).filter(id => !!id));
+      paidUserEmails = new Set(contributionsSnapshot.docs.map(doc => doc.data().userEmail).filter(email => !!email));
+    }
     
     console.log('Paid User IDs:', Array.from(paidUserIds));
     console.log('Paid User Emails:', Array.from(paidUserEmails));
@@ -142,15 +201,51 @@ async function startServer() {
   app.use(express.json());
 
   // API Routes
-  app.get('/api/health', (req, res) => {
-    res.json({ 
-      status: 'ok', 
-      smtpConfigured: !!(process.env.SMTP_USER && process.env.SMTP_PASS),
-      smtpUser: process.env.SMTP_USER ? 'Configured' : 'Missing',
-      projectId: admin.app().options.projectId || 'Default (Auto)',
-      databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
-      envProjectId: process.env.GOOGLE_CLOUD_PROJECT
-    });
+  app.get('/api/health', async (req, res) => {
+    let dbError = null;
+    let usersCount = -1;
+    let usedDatabase = 'unknown';
+    let sdkType = 'none';
+    
+    try {
+      const { type, db } = await getDb();
+      sdkType = type;
+      usedDatabase = type === 'admin' ? (db as admin.firestore.Firestore).databaseId || '(default)' : firebaseConfig.firestoreDatabaseId || 'client-default';
+      
+      try {
+        if (type === 'admin') {
+          const snapshot = await (db as admin.firestore.Firestore).collection('users').limit(1).get();
+          usersCount = snapshot.size;
+        } else {
+          const snapshot = await getDocs(query(collection(db as any, 'users'), limit(1)));
+          usersCount = snapshot.size;
+        }
+      } catch (dbErr: any) {
+        dbError = dbErr.message;
+        console.error(`Failed to access users collection in ${usedDatabase} (${type}):`, dbErr.message);
+      }
+
+      res.json({ 
+        status: 'ok', 
+        projectId: admin.app().options.projectId,
+        databaseId: usedDatabase,
+        sdkType: sdkType,
+        configDatabaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+        firestoreConnected: usersCount >= 0,
+        firestoreError: dbError,
+        usersFound: usersCount >= 0,
+        smtpConfigured: !!(process.env.SMTP_USER && process.env.SMTP_PASS),
+        envProjectId: process.env.GOOGLE_CLOUD_PROJECT
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        status: 'error', 
+        message: error instanceof Error ? error.message : String(error),
+        projectId: admin.app().options.projectId,
+        databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
+        firestoreConnected: false
+      });
+    }
   });
 
   // Welcome Email API
