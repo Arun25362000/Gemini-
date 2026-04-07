@@ -662,12 +662,60 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-          className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full"
-        />
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col items-center"
+        >
+          <div className="relative mb-12">
+            {/* Unnati Logo Image */}
+            <div className="w-48 h-48 bg-white rounded-[3rem] flex items-center justify-center shadow-2xl shadow-indigo-100 relative overflow-hidden border border-slate-100">
+              <img 
+                src="/logo.png" 
+                alt="Unnati Logo" 
+                className="w-full h-full object-contain p-2"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  // Fallback if logo.png is missing
+                  e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
+                }}
+              />
+            </div>
+          </div>
+          
+          <motion.h1 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="text-4xl font-black tracking-tighter text-indigo-600 mb-2"
+          >
+            UNNATI
+          </motion.h1>
+          
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: 120 }}
+            transition={{ delay: 0.6, duration: 1 }}
+            className="h-1 bg-slate-100 rounded-full overflow-hidden"
+          >
+            <motion.div
+              animate={{ x: [-120, 120] }}
+              transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+              className="w-full h-full bg-indigo-600"
+            />
+          </motion.div>
+          
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.8 }}
+            className="mt-4 text-slate-400 font-medium text-sm tracking-widest uppercase"
+          >
+            Growing Together
+          </motion.p>
+        </motion.div>
       </div>
     );
   }
@@ -680,13 +728,24 @@ export default function App() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white p-8 rounded-3xl shadow-2xl text-center"
+          className="max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100"
         >
-          <div className="w-20 h-20 bg-indigo-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <TrendingUp className="w-10 h-10 text-indigo-600" />
+          <div className="relative w-40 h-40 mx-auto mb-8">
+            <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
+              <img 
+                src="/logo.png" 
+                alt="Unnati Logo" 
+                className="w-full h-full object-contain p-2"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
+                }}
+              />
+            </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Unnati</h1>
-          <p className="text-gray-600 mb-8">Securely track your monthly savings group contributions.</p>
+          
+          <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tighter">UNNATI</h1>
+          <p className="text-slate-500 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
           
           <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
             <button 
@@ -784,10 +843,18 @@ export default function App() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
-              <TrendingUp className="w-6 h-6 text-white" />
+            <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center shadow-md shadow-indigo-50 overflow-hidden border border-slate-100">
+              <img 
+                src="/logo.png" 
+                alt="Unnati Logo" 
+                className="w-full h-full object-contain p-1"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
+                }}
+              />
             </div>
-            <span className="text-xl font-bold tracking-tight text-indigo-600">Unnati</span>
+            <span className="text-xl font-black tracking-tighter text-indigo-600">UNNATI</span>
           </div>
 
           <div className="flex items-center gap-4">

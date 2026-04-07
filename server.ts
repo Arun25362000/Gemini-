@@ -1,3 +1,4 @@
+console.log('--- SERVER STARTING ---');
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -7,19 +8,24 @@ import admin from 'firebase-admin';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { initializeApp as initializeClientApp } from 'firebase/app';
 import { getFirestore as getClientFirestore, collection, getDocs, query, where, limit } from 'firebase/firestore';
-import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
+import { readFileSync } from 'fs';
+const firebaseConfig = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf-8'));
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
-  const projectId = firebaseConfig.projectId;
-  console.log('Initializing Firebase Admin with Project ID:', projectId);
-  admin.initializeApp({
-    projectId: projectId,
-    credential: admin.credential.applicationDefault(),
-  });
+let firebaseAdminApp: admin.app.App;
+try {
+  if (!admin.apps.length) {
+    const projectId = firebaseConfig.projectId;
+    console.log('Initializing Firebase Admin with Project ID:', projectId);
+    firebaseAdminApp = admin.initializeApp({
+      projectId: projectId,
+    });
+  } else {
+    firebaseAdminApp = admin.app();
+  }
+} catch (error) {
+  console.error('Failed to initialize Firebase Admin:', error);
 }
-
-const app = admin.app();
 
 // Initialize Client SDK as a fallback
 const clientApp = initializeClientApp(firebaseConfig);
@@ -28,39 +34,45 @@ const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseI
 // Helper to get a Firestore instance, trying the named one first then falling back to default
 async function getDb() {
   const namedDbId = firebaseConfig.firestoreDatabaseId;
-  console.log(`[getDb] Attempting database selection. Configured ID: ${namedDbId || '(default)'}`);
+  const defaultProjectId = firebaseConfig.projectId;
   
-  if (namedDbId) {
+  console.log(`[getDb] Database Selection Start. Project: ${defaultProjectId}, Configured DB: ${namedDbId || '(default)'}`);
+  
+  if (namedDbId && firebaseAdminApp) {
+    // 1. Try Admin SDK with Named Database
     try {
-      const namedDb = getAdminFirestore(app, namedDbId);
-      // Use 'users' collection for health check as it has 'allow read: if true' in rules
+      const namedDb = getAdminFirestore(firebaseAdminApp, namedDbId);
+      // Use 'users' collection for health check
       await namedDb.collection('users').limit(1).get();
-      console.log(`[getDb] Successfully connected to named database ${namedDbId} using Admin SDK.`);
-      return { type: 'admin', db: namedDb };
+      console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Admin SDK.`);
+      return { type: 'admin', db: namedDb, dbId: namedDbId };
     } catch (err: any) {
-      console.warn(`[getDb] Admin SDK failed for database ${namedDbId}. Error Code: ${err.code}. Message: ${err.message}`);
+      console.warn(`[getDb] Admin SDK failed for named database ${namedDbId}. Code: ${err.code}. Msg: ${err.message}`);
       
-      // If NOT_FOUND (5) or PERMISSION_DENIED (7), fallback to client SDK or default
+      // 2. Try Client SDK with Named Database (as fallback for permission issues)
       if (err.code === 5 || err.code === 7 || (err.message && (err.message.includes('NOT_FOUND') || err.message.includes('PERMISSION_DENIED')))) {
-        console.log(`[getDb] Attempting Client SDK fallback for database ${namedDbId}...`);
-        
+        console.log(`[getDb] Attempting Client SDK fallback for named database ${namedDbId}...`);
         try {
-          // Test Client SDK using 'users' collection
           await getDocs(query(collection(clientDb, 'users'), limit(1)));
-          console.log(`[getDb] Successfully connected to database ${namedDbId} using Client SDK fallback.`);
-          return { type: 'client', db: clientDb };
+          console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Client SDK.`);
+          return { type: 'client', db: clientDb, dbId: namedDbId };
         } catch (clientErr: any) {
-          console.warn(`[getDb] Client SDK fallback also failed: ${clientErr.message}. Falling back to Admin SDK (default).`);
-          return { type: 'admin', db: getAdminFirestore(app) };
+          console.warn(`[getDb] Client SDK fallback failed for ${namedDbId}. Code: ${clientErr.code}. Msg: ${clientErr.message}`);
         }
       }
-      console.error(`[getDb] Unexpected error accessing database ${namedDbId}:`, err.message);
-      return { type: 'admin', db: getAdminFirestore(app) };
     }
   }
   
-  console.log(`[getDb] No named database configured. Using Admin SDK (default).`);
-  return { type: 'admin', db: getAdminFirestore(app) };
+  // 3. Final Fallback: Admin SDK with Default Database
+  if (firebaseAdminApp) {
+    console.log(`[getDb] FALLBACK: Using Admin SDK with (default) database.`);
+    const defaultDb = getAdminFirestore(firebaseAdminApp);
+    return { type: 'admin', db: defaultDb, dbId: '(default)' };
+  }
+
+  // 4. Last Resort: Client SDK with Named Database
+  console.log(`[getDb] LAST RESORT: Using Client SDK with named database ${namedDbId || '(default)'}.`);
+  return { type: 'client', db: clientDb, dbId: namedDbId || '(default)' };
 }
 
 // Email Transporter (Using Gmail as default, can be changed via SMTP_SERVICE)
@@ -74,7 +86,7 @@ const transporter = nodemailer.createTransport({
 
 async function sendMonthlyReminders() {
   console.log('Running monthly email reminder task...');
-  const currentApp = admin.app();
+  const currentApp = firebaseAdminApp;
   const { type, db } = await getDb();
   console.log(`Using ${type} SDK for reminders.`);
   
@@ -195,8 +207,11 @@ cron.schedule('0 9 1 * *', () => {
 });
 
 async function startServer() {
-  const app = express();
   const PORT = 3000;
+  console.log('--- SERVER STARTING ---');
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('PORT:', PORT);
+  const app = express();
 
   app.use(express.json());
 
@@ -208,9 +223,9 @@ async function startServer() {
     let sdkType = 'none';
     
     try {
-      const { type, db } = await getDb();
+      const { type, db, dbId } = await getDb();
       sdkType = type;
-      usedDatabase = type === 'admin' ? (db as admin.firestore.Firestore).databaseId || '(default)' : firebaseConfig.firestoreDatabaseId || 'client-default';
+      usedDatabase = dbId;
       
       try {
         if (type === 'admin') {
@@ -227,7 +242,7 @@ async function startServer() {
 
       res.json({ 
         status: 'ok', 
-        projectId: admin.app().options.projectId,
+        projectId: firebaseAdminApp?.options?.projectId || firebaseConfig.projectId,
         databaseId: usedDatabase,
         sdkType: sdkType,
         configDatabaseId: firebaseConfig.firestoreDatabaseId || '(default)',
@@ -241,7 +256,7 @@ async function startServer() {
       res.status(500).json({ 
         status: 'error', 
         message: error instanceof Error ? error.message : String(error),
-        projectId: admin.app().options.projectId,
+        projectId: firebaseAdminApp?.options?.projectId || firebaseConfig.projectId,
         databaseId: firebaseConfig.firestoreDatabaseId || '(default)',
         firestoreConnected: false
       });
@@ -302,11 +317,17 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    try {
+      console.log('Initializing Vite middleware...');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+      console.log('Vite middleware initialized.');
+    } catch (viteError) {
+      console.error('Failed to initialize Vite middleware:', viteError);
+    }
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
