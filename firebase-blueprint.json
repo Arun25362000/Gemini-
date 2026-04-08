@@ -27,6 +27,40 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "month", "year", "amount", "status"]
+    },
+    "Loan": {
+      "title": "Loan Application",
+      "description": "A record of a loan application and its status.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "amount": { "type": "integer" },
+        "details": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "declined", "paid"] },
+        "approvedAmount": { "type": "integer" },
+        "interestRate": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "approvedAt": { "type": "string", "format": "date-time" },
+        "installments": { "type": "integer" }
+      },
+      "required": ["userId", "amount", "status", "createdAt"]
+    },
+    "LoanPayment": {
+      "title": "Loan Payment",
+      "description": "A record of a monthly loan repayment.",
+      "type": "object",
+      "properties": {
+        "loanId": { "type": "string" },
+        "userId": { "type": "string" },
+        "month": { "type": "integer" },
+        "year": { "type": "integer" },
+        "amount": { "type": "number" },
+        "interest": { "type": "number" },
+        "status": { "type": "string", "enum": ["paid", "pending"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["loanId", "userId", "month", "year", "amount", "interest", "status"]
     }
   },
   "firestore": {
@@ -37,6 +71,14 @@
     "/contributions/{contributionId}": {
       "schema": "Contribution",
       "description": "Monthly contributions records."
+    },
+    "/loans/{loanId}": {
+      "schema": "Loan",
+      "description": "Loan applications and their status."
+    },
+    "/loanPayments/{paymentId}": {
+      "schema": "LoanPayment",
+      "description": "Monthly loan repayment records."
     }
   }
 }

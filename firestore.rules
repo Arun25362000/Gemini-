@@ -74,6 +74,31 @@ service cloud.firestore {
              data.timestamp is timestamp;
     }
 
+    function isValidLoan(data) {
+      return data.keys().hasAll(['userId', 'amount', 'status', 'createdAt']) &&
+             data.userId is string &&
+             data.amount is int && data.amount > 0 && data.amount <= 50000 &&
+             data.status in ['pending', 'approved', 'declined', 'paid'] &&
+             data.createdAt is timestamp &&
+             (!('details' in data) || (data.details is string && data.details.size() <= 500)) &&
+             (!('approvedAmount' in data) || (data.approvedAmount is int)) &&
+             (!('interestRate' in data) || (data.interestRate is number)) &&
+             (!('approvedAt' in data) || (data.approvedAt is timestamp)) &&
+             (!('installments' in data) || (data.installments is int));
+    }
+
+    function isValidLoanPayment(data) {
+      return data.keys().hasAll(['loanId', 'userId', 'month', 'year', 'amount', 'interest', 'status']) &&
+             data.loanId is string &&
+             data.userId is string &&
+             data.month is int && data.month >= 1 && data.month <= 12 &&
+             data.year is int &&
+             data.amount is number &&
+             data.interest is number &&
+             data.status in ['paid', 'pending'] &&
+             (!('timestamp' in data) || (data.timestamp is timestamp));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -110,6 +135,37 @@ service cloud.firestore {
                     isValidContribution(request.resource.data) &&
                     request.resource.data.userId == resource.data.userId &&
                     request.resource.data.timestamp == resource.data.timestamp;
+      
+      allow delete: if isAdmin();
+    }
+
+    match /loans/{loanId} {
+      // Users can see their own loans, Admins can see all
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Users can apply for loans
+      allow create: if isAuthenticated() && 
+                    request.resource.data.userId == request.auth.uid &&
+                    isValidLoan(request.resource.data) &&
+                    request.resource.data.status == 'pending';
+      
+      // Admins can approve/decline, Users can potentially update if pending (though not required by UI yet)
+      allow update: if isAdmin() && isValidLoan(request.resource.data);
+      
+      allow delete: if isAdmin();
+    }
+
+    match /loanPayments/{paymentId} {
+      // Users can see their own payments, Admins can see all
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Users can record their own payments, Admins can record for anyone
+      allow create: if isAuthenticated() && 
+                    (request.resource.data.userId == request.auth.uid || isAdmin()) &&
+                    isValidLoanPayment(request.resource.data);
+      
+      // Only admins can update status to 'paid'
+      allow update: if isAdmin() && isValidLoanPayment(request.resource.data);
       
       allow delete: if isAdmin();
     }

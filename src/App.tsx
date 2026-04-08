@@ -16,14 +16,17 @@ import {
   getDoc, 
   query, 
   orderBy, 
+  where,
   addDoc, 
   serverTimestamp, 
   updateDoc, 
   deleteDoc, 
+  getDocs,
+  writeBatch,
   getDocFromServer
 } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
-import { UserProfile, Contribution } from './types';
+import { UserProfile, Contribution, Loan, LoanPayment } from './types';
 import { 
   LogOut, 
   Plus, 
@@ -37,7 +40,12 @@ import {
   Trash2,
   Edit2,
   MessageSquare,
-  Mail
+  Mail,
+  Wallet,
+  ArrowRight,
+  History as HistoryIcon,
+  FileText,
+  IndianRupee
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
@@ -117,6 +125,10 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
+  // Don't throw if it's a background sync error to prevent app crash
+  if (operationType === OperationType.GET) {
+    return errInfo;
+  }
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -141,16 +153,27 @@ function ErrorBoundary({ error }: { error: string }) {
 }
 
 export default function App() {
+  console.log("App component rendering...");
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [contributions, setContributions] = useState<Contribution[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loanPayments, setLoanPayments] = useState<LoanPayment[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [activeTab, setActiveTab] = useState<'contributions' | 'members'>('contributions');
+  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans'>('contributions');
+  const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments'>('applications');
+  const [isApplyingLoan, setIsApplyingLoan] = useState(false);
+  const [loanAmount, setLoanAmount] = useState(10000);
+  const [loanDetails, setLoanDetails] = useState('');
+  const [isSubmittingLoan, setIsSubmittingLoan] = useState(false);
+  const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
+  const [isPayingLoan, setIsPayingLoan] = useState(false);
+  const [approvedLoanPopup, setApprovedLoanPopup] = useState<Loan | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -168,6 +191,7 @@ export default function App() {
   const [isTriggeringReminders, setIsTriggeringReminders] = useState(false);
   const [isSmtpConfigured, setIsSmtpConfigured] = useState(true);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [deletingLoanId, setDeletingLoanId] = useState<string | null>(null);
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
@@ -176,13 +200,49 @@ export default function App() {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = !!user && profile?.role === 'admin';
+
+  // Safety timeout for loading state
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => {
+        console.warn("Loading timed out after 10s. Forcing UI to show.");
+        setLoading(false);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [loading]);
+
+  useEffect(() => {
+    console.log("App mounted. User:", user?.email, "isAdmin:", isAdmin);
+  }, [user, isAdmin]);
+  const hasActiveLoan = loans.some(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'pending'));
   const myContributions = contributions.filter(c => c.userId === (user?.uid || 'local-admin'));
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
   const hasPaidCurrent = contributions.some(c => c.userId === (user?.uid || 'local-admin') && c.month === currentMonth && c.year === currentYear && c.status === 'paid');
   const hasPendingCurrent = contributions.some(c => c.userId === (user?.uid || 'local-admin') && c.month === currentMonth && c.year === currentYear && c.status === 'pending');
   const isLate = !hasPaidCurrent && !hasPendingCurrent && new Date().getDate() > DUE_DAY;
+
+  const calculateLoanRemainingTotal = (l: Loan, payments: LoanPayment[]) => {
+    const principalPerMonth = l.approvedAmount! / (l.installments || 10);
+    let totalRemaining = 0;
+    
+    for (let i = 0; i < (l.installments || 10); i++) {
+      const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+      const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
+      const m = installmentDate.getMonth() + 1;
+      const y = installmentDate.getFullYear();
+      
+      const isPaid = payments.some(p => p.month === m && p.year === y);
+      if (!isPaid) {
+        const remainingPrincipalAtStart = l.approvedAmount! - (i * principalPerMonth);
+        const interest = remainingPrincipalAtStart * 0.005;
+        totalRemaining += (principalPerMonth + interest);
+      }
+    }
+    return totalRemaining;
+  };
 
   useEffect(() => {
     if (isAdmin) {
@@ -205,22 +265,20 @@ export default function App() {
   useEffect(() => {
     const testConnection = async () => {
       try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-        
-        // Also check server health/SMTP
-        const healthRes = await fetch('/api/health');
+        // Use a timeout for the health check to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        // Check server health/SMTP
+        const healthRes = await fetch('/api/health', { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (healthRes.ok) {
           const healthData = await healthRes.json();
-          console.log("Server Health:", healthData);
           setIsSmtpConfigured(healthData.smtpConfigured);
-          if (!healthData.smtpConfigured) {
-            console.warn("SMTP is not configured. Automated emails will not work.");
-          }
         }
       } catch (err: any) {
-        if (err.message?.includes('the client is offline')) {
-          console.error("Firebase connection error. Check configuration.");
-        }
+        console.warn("Health check failed or timed out:", err.message);
       }
     };
     testConnection();
@@ -271,7 +329,21 @@ export default function App() {
           }
         } else {
           const profileData = userSnap.data() as UserProfile;
-          setProfile(profileData);
+          
+          // Auto-promote to admin if email is in ADMIN_EMAILS but role is 'user'
+          if (firebaseUser.email && ADMIN_EMAILS.includes(firebaseUser.email) && profileData.role !== 'admin') {
+            const updatedProfile = { ...profileData, role: 'admin' as const };
+            try {
+              await updateDoc(userRef, { role: 'admin' });
+              setProfile(updatedProfile);
+            } catch (err) {
+              console.error("Failed to auto-promote user to admin:", err);
+              setProfile(profileData);
+            }
+          } else {
+            setProfile(profileData);
+          }
+
           if (!profileData.phoneNumber) {
             setShowPhonePrompt(true);
           }
@@ -305,11 +377,46 @@ export default function App() {
       handleFirestoreError(err, OperationType.GET, 'users');
     });
 
+    const loansQuery = isAdmin 
+      ? collection(db, 'loans') 
+      : query(collection(db, 'loans'), where('userId', '==', user.uid));
+
+    const unsubscribeLoans = onSnapshot(loansQuery, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Loan));
+      setLoans(data);
+      
+      // Check for newly approved loans for current user
+      const newlyApproved = data.find(l => 
+        l.userId === user.uid && 
+        l.status === 'approved' && 
+        !localStorage.getItem(`loan_popup_${l.id}`)
+      );
+      if (newlyApproved) {
+        setApprovedLoanPopup(newlyApproved);
+        localStorage.setItem(`loan_popup_${newlyApproved.id}`, 'shown');
+      }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'loans');
+    });
+
+    const paymentsQuery = isAdmin
+      ? collection(db, 'loanPayments')
+      : query(collection(db, 'loanPayments'), where('userId', '==', user.uid));
+
+    const unsubscribeLoanPayments = onSnapshot(paymentsQuery, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LoanPayment));
+      setLoanPayments(data);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'loanPayments');
+    });
+
     return () => {
       unsubscribeContribs();
       unsubscribeUsers();
+      unsubscribeLoans();
+      unsubscribeLoanPayments();
     };
-  }, [user]);
+  }, [user, isAdmin]);
 
   const handleLogin = async () => {
     try {
@@ -455,6 +562,45 @@ export default function App() {
     setProfile(null);
   };
 
+  const toggleAdminRole = async (targetUser: UserProfile) => {
+    if (!isAdmin || !targetUser.uid) {
+      notify('error', "Cannot update role: Missing UID or permissions.");
+      return;
+    }
+    
+    if (targetUser.uid === user?.uid && targetUser.role === 'admin') {
+      const otherAdmins = allUsers.filter(u => u.role === 'admin' && (u.uid !== user?.uid));
+      if (otherAdmins.length === 0) {
+        notify('error', "You are the only admin. You cannot remove your own admin access.");
+        return;
+      }
+    }
+
+    const newRole = targetUser.role === 'admin' ? 'user' : 'admin';
+    try {
+      const userRef = doc(db, 'users', targetUser.uid);
+      await updateDoc(userRef, { role: newRole });
+      notify('success', `${targetUser.displayName || 'User'} is now a ${newRole}.`);
+    } catch (err: any) {
+      console.error("Error toggling admin role:", err);
+      notify('error', "Failed to update role. Check permissions.");
+    }
+  };
+
+  const handleForceRefresh = async () => {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        await registration.unregister();
+      }
+    }
+    const cacheNames = await caches.keys();
+    for (const name of cacheNames) {
+      await caches.delete(name);
+    }
+    window.location.reload();
+  };
+
   const addContribution = async (month: number, year: number, targetUserId?: string, status: 'paid' | 'pending' = 'paid') => {
     if (!user || !profile) return;
     
@@ -495,9 +641,23 @@ export default function App() {
   const approveContribution = async (id: string) => {
     if (profile?.role !== 'admin') return;
     try {
+      const contrib = contributions.find(c => c.id === id);
       await updateDoc(doc(db, 'contributions', id), {
         status: 'paid'
       });
+      
+      // Send WhatsApp confirmation if possible (PWC feature)
+      if (contrib) {
+        const targetUser = allUsers.find(u => u.uid === contrib.userId || u.email === contrib.userEmail);
+        if (targetUser && targetUser.phoneNumber) {
+          const monthName = format(new Date(contrib.year, contrib.month - 1), 'MMMM');
+          const message = `Hi ${targetUser.displayName || 'Member'}, your Unnati contribution of ₹${contrib.amount.toLocaleString()} for ${monthName} ${contrib.year} has been successfully verified and approved. Thank you!`;
+          const encodedMessage = encodeURIComponent(message);
+          window.open(`https://wa.me/${targetUser.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+        }
+      }
+      
+      notify('success', "Contribution approved!");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `contributions/${id}`);
     }
@@ -549,8 +709,36 @@ export default function App() {
     }
 
     try {
-      await deleteDoc(doc(db, 'users', id));
-      notify('success', "Member removed successfully.");
+      const batch = writeBatch(db);
+      
+      // 1. Delete user document
+      batch.delete(doc(db, 'users', id));
+      
+      // 2. Delete contributions
+      const contribsQuery = query(collection(db, 'contributions'), where('userId', '==', id));
+      const contribsSnap = await getDocs(contribsQuery);
+      contribsSnap.forEach(d => batch.delete(d.ref));
+      
+      // Also check by email if it's a pre-added user
+      const targetUser = allUsers.find(u => u.uid === id || u.email === id);
+      if (targetUser && targetUser.email) {
+        const contribsEmailQuery = query(collection(db, 'contributions'), where('userEmail', '==', targetUser.email));
+        const contribsEmailSnap = await getDocs(contribsEmailQuery);
+        contribsEmailSnap.forEach(d => batch.delete(d.ref));
+      }
+
+      // 3. Delete loans
+      const loansQuery = query(collection(db, 'loans'), where('userId', '==', id));
+      const loansSnap = await getDocs(loansQuery);
+      loansSnap.forEach(d => batch.delete(d.ref));
+
+      // 4. Delete loan payments
+      const paymentsQuery = query(collection(db, 'loanPayments'), where('userId', '==', id));
+      const paymentsSnap = await getDocs(paymentsQuery);
+      paymentsSnap.forEach(d => batch.delete(d.ref));
+
+      await batch.commit();
+      notify('success', "Member and all related data removed successfully.");
       setDeletingUserId(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, `users/${id}`);
@@ -622,6 +810,23 @@ export default function App() {
     const mailtoUrl = `mailto:${u.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailtoUrl;
   };
+  
+  const sendLoanWhatsAppReminder = (u: UserProfile, amount: number, month: string) => {
+    if (!u.phoneNumber) {
+      notify('error', "No phone number found for this user.");
+      return;
+    }
+    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of ₹${amount.toLocaleString()} for ${month}. Please pay before the 10th to avoid late fees. Thanks!`;
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/${u.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+  };
+
+  const sendLoanEmailReminder = (u: UserProfile, amount: number, month: string) => {
+    const subject = `Loan Repayment Reminder: Unnati - ${month}`;
+    const body = `Hi ${u.displayName || 'Member'},\n\nThis is a reminder for your Unnati loan repayment of ₹${amount.toLocaleString()} for ${month}. Please ensure the payment is made before the 10th.\n\nThanks!`;
+    const mailtoUrl = `mailto:${u.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailtoUrl;
+  };
 
   const updateStatus = async (id: string, status: 'paid' | 'pending') => {
     if (profile?.role !== 'admin') return;
@@ -657,6 +862,112 @@ export default function App() {
       notify('success', `User role updated to ${newRole}`);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `users/${id}`);
+    }
+  };
+
+  const applyLoan = async () => {
+    if (!user || !profile || isAdmin) return;
+    
+    const activeLoan = loans.find(l => l.userId === user.uid && (l.status === 'approved' || l.status === 'pending'));
+    if (activeLoan) {
+      notify('error', "You already have an active or pending loan application.");
+      return;
+    }
+
+    if (loanAmount > 50000) {
+      notify('error', "Maximum loan amount is ₹50,000");
+      return;
+    }
+
+    setIsSubmittingLoan(true);
+    try {
+      await addDoc(collection(db, 'loans'), {
+        userId: user.uid,
+        userEmail: user.email,
+        amount: loanAmount,
+        details: loanDetails,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+      setIsApplyingLoan(false);
+      setLoanAmount(10000);
+      setLoanDetails('');
+      notify('success', "Loan application submitted successfully!");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'loans');
+    } finally {
+      setIsSubmittingLoan(false);
+    }
+  };
+
+  const approveLoan = async (loan: Loan) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      // Approve this loan
+      await updateDoc(doc(db, 'loans', loan.id!), {
+        status: 'approved',
+        approvedAmount: loan.amount,
+        interestRate: 0.5,
+        approvedAt: serverTimestamp(),
+        installments: Math.ceil(loan.amount / 5000) // 10 months for 50k
+      });
+
+      // Automatically decline other pending loans for this user
+      const otherPending = loans.filter(l => l.userId === loan.userId && l.status === 'pending' && l.id !== loan.id);
+      for (const l of otherPending) {
+        await updateDoc(doc(db, 'loans', l.id!), { status: 'declined' });
+      }
+
+      notify('success', "Loan approved and others declined.");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `loans/${loan.id}`);
+    }
+  };
+
+  const declineLoan = async (loanId: string) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      await updateDoc(doc(db, 'loans', loanId), { status: 'declined' });
+      notify('success', "Loan application declined.");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `loans/${loanId}`);
+    }
+  };
+
+  const deleteLoan = async (loanId: string) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      await deleteDoc(doc(db, 'loans', loanId));
+      notify('success', "Loan application deleted.");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, `loans/${loanId}`);
+    }
+  };
+
+  const payLoanInstallment = async (loan: Loan, month: number, year: number, amount: number, interest: number) => {
+    if (!user || !profile) return;
+    try {
+      await addDoc(collection(db, 'loanPayments'), {
+        loanId: loan.id,
+        userId: user.uid,
+        month,
+        year,
+        amount,
+        interest,
+        status: 'paid',
+        timestamp: serverTimestamp()
+      });
+
+      // Check if this was the last payment
+      const currentPayments = loanPayments.filter(p => p.loanId === loan.id);
+      if (currentPayments.length + 1 >= (loan.installments || 10)) {
+        await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+        notify('success', "Congratulations! Your loan is fully paid.");
+      } else {
+        notify('success', "Loan installment paid successfully!");
+      }
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'loanPayments');
     }
   };
 
@@ -867,13 +1178,22 @@ export default function App() {
                 {isAdmin ? 'Administrator' : 'Member'}
               </span>
             </div>
-            <button 
-              onClick={handleLogout}
-              className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
-              title="Logout"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleForceRefresh}
+                className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all border border-transparent hover:border-indigo-100"
+                title="Refresh App & Clear Cache"
+              >
+                <HistoryIcon className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={handleLogout}
+                className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-transparent hover:border-red-100"
+                title="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -985,6 +1305,44 @@ export default function App() {
             >
               Members
             </button>
+            <button 
+              onClick={() => setActiveTab('loans')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Loans
+              {isAdmin && loans.some(l => l.status === 'pending') && (
+                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+              )}
+            </button>
+          </div>
+        )}
+
+        {!isAdmin && (
+          <div className="flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit">
+            <button 
+              onClick={() => setActiveTab('contributions')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
+                activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Contributions
+            </button>
+            <button 
+              onClick={() => setActiveTab('loans')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Loan Dashboard
+              {loans.some(l => l.userId === user?.uid && l.status === 'approved') && (
+                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+              )}
+            </button>
           </div>
         )}
 
@@ -992,8 +1350,8 @@ export default function App() {
           <div className="flex flex-col">
             <h2 className="text-2xl font-bold text-slate-900">
               {isAdmin 
-                ? (activeTab === 'contributions' ? 'All Contributions' : 'Group Members') 
-                : 'Your History'}
+                ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : 'Loan Applications') 
+                : (activeTab === 'contributions' ? 'Your History' : 'Loan Dashboard')}
             </h2>
             {isAdmin && activeTab === 'members' && !isSmtpConfigured && (
               <div className="mt-1 flex items-center gap-1.5 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-100 w-fit">
@@ -1025,12 +1383,24 @@ export default function App() {
                 {isTriggeringReminders ? 'Sending...' : 'Send Reminders'}
               </button>
             )}
-            {!hasPaidCurrent && !hasPendingCurrent && (
+            {activeTab === 'loans' && !isAdmin && (
+              <button 
+                onClick={() => setIsApplyingLoan(true)}
+                disabled={hasActiveLoan}
+                className={cn(
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                  hasActiveLoan ? "bg-slate-100 text-slate-400 shadow-none" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
+                )}
+              >
+                <Plus className="w-5 h-5" /> {hasActiveLoan ? 'Loan Active' : 'Apply for Loan'}
+              </button>
+            )}
+            {activeTab === 'contributions' && !hasPaidCurrent && !hasPendingCurrent && (
               <button 
                 onClick={() => setIsAdding(true)}
                 className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
               >
-                <Plus className="w-5 h-5" /> Record Payment
+                <Wallet className="w-5 h-5" /> Pay Now
               </button>
             )}
             {hasPendingCurrent && (
@@ -1040,6 +1410,29 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {isAdmin && activeTab === 'loans' && (
+          <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl w-fit">
+            <button 
+              onClick={() => setLoanSubTab('applications')}
+              className={cn(
+                "px-6 py-2 rounded-xl text-xs font-bold transition-all",
+                loanSubTab === 'applications' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Applications
+            </button>
+            <button 
+              onClick={() => setLoanSubTab('repayments')}
+              className={cn(
+                "px-6 py-2 rounded-xl text-xs font-bold transition-all",
+                loanSubTab === 'repayments' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Repayment Dashboard
+            </button>
+          </div>
+        )}
 
         {isAdmin && activeTab === 'members' ? (
           <div className="space-y-4">
@@ -1104,6 +1497,16 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex items-center justify-end gap-1">
+                              <button 
+                                onClick={() => toggleAdminRole(u)}
+                                className={cn(
+                                  "p-2 rounded-lg transition-all",
+                                  u.role === 'admin' ? "text-indigo-600 bg-indigo-50" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                )}
+                                title={u.role === 'admin' ? "Remove Admin Access" : "Grant Admin Access"}
+                              >
+                                <Shield className="w-4 h-4" />
+                              </button>
                               {!paidThisMonth && (
                                 <>
                                   <button 
@@ -1218,6 +1621,15 @@ export default function App() {
                       )}
                       <div className="w-full h-px bg-slate-100 my-1" />
                       <button 
+                        onClick={() => toggleAdminRole(u)}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold active:scale-95",
+                          u.role === 'admin' ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-600"
+                        )}
+                      >
+                        <Shield className="w-4 h-4" /> {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
+                      </button>
+                      <button 
                         onClick={() => setEditingUser(u)}
                         className="p-2.5 bg-slate-50 text-slate-600 rounded-xl active:scale-95"
                       >
@@ -1243,6 +1655,558 @@ export default function App() {
                 );
               })}
             </div>
+          </div>
+        ) : activeTab === 'loans' ? (
+          <div className="space-y-6">
+            {isAdmin ? (
+              <>
+                {loanSubTab === 'applications' ? (
+                  <div className="space-y-4">
+                    {/* Desktop Table View */}
+                    <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50/50 border-b border-slate-100">
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Details</th>
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {loans.sort((a, b) => {
+                              const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+                              const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+                              return dateB - dateA;
+                            }).map((l, idx) => (
+                              <motion.tr 
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: idx * 0.05 }}
+                                key={l.id} 
+                                className="hover:bg-slate-50/50 transition-colors"
+                              >
+                                <td className="px-6 py-4">
+                                  <div className="flex flex-col">
+                                    <span className="text-sm font-semibold text-slate-900">{l.userEmail?.split('@')[0]}</span>
+                                    <span className="text-xs text-slate-500">{l.userEmail}</span>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <p className="text-xs text-slate-500 max-w-[200px] truncate" title={l.details}>
+                                    {l.details || 'No details'}
+                                  </p>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className={cn(
+                                    "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
+                                    l.status === 'approved' ? "bg-emerald-50 text-emerald-600" : 
+                                    l.status === 'pending' ? "bg-amber-50 text-amber-600" : 
+                                    l.status === 'paid' ? "bg-indigo-50 text-indigo-600" :
+                                    "bg-red-50 text-red-600"
+                                  )}>
+                                    {l.status.toUpperCase()}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className="text-xs text-slate-500">
+                                    {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {l.status === 'pending' && (
+                                      <button 
+                                        onClick={() => approveLoan(l)}
+                                        className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all"
+                                      >
+                                        Approve
+                                      </button>
+                                    )}
+                                    {(l.status === 'pending' || l.status === 'approved') && (
+                                      <button 
+                                        onClick={() => declineLoan(l.id!)}
+                                        className="px-3 py-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-100 transition-all"
+                                      >
+                                        Decline
+                                      </button>
+                                    )}
+                                    <button 
+                                      onClick={() => setDeletingLoanId(l.id!)}
+                                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                      title="Delete Application"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </motion.tr>
+                            ))}
+                            {loans.length === 0 && (
+                              <tr>
+                                <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">
+                                  No loan applications found.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Mobile Card View */}
+                    <div className="lg:hidden space-y-4">
+                      {loans.map((l, idx) => (
+                        <motion.div 
+                          key={l.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                        >
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-slate-900">{l.userEmail?.split('@')[0]}</span>
+                              <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
+                                {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
+                              </span>
+                            </div>
+                            <span className={cn(
+                              "px-2.5 py-1 rounded-full text-[10px] font-bold",
+                              l.status === 'approved' ? "bg-emerald-50 text-emerald-600" : 
+                              l.status === 'pending' ? "bg-amber-50 text-amber-600" : 
+                              l.status === 'paid' ? "bg-indigo-50 text-indigo-600" :
+                              "bg-red-50 text-red-600"
+                            )}>
+                              {l.status.toUpperCase()}
+                            </span>
+                          </div>
+                          
+                          <div className="mb-4">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Amount Requested</p>
+                            <p className="text-xl font-black text-slate-900">₹{l.amount.toLocaleString()}</p>
+                          </div>
+
+                          {l.details && (
+                            <div className="mb-6 p-3 bg-slate-50 rounded-xl">
+                              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Details</p>
+                              <p className="text-xs text-slate-600 leading-relaxed">{l.details}</p>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            {l.status === 'pending' && (
+                              <button 
+                                onClick={() => approveLoan(l)}
+                                className="flex-1 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all"
+                              >
+                                Approve
+                              </button>
+                            )}
+                            {(l.status === 'pending' || l.status === 'approved') && (
+                              <button 
+                                onClick={() => declineLoan(l.id!)}
+                                className="flex-1 py-2.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-xl hover:bg-amber-100 transition-all"
+                              >
+                                Decline
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => setDeletingLoanId(l.id!)}
+                              className="p-2.5 bg-red-50 text-red-600 rounded-xl transition-all"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Summary Section */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Active Loans</p>
+                        <p className="text-2xl font-black text-slate-900">
+                          {loans.filter(l => l.status === 'approved').length}
+                        </p>
+                      </div>
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Outstanding Principal</p>
+                        <p className="text-2xl font-black text-slate-900">
+                          ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
+                            const payments = loanPayments.filter(p => p.loanId === l.id);
+                            const paidPrincipal = payments.reduce((pAcc, p) => pAcc + p.amount, 0);
+                            return acc + (l.approvedAmount! - paidPrincipal);
+                          }, 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Outstanding</p>
+                        <p className="text-2xl font-black text-indigo-600">
+                          ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
+                            const payments = loanPayments.filter(p => p.loanId === l.id);
+                            return acc + calculateLoanRemainingTotal(l, payments);
+                          }, 0).toLocaleString()}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-medium">Incl. Interest</p>
+                      </div>
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Overdue Repayments</p>
+                        <p className="text-2xl font-black text-red-600">
+                          {loans.filter(l => l.status === 'approved').filter(l => {
+                            const isPaidThisMonth = loanPayments.some(p => p.loanId === l.id && p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear());
+                            return !isPaidThisMonth && new Date().getDate() > 10;
+                          }).length}
+                        </p>
+                      </div>
+                    </div>
+
+                    {loans.filter(l => l.status === 'approved' || l.status === 'paid').map((l, idx) => {
+                      const payments = loanPayments.filter(p => p.loanId === l.id);
+                      const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
+                      const remainingPrincipal = l.approvedAmount! - totalPaid;
+                      const remainingTotal = calculateLoanRemainingTotal(l, payments);
+                      const targetUser = allUsers.find(u => u.uid === l.userId || u.email === l.userEmail);
+                      
+                      // Calculate current installment
+                      const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                      const currentMonthIndex = (new Date().getFullYear() - approvedDate.getFullYear()) * 12 + (new Date().getMonth() - approvedDate.getMonth());
+                      const currentInstallmentIdx = Math.max(0, currentMonthIndex);
+                      
+                      const principal = l.approvedAmount! / (l.installments || 10);
+                      const remainingPrincipalAtStart = l.approvedAmount! - (currentInstallmentIdx * principal);
+                      const interest = remainingPrincipalAtStart * 0.005;
+                      const currentTotal = principal + interest;
+                      
+                      const isPaidThisMonth = payments.some(p => p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear());
+                      const isLate = !isPaidThisMonth && new Date().getDate() > 10;
+
+                      return (
+                        <motion.div 
+                          key={l.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden"
+                        >
+                          <div className="p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-lg">
+                                {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-slate-900">{targetUser?.displayName || l.userEmail}</h4>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                  Approved: {l.approvedAt?.toDate ? format(l.approvedAt.toDate(), 'MMM dd, yyyy') : 'N/A'}
+                                </p>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 flex-1">
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Loan</p>
+                                <p className="font-bold text-slate-900">₹{l.approvedAmount?.toLocaleString()}</p>
+                                <p className="text-[10px] text-slate-400 font-medium">@ 0.5% Interest</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Remaining</p>
+                                <p className="font-bold text-indigo-600">₹{remainingTotal.toLocaleString()}</p>
+                                <p className="text-[10px] text-slate-400 font-medium">₹{remainingPrincipal.toLocaleString()} Principal</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Progress</p>
+                                <p className="font-bold text-slate-900">{payments.length} / {l.installments} Paid</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status</p>
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold",
+                                  isPaidThisMonth ? "bg-emerald-50 text-emerald-600" : 
+                                  isLate ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
+                                )}>
+                                  {isPaidThisMonth ? 'PAID' : isLate ? 'OVERDUE' : 'PENDING'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {!isPaidThisMonth && targetUser && (
+                                <>
+                                  <button 
+                                    onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                    className="p-2.5 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all border border-transparent hover:border-emerald-100"
+                                    title="WhatsApp Reminder"
+                                  >
+                                    <MessageSquare className="w-5 h-5" />
+                                  </button>
+                                  <button 
+                                    onClick={() => sendLoanEmailReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                    className="p-2.5 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all border border-transparent hover:border-indigo-100"
+                                    title="Email Reminder"
+                                  >
+                                    <Mail className="w-5 h-5" />
+                                  </button>
+                                </>
+                              )}
+                              <button 
+                                onClick={() => setSelectedLoan(selectedLoan?.id === l.id ? null : l)}
+                                className={cn(
+                                  "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                                  selectedLoan?.id === l.id ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                                )}
+                              >
+                                {selectedLoan?.id === l.id ? 'Hide Details' : 'View Schedule'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {selectedLoan?.id === l.id && (
+                            <div className="px-6 pb-6 border-t border-slate-100 bg-slate-50/30">
+                              <div className="mt-6 space-y-2">
+                                {Array.from({ length: l.installments || 10 }).map((_, i) => {
+                                  const installmentNum = i + 1;
+                                  const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
+                                  const installmentMonth = installmentDate.getMonth() + 1;
+                                  const installmentYear = installmentDate.getFullYear();
+                                  const isPaid = payments.some(p => p.month === installmentMonth && p.year === installmentYear);
+                                  
+                                  const principal = l.approvedAmount! / (l.installments || 10);
+                                  const remainingPrincipalAtStart = l.approvedAmount! - (i * principal);
+                                  const interest = remainingPrincipalAtStart * 0.005;
+                                  const total = principal + interest;
+
+                                  return (
+                                    <div key={i} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100">
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-xs font-bold text-slate-400 w-6">{installmentNum}.</span>
+                                        <div>
+                                          <p className="text-sm font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
+                                          <p className="text-[10px] text-slate-500">₹{principal.toLocaleString()} + ₹{interest.toLocaleString()} Int.</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-4">
+                                        <span className="text-sm font-black text-slate-900">₹{total.toLocaleString()}</span>
+                                        {isPaid ? (
+                                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">PAID</span>
+                                        ) : (
+                                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">PENDING</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                    {loans.filter(l => l.status === 'approved' || l.status === 'paid').length === 0 && (
+                      <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
+                        <p className="text-slate-400 italic">No active loans to track.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : null}
+
+            {/* User Loan View (Only for members) */}
+            {!isAdmin && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-6">
+                  {/* Active Loan Info */}
+                  {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).map(l => {
+                    const payments = loanPayments.filter(p => p.loanId === l.id);
+                    const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
+                    const remaining = l.approvedAmount! - totalPaid;
+                    
+                    return (
+                      <motion.div 
+                        key={l.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden"
+                      >
+                        <div className="p-8 bg-indigo-600 text-white">
+                          <div className="flex items-center justify-between mb-6">
+                            <div className="p-3 bg-white/10 rounded-2xl">
+                              <Wallet className="w-8 h-8 text-white" />
+                            </div>
+                            <span className="px-4 py-1.5 bg-white/20 rounded-full text-xs font-black uppercase tracking-widest">Active Loan</span>
+                          </div>
+                          <h3 className="text-indigo-100 font-bold uppercase tracking-widest text-xs mb-1">Approved Amount</h3>
+                          <div className="text-5xl font-black mb-6">₹{l.approvedAmount?.toLocaleString()}</div>
+                          
+                          <div className="grid grid-cols-2 gap-8 pt-6 border-t border-white/10">
+                            <div>
+                              <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Monthly Interest</p>
+                              <p className="text-xl font-bold">0.5%</p>
+                            </div>
+                            <div>
+                              <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Remaining Due</p>
+                              <p className="text-xl font-bold">₹{remaining.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-8">
+                          <div className="flex items-center justify-between mb-6">
+                            <h4 className="text-lg font-bold text-slate-900">Repayment Schedule</h4>
+                            <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-xs font-bold">
+                              <CheckCircle2 className="w-4 h-4" />
+                              {payments.length} / {l.installments} Paid
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            {Array.from({ length: l.installments || 10 }).map((_, i) => {
+                              const installmentNum = i + 1;
+                              // Repayment starts from next month
+                              const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                              const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
+                              const installmentMonth = installmentDate.getMonth() + 1;
+                              const installmentYear = installmentDate.getFullYear();
+                              
+                              const isPaid = payments.some(p => p.month === installmentMonth && p.year === installmentYear);
+                              const principal = l.approvedAmount! / (l.installments || 10);
+                              
+                              // Interest = 0.5% of remaining principal
+                              const remainingPrincipalAtStart = l.approvedAmount! - (i * principal);
+                              const interest = remainingPrincipalAtStart * 0.005;
+                              const total = principal + interest;
+
+                              const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
+                              const isFuture = installmentDate > new Date();
+                              const isPast = installmentDate < new Date() && !isCurrentMonth;
+
+                              return (
+                                <div 
+                                  key={i}
+                                  className={cn(
+                                    "flex items-center justify-between p-4 rounded-2xl border transition-all",
+                                    isPaid ? "bg-slate-50 border-slate-100 opacity-60" : 
+                                    isCurrentMonth ? "bg-white border-indigo-200 ring-2 ring-indigo-50 shadow-md" :
+                                    isFuture ? "bg-white border-slate-100 opacity-40 blur-[0.5px]" : "bg-white border-slate-200"
+                                  )}
+                                >
+                                  <div className="flex items-center gap-4">
+                                    <div className={cn(
+                                      "w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm",
+                                      isPaid ? "bg-emerald-100 text-emerald-600" : 
+                                      isCurrentMonth ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                                    )}>
+                                      {installmentNum}
+                                    </div>
+                                    <div>
+                                      <p className="font-bold text-slate-900 text-sm">
+                                        {format(installmentDate, 'MMMM yyyy')}
+                                      </p>
+                                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                        ₹{principal.toLocaleString()} + ₹{interest.toLocaleString()} Interest
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="font-black text-slate-900">₹{total.toLocaleString()}</span>
+                                    {!isPaid && (
+                                      <button 
+                                        onClick={() => {
+                                          setSelectedLoan(l);
+                                          setIsPayingLoan(true);
+                                        }}
+                                        disabled={!isCurrentMonth}
+                                        className={cn(
+                                          "p-2 rounded-lg transition-all",
+                                          isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                                        )}
+                                      >
+                                        <Plus className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                    {isPaid && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+
+                  {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).length === 0 && (
+                    <div className="bg-white p-12 rounded-[2.5rem] border-2 border-dashed border-slate-200 text-center">
+                      <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                        <Wallet className="w-10 h-10 text-slate-300" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-900 mb-2">No Active Loans</h3>
+                      <p className="text-slate-500 max-w-xs mx-auto mb-8">You don't have any active loans at the moment. Apply for a loan to see it here.</p>
+                      {!isAdmin && (
+                        <button 
+                          onClick={() => setIsApplyingLoan(true)}
+                          disabled={hasActiveLoan}
+                          className={cn(
+                            "px-8 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                            hasActiveLoan ? "bg-slate-100 text-slate-400 shadow-none" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
+                          )}
+                        >
+                          {hasActiveLoan ? 'Loan Active' : 'Apply Now'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-6">
+                  <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-900 mb-6 flex items-center gap-2">
+                      <HistoryIcon className="w-5 h-5 text-indigo-600" />
+                      Application History
+                    </h3>
+                    <div className="space-y-4">
+                      {loans.filter(l => l.userId === user?.uid).sort((a, b) => {
+                        const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+                        const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+                        return dateB - dateA;
+                      }).map(l => (
+                        <div key={l.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
+                            <span className={cn(
+                              "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
+                              l.status === 'approved' ? "bg-emerald-100 text-emerald-700" : 
+                              l.status === 'pending' ? "bg-amber-100 text-amber-700" : 
+                              l.status === 'paid' ? "bg-indigo-100 text-indigo-700" :
+                              "bg-red-100 text-red-700"
+                            )}>
+                              {l.status === 'pending' ? 'Verification Pending' : 
+                               l.status === 'approved' ? 'Approved' : 
+                               l.status === 'paid' ? 'Fully Paid' : 
+                               l.status === 'declined' ? 'Declined' : l.status}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            Applied on {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
+                          </p>
+                        </div>
+                      ))}
+                      {loans.filter(l => l.userId === user?.uid).length === 0 && (
+                        <p className="text-sm text-slate-400 italic text-center py-4">No history found.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1444,6 +2408,38 @@ export default function App() {
             </motion.div>
           </div>
         )}
+
+        {approvedLoanPopup && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-indigo-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-10 text-center overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-400 to-indigo-600" />
+              <div className="w-24 h-24 bg-emerald-50 rounded-[2rem] flex items-center justify-center mx-auto mb-8 ring-8 ring-emerald-50/50">
+                <CheckCircle2 className="w-12 h-12 text-emerald-600" />
+              </div>
+              <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Loan Approved!</h2>
+              <p className="text-slate-600 font-medium leading-relaxed mb-8">
+                Your loan application for <span className="text-indigo-600 font-bold">₹{approvedLoanPopup.amount.toLocaleString()}</span> has been approved. The amount will be disbursed soon.
+              </p>
+              <button 
+                onClick={() => setApprovedLoanPopup(null)}
+                className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-200 active:scale-95"
+              >
+                Got it!
+              </button>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -1619,7 +2615,10 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsAdding(false)}
+              onClick={() => {
+                setIsAdding(false);
+                setSelectedUserId(null);
+              }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
@@ -1632,14 +2631,17 @@ export default function App() {
               <div className="space-y-6">
                 {isAdmin && (
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Member</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Select Member</label>
                     <select 
-                      value={selectedUserId || ''} 
+                      value={selectedUserId || ''}
                       onChange={(e) => setSelectedUserId(e.target.value)}
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
+                      <option value="">Select a member...</option>
                       {allUsers.map(u => (
-                        <option key={u.uid || u.email} value={u.uid || u.email}>{u.displayName || u.email}</option>
+                        <option key={u.uid || u.email} value={u.uid || u.email}>
+                          {u.displayName || u.email}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -1649,19 +2651,21 @@ export default function App() {
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">Month</label>
                     <select 
-                      value={selectedMonth} 
+                      value={selectedMonth}
                       onChange={(e) => setSelectedMonth(Number(e.target.value))}
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
-                      {Array.from({ length: 12 }, (_, i) => (
-                        <option key={i + 1} value={i + 1}>{format(new Date(2024, i), 'MMMM')}</option>
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {format(new Date(2024, i, 1), 'MMMM')}
+                        </option>
                       ))}
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-2">Year</label>
                     <select 
-                      value={selectedYear} 
+                      value={selectedYear}
                       onChange={(e) => setSelectedYear(Number(e.target.value))}
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
@@ -1671,41 +2675,271 @@ export default function App() {
                     </select>
                   </div>
                 </div>
-                
-                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-bold text-indigo-900">Amount to Pay</span>
-                    {getContributionAmount(selectedMonth, selectedYear) > MONTHLY_AMOUNT && (
-                      <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider">Includes ₹{LATE_FEE} Late Fee</span>
-                    )}
+
+                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-indigo-700">Amount to Pay</span>
+                    <span className="text-xl font-black text-indigo-900">₹{getContributionAmount(selectedMonth, selectedYear).toLocaleString()}</span>
                   </div>
-                  <span className="text-xl font-black text-indigo-600">₹{getContributionAmount(selectedMonth, selectedYear).toLocaleString()}</span>
+                  {getContributionAmount(selectedMonth, selectedYear) > MONTHLY_AMOUNT && (
+                    <p className="text-[10px] text-indigo-500 font-bold mt-1 uppercase tracking-wider">Includes ₹{LATE_FEE} Late Fee</p>
+                  )}
                 </div>
 
                 <div className="flex gap-3 pt-4">
                   <button 
-                    onClick={() => setIsAdding(false)}
+                    onClick={() => {
+                      setIsAdding(false);
+                      setSelectedUserId(null);
+                    }}
                     className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
                   >
                     Cancel
                   </button>
                   {isAdmin ? (
                     <button 
-                      onClick={() => addContribution(selectedMonth, selectedYear, selectedUserId || undefined)}
+                      onClick={() => addContribution(selectedMonth, selectedYear, selectedUserId || undefined, 'paid')}
                       className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
                     >
-                      Confirm Payment
+                      Record Payment
                     </button>
                   ) : (
                     <button 
                       onClick={() => handleUPIPayment(selectedMonth, selectedYear)}
                       className="flex-2 py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 flex items-center justify-center gap-2"
                     >
-                      <Plus className="w-5 h-5 rotate-45" /> Pay via UPI
+                      <IndianRupee className="w-5 h-5" /> Pay via UPI
                     </button>
                   )}
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {deletingLoanId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeletingLoanId(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900">Delete Loan Application?</h2>
+                <p className="text-slate-500 mt-2">This action cannot be undone. Are you sure you want to delete this loan application?</p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button 
+                  onClick={() => setDeletingLoanId(null)}
+                  className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    deleteLoan(deletingLoanId);
+                    setDeletingLoanId(null);
+                  }}
+                  className="flex-2 py-4 bg-red-600 text-white rounded-2xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 active:scale-95"
+                >
+                  Confirm Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isApplyingLoan && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsApplyingLoan(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Apply for Loan</h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Required Amount (Max ₹50,000)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">₹</span>
+                    <input 
+                      type="number"
+                      max={50000}
+                      value={loanAmount}
+                      onChange={(e) => setLoanAmount(Math.min(50000, Number(e.target.value)))}
+                      className="w-full pl-8 pr-4 py-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold text-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    {[10000, 25000, 50000].map(amt => (
+                      <button 
+                        key={amt}
+                        onClick={() => setLoanAmount(amt)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                          loanAmount === amt ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        )}
+                      >
+                        ₹{amt.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Details (Optional)</label>
+                  <textarea 
+                    value={loanDetails}
+                    onChange={(e) => setLoanDetails(e.target.value)}
+                    placeholder="Reason for loan..."
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none h-32 resize-none"
+                  />
+                </div>
+
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800 leading-relaxed font-medium">
+                    Loan approval is subject to group admin verification. Interest rate is <span className="font-bold">0.5% monthly</span>.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setIsApplyingLoan(false)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={applyLoan}
+                    disabled={isSubmittingLoan || loanAmount <= 0}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50"
+                  >
+                    {isSubmittingLoan ? 'Submitting...' : 'Submit Application'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isPayingLoan && selectedLoan && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsPayingLoan(false);
+                setSelectedLoan(null);
+              }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Loan Repayment</h2>
+              
+              {/* Find first unpaid installment */}
+              {(() => {
+                const payments = loanPayments.filter(p => p.loanId === selectedLoan.id);
+                let nextMonth = 1;
+                let nextYear = 2024;
+                
+                const approvedDate = selectedLoan.approvedAt?.toDate ? selectedLoan.approvedAt.toDate() : new Date();
+                const startMonth = approvedDate.getMonth() + 1;
+                const startYear = approvedDate.getFullYear();
+
+                for (let i = 0; i < (selectedLoan.installments || 12); i++) {
+                  const m = (startMonth + i - 1) % 12 + 1;
+                  const y = startYear + Math.floor((startMonth + i - 1) / 12);
+                  if (!payments.some(p => p.month === m && p.year === y)) {
+                    nextMonth = m;
+                    nextYear = y;
+                    break;
+                  }
+                }
+
+                const principal = selectedLoan.approvedAmount! / (selectedLoan.installments || 12);
+                const interest = selectedLoan.approvedAmount! * 0.005;
+                const total = principal + interest;
+
+                return (
+                  <div className="space-y-6">
+                    <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Installment Details</p>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-slate-600 font-medium">Month</span>
+                        <span className="font-bold text-slate-900">{format(new Date(nextYear, nextMonth - 1), 'MMMM yyyy')}</span>
+                      </div>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-slate-600 font-medium">Principal</span>
+                        <span className="font-bold text-slate-900">₹{principal.toFixed(0)}</span>
+                      </div>
+                      <div className="flex justify-between mb-4">
+                        <span className="text-slate-600 font-medium">Interest (0.5%)</span>
+                        <span className="font-bold text-emerald-600">+₹{interest.toFixed(0)}</span>
+                      </div>
+                      <div className="pt-4 border-t border-slate-200 flex justify-between items-center">
+                        <span className="text-lg font-bold text-slate-900">Total Amount</span>
+                        <span className="text-2xl font-black text-indigo-600">₹{total.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                      <button 
+                        onClick={() => {
+                          setIsPayingLoan(false);
+                          setSelectedLoan(null);
+                        }}
+                        className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          const note = `Loan Payment - ${format(new Date(nextYear, nextMonth - 1), 'MMM yyyy')}`;
+                          const upiUrl = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(GROUP_NAME)}&am=${total.toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
+                          window.location.href = upiUrl;
+                          
+                          // Record as paid after a delay
+                          setTimeout(async () => {
+                            await payLoanInstallment(selectedLoan, nextMonth, nextYear, principal, interest);
+                            setIsPayingLoan(false);
+                            setSelectedLoan(null);
+                          }, 1000);
+                        }}
+                        className="flex-2 py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <IndianRupee className="w-5 h-5" /> Pay via UPI
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </motion.div>
           </div>
         )}

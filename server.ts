@@ -32,7 +32,10 @@ const clientApp = initializeClientApp(firebaseConfig);
 const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
 
 // Helper to get a Firestore instance, trying the named one first then falling back to default
+let cachedDb: any = null;
 async function getDb() {
+  if (cachedDb) return cachedDb;
+
   const namedDbId = firebaseConfig.firestoreDatabaseId;
   const defaultProjectId = firebaseConfig.projectId;
   
@@ -42,10 +45,15 @@ async function getDb() {
     // 1. Try Admin SDK with Named Database
     try {
       const namedDb = getAdminFirestore(firebaseAdminApp, namedDbId);
-      // Use 'users' collection for health check
-      await namedDb.collection('users').limit(1).get();
+      // Use a timeout for the health check to prevent hanging
+      const healthCheck = namedDb.collection('users').limit(1).get();
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore Timeout')), 5000));
+      
+      await Promise.race([healthCheck, timeoutPromise]);
+      
       console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Admin SDK.`);
-      return { type: 'admin', db: namedDb, dbId: namedDbId };
+      cachedDb = { type: 'admin', db: namedDb, dbId: namedDbId };
+      return cachedDb;
     } catch (err: any) {
       console.warn(`[getDb] Admin SDK failed for named database ${namedDbId}. Code: ${err.code}. Msg: ${err.message}`);
       
@@ -55,7 +63,8 @@ async function getDb() {
         try {
           await getDocs(query(collection(clientDb, 'users'), limit(1)));
           console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Client SDK.`);
-          return { type: 'client', db: clientDb, dbId: namedDbId };
+          cachedDb = { type: 'client', db: clientDb, dbId: namedDbId };
+          return cachedDb;
         } catch (clientErr: any) {
           console.warn(`[getDb] Client SDK fallback failed for ${namedDbId}. Code: ${clientErr.code}. Msg: ${clientErr.message}`);
         }
@@ -67,12 +76,14 @@ async function getDb() {
   if (firebaseAdminApp) {
     console.log(`[getDb] FALLBACK: Using Admin SDK with (default) database.`);
     const defaultDb = getAdminFirestore(firebaseAdminApp);
-    return { type: 'admin', db: defaultDb, dbId: '(default)' };
+    cachedDb = { type: 'admin', db: defaultDb, dbId: '(default)' };
+    return cachedDb;
   }
 
   // 4. Last Resort: Client SDK with Named Database
   console.log(`[getDb] LAST RESORT: Using Client SDK with named database ${namedDbId || '(default)'}.`);
-  return { type: 'client', db: clientDb, dbId: namedDbId || '(default)' };
+  cachedDb = { type: 'client', db: clientDb, dbId: namedDbId || '(default)' };
+  return cachedDb;
 }
 
 // Email Transporter (Using Gmail as default, can be changed via SMTP_SERVICE)
@@ -215,6 +226,12 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Disable caching for all routes to prevent "blank screen" issues
+  app.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    next();
+  });
+
   // API Routes
   app.get('/api/health', async (req, res) => {
     let dbError = null;
@@ -223,18 +240,22 @@ async function startServer() {
     let sdkType = 'none';
     
     try {
-      const { type, db, dbId } = await getDb();
+      const dbPromise = getDb();
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('getDb Timeout')), 7000));
+      const { type, db, dbId } = await Promise.race([dbPromise, timeoutPromise]) as any;
+      
       sdkType = type;
       usedDatabase = dbId;
       
       try {
-        if (type === 'admin') {
-          const snapshot = await (db as admin.firestore.Firestore).collection('users').limit(1).get();
-          usersCount = snapshot.size;
-        } else {
-          const snapshot = await getDocs(query(collection(db as any, 'users'), limit(1)));
-          usersCount = snapshot.size;
-        }
+        const queryPromise = type === 'admin' 
+          ? (db as admin.firestore.Firestore).collection('users').limit(1).get()
+          : getDocs(query(collection(db as any, 'users'), limit(1)));
+          
+        const queryTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Query Timeout')), 5000));
+        const snapshot = await Promise.race([queryPromise, queryTimeout]) as any;
+        
+        usersCount = snapshot.size;
       } catch (dbErr: any) {
         dbError = dbErr.message;
         console.error(`Failed to access users collection in ${usedDatabase} (${type}):`, dbErr.message);
