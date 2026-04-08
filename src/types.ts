@@ -45,3 +45,23 @@ export interface LoanPayment {
   status: 'paid' | 'pending';
   timestamp: any;
 }
+
+export interface Notice {
+  id?: string;
+  title: string;
+  content: string;
+  createdAt: any;
+  authorName: string;
+  priority: 'normal' | 'high';
+}
+
+export interface AppNotification {
+  id?: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'loan' | 'payment' | 'notice' | 'system';
+  read: boolean;
+  createdAt: any;
+  link?: string;
+}

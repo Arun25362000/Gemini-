@@ -45,11 +45,21 @@ import {
   ArrowRight,
   History as HistoryIcon,
   FileText,
-  IndianRupee
+  IndianRupee,
+  Bell,
+  Megaphone,
+  Download,
+  FileSpreadsheet,
+  FileDown,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+import { Notice, AppNotification } from './types';
 
 // --- Constants ---
 const MONTHLY_AMOUNT = 1000;
@@ -165,7 +175,7 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
-  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans'>('contributions');
+  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices'>('contributions');
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments'>('applications');
   const [isApplyingLoan, setIsApplyingLoan] = useState(false);
   const [loanAmount, setLoanAmount] = useState(10000);
@@ -173,6 +183,11 @@ export default function App() {
   const [isSubmittingLoan, setIsSubmittingLoan] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [isPayingLoan, setIsPayingLoan] = useState(false);
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [isAddingNotice, setIsAddingNotice] = useState(false);
+  const [newNotice, setNewNotice] = useState({ title: '', content: '', priority: 'normal' as 'normal' | 'high' });
   const [approvedLoanPopup, setApprovedLoanPopup] = useState<Loan | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -194,6 +209,40 @@ export default function App() {
   const [deletingLoanId, setDeletingLoanId] = useState<string | null>(null);
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  const [activeNoticeToast, setActiveNoticeToast] = useState<Notice | null>(null);
+  const [activeNotificationToast, setActiveNotificationToast] = useState<AppNotification | null>(null);
+  const [showNoticeBoard, setShowNoticeBoard] = useState(false);
+
+  // Notice Toast Trigger (with localStorage to show on login/refresh)
+  useEffect(() => {
+    if (notices.length > 0 && user) {
+      const latest = notices[0];
+      const lastSeenId = localStorage.getItem(`last_seen_notice_${user.uid}`);
+      
+      if (latest.id !== lastSeenId) {
+        setActiveNoticeToast(latest);
+        localStorage.setItem(`last_seen_notice_${user.uid}`, latest.id!);
+        const timer = setTimeout(() => setActiveNoticeToast(null), 30000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [notices, user]);
+
+  // Notification Toast Trigger
+  useEffect(() => {
+    if (notifications.length > 0 && user) {
+      const latest = notifications[0];
+      const lastSeenId = localStorage.getItem(`last_seen_notification_${user.uid}`);
+      
+      if (latest.id !== lastSeenId && !latest.read) {
+        setActiveNotificationToast(latest);
+        localStorage.setItem(`last_seen_notification_${user.uid}`, latest.id!);
+        const timer = setTimeout(() => setActiveNotificationToast(null), 15000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [notifications, user]);
 
   const notify = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
@@ -410,11 +459,24 @@ export default function App() {
       handleFirestoreError(err, OperationType.GET, 'loanPayments');
     });
 
+    const unsubscribeNotices = onSnapshot(query(collection(db, 'notices'), orderBy('createdAt', 'desc')), (snapshot) => {
+      setNotices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notice)));
+    });
+
+    const unsubscribeNotifications = onSnapshot(
+      query(collection(db, 'notifications'), where('userId', '==', user.uid), orderBy('createdAt', 'desc')),
+      (snapshot) => {
+        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification)));
+      }
+    );
+
     return () => {
       unsubscribeContribs();
       unsubscribeUsers();
       unsubscribeLoans();
       unsubscribeLoanPayments();
+      unsubscribeNotices();
+      unsubscribeNotifications();
     };
   }, [user, isAdmin]);
 
@@ -832,6 +894,14 @@ export default function App() {
     if (profile?.role !== 'admin') return;
     try {
       await updateDoc(doc(db, 'contributions', id), { status });
+      
+      if (status === 'paid') {
+        const contrib = contributions.find(c => c.id === id);
+        if (contrib && contrib.userId) {
+          createNotification(contrib.userId, "Payment Verified", `Your contribution for ${format(new Date(contrib.year, contrib.month - 1), 'MMMM')} has been verified.`, 'payment');
+        }
+      }
+      notify('success', "Status updated successfully.");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `contributions/${id}`);
     }
@@ -900,6 +970,212 @@ export default function App() {
     }
   };
 
+  const createNotification = async (userId: string, title: string, message: string, type: AppNotification['type'], link?: string) => {
+    try {
+      await addDoc(collection(db, 'notifications'), {
+        userId,
+        title,
+        message,
+        type,
+        read: false,
+        createdAt: serverTimestamp(),
+        link
+      });
+    } catch (err) {
+      console.error("Failed to create notification:", err);
+    }
+  };
+
+  const addNotice = async () => {
+    if (!profile || profile.role !== 'admin') return;
+    if (!newNotice.title || !newNotice.content) return;
+
+    try {
+      await addDoc(collection(db, 'notices'), {
+        ...newNotice,
+        authorName: profile.displayName || profile.email,
+        createdAt: serverTimestamp()
+      });
+      
+      // Notify all users about new high priority notice
+      if (newNotice.priority === 'high') {
+        allUsers.forEach(u => {
+          if (u.uid) createNotification(u.uid, "New Important Notice", newNotice.title, 'notice');
+        });
+      }
+
+      setIsAddingNotice(false);
+      setNewNotice({ title: '', content: '', priority: 'normal' });
+      notify('success', "Notice posted successfully");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'notices');
+    }
+  };
+
+  const deleteNotice = async (id: string) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      await deleteDoc(doc(db, 'notices', id));
+      notify('success', "Notice deleted");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, `notices/${id}`);
+    }
+  };
+
+  const markNotificationAsRead = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'notifications', id), { read: true });
+    } catch (err) {
+      console.error("Failed to mark notification as read:", err);
+    }
+  };
+
+  const exportAllDataToExcel = () => {
+    if (profile?.role !== 'admin') return;
+
+    const wb = XLSX.utils.book_new();
+
+    // Master Report
+    const masterReport = allUsers.map(u => {
+      const userContribs = contributions.filter(c => c.userId === u.uid || c.userEmail === u.email);
+      const totalDeposited = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
+      
+      const userLoans = loans.filter(l => l.userId === u.uid || l.userEmail === u.email);
+      const activeLoan = userLoans.find(l => l.status === 'approved' || l.status === 'paid');
+      const hasLoan = !!activeLoan;
+      
+      const userPayments = loanPayments.filter(p => p.userId === u.uid);
+      const totalLoanPaid = userPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
+      const totalLoanInterestPaid = userPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.interest, 0);
+      
+      const approvedAmount = activeLoan?.approvedAmount || 0;
+      const loanPending = approvedAmount > 0 ? (approvedAmount - totalLoanPaid) : 0;
+
+      return {
+        'Member Name': u.displayName || 'N/A',
+        'Email': u.email,
+        'Phone': u.phoneNumber || 'N/A',
+        'Join Date': u.joinDate,
+        'Total Deposited (₹)': totalDeposited,
+        'Has Taken Loan?': hasLoan ? 'Yes' : 'No',
+        'Loan Amount (₹)': approvedAmount,
+        'Loan Principal Paid (₹)': totalLoanPaid,
+        'Loan Interest Paid (₹)': totalLoanInterestPaid,
+        'Loan Pending Principal (₹)': loanPending,
+        'Loan Status': activeLoan ? activeLoan.status.toUpperCase() : 'N/A'
+      };
+    });
+
+    const masterWS = XLSX.utils.json_to_sheet(masterReport);
+    XLSX.utils.book_append_sheet(wb, masterWS, "Master Report");
+
+    // All Contributions
+    const contribsWS = XLSX.utils.json_to_sheet(contributions.map(c => ({
+      Member: c.userEmail,
+      Month: format(new Date(c.year, c.month - 1), 'MMMM'),
+      Year: c.year,
+      Amount: c.amount,
+      Status: c.status,
+      Date: c.timestamp?.toDate ? format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm') : 'N/A'
+    })));
+    XLSX.utils.book_append_sheet(wb, contribsWS, "All Contributions");
+
+    XLSX.writeFile(wb, `Unnati_Admin_Master_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    notify('success', "Comprehensive report exported");
+  };
+
+  const exportUserStatementToExcel = () => {
+    if (!user) return;
+    const wb = XLSX.utils.book_new();
+    const userContribs = contributions.filter(c => c.userId === user.uid && c.status === 'paid');
+    
+    const statementData = userContribs.sort((a,b) => b.year - a.year || b.month - a.month).map(c => ({
+      'Date': c.timestamp?.toDate ? format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm') : 'N/A',
+      'Month': format(new Date(c.year, c.month - 1), 'MMMM'),
+      'Year': c.year,
+      'Amount (₹)': c.amount,
+      'Status': c.status.toUpperCase()
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(statementData);
+    XLSX.utils.book_append_sheet(wb, ws, "My Statement");
+    XLSX.writeFile(wb, `My_Unnati_Statement_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+    notify('success', "Statement exported to Excel");
+  };
+
+  const generateMemberStatement = (targetUserId: string) => {
+    const targetUser = allUsers.find(u => u.uid === targetUserId);
+    if (!targetUser) return;
+
+    const doc = new jsPDF();
+    const userContribs = contributions.filter(c => c.userId === targetUserId && c.status === 'paid');
+    const userLoans = loans.filter(l => l.userId === targetUserId);
+    
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(79, 70, 229); // Indigo-600
+    doc.text("UNNATI - Member Statement", 105, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 28, { align: 'center' });
+
+    // Member Info
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(`Member Name: ${targetUser.displayName || 'N/A'}`, 20, 45);
+    doc.text(`Email: ${targetUser.email}`, 20, 52);
+    doc.text(`Join Date: ${targetUser.joinDate || 'N/A'}`, 20, 59);
+
+    // Summary
+    const totalSaved = userContribs.reduce((acc, c) => acc + c.amount, 0);
+    doc.setDrawColor(200);
+    doc.line(20, 65, 190, 65);
+    doc.setFont(undefined, 'bold');
+    doc.text(`Total Contributions: Rs. ${totalSaved.toLocaleString()}`, 20, 75);
+    doc.setFont(undefined, 'normal');
+
+    // Contributions Table
+    doc.text("Recent Contributions", 20, 90);
+    (doc as any).autoTable({
+      startY: 95,
+      head: [['Month', 'Year', 'Amount', 'Status']],
+      body: userContribs.sort((a,b) => b.year - a.year || b.month - a.month).slice(0, 12).map(c => [
+        format(new Date(c.year, c.month - 1), 'MMMM'),
+        c.year,
+        `Rs. ${c.amount}`,
+        c.status.toUpperCase()
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [79, 70, 229] }
+    });
+
+    // Loans Section
+    const finalY = (doc as any).lastAutoTable.finalY || 150;
+    doc.text("Loan Summary", 20, finalY + 15);
+    (doc as any).autoTable({
+      startY: finalY + 20,
+      head: [['Amount', 'Status', 'Date']],
+      body: userLoans.map(l => [
+        `Rs. ${l.amount}`,
+        l.status.toUpperCase(),
+        l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'N/A'
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [79, 70, 229] }
+    });
+
+    doc.save(`Unnati_Statement_${targetUser.displayName?.replace(/\s+/g, '_')}.pdf`);
+    notify('success', "Statement generated");
+  };
+
+  const calculateDividends = () => {
+    const totalInterestEarned = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.interest, 0);
+    const totalMembers = allUsers.length;
+    if (totalMembers === 0) return 0;
+    return totalInterestEarned / totalMembers;
+  };
+
   const approveLoan = async (loan: Loan) => {
     if (profile?.role !== 'admin') return;
     try {
@@ -917,6 +1193,9 @@ export default function App() {
       for (const l of otherPending) {
         await updateDoc(doc(db, 'loans', l.id!), { status: 'declined' });
       }
+
+      // Notify user
+      createNotification(loan.userId, "Loan Approved", `Your loan of Rs. ${loan.amount} has been approved.`, 'loan');
 
       notify('success', "Loan approved and others declined.");
     } catch (err: any) {
@@ -1168,7 +1447,20 @@ export default function App() {
             <span className="text-xl font-black tracking-tighter text-indigo-600">UNNATI</span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {/* Notification Bell */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowNoticeBoard(true)}
+                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all relative"
+              >
+                <Bell className="w-5 h-5 sm:w-6 sm:h-6" />
+                {(notifications.some(n => !n.read) || notices.length > 0) && (
+                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
+                )}
+              </button>
+            </div>
+
             <div className="flex flex-col items-end">
               <span className="text-sm font-bold text-slate-900">
                 {profile?.displayName || user?.displayName || 'User'}
@@ -1317,6 +1609,15 @@ export default function App() {
                 <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
               )}
             </button>
+            <button 
+              onClick={() => setActiveTab('notices')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                activeTab === 'notices' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              Notices
+            </button>
           </div>
         )}
 
@@ -1350,7 +1651,7 @@ export default function App() {
           <div className="flex flex-col">
             <h2 className="text-2xl font-bold text-slate-900">
               {isAdmin 
-                ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : 'Loan Applications') 
+                ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : activeTab === 'loans' ? 'Loan Applications' : 'Notice Board') 
                 : (activeTab === 'contributions' ? 'Your History' : 'Loan Dashboard')}
             </h2>
             {isAdmin && activeTab === 'members' && !isSmtpConfigured && (
@@ -1361,6 +1662,30 @@ export default function App() {
             )}
           </div>
           <div className="flex gap-3 w-full sm:w-auto">
+            {isAdmin && activeTab === 'contributions' && (
+              <button 
+                onClick={exportAllDataToExcel}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white text-emerald-600 border border-emerald-100 rounded-2xl font-bold hover:bg-emerald-50 transition-all active:scale-95"
+              >
+                <FileSpreadsheet className="w-5 h-5" /> Export All
+              </button>
+            )}
+            {!isAdmin && activeTab === 'contributions' && (
+              <button 
+                onClick={() => generateMemberStatement(user!.uid)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-600 border border-indigo-100 rounded-2xl font-bold hover:bg-indigo-50 transition-all active:scale-95"
+              >
+                <FileDown className="w-5 h-5" /> PDF Statement
+              </button>
+            )}
+            {isAdmin && activeTab === 'notices' && (
+              <button 
+                onClick={() => setIsAddingNotice(true)}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+              >
+                <Plus className="w-5 h-5" /> Post Notice
+              </button>
+            )}
             {isAdmin && activeTab === 'members' && (
               <button 
                 onClick={() => setIsAddingMember(true)}
@@ -2208,6 +2533,59 @@ export default function App() {
               </div>
             )}
           </div>
+        ) : activeTab === 'notices' ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {notices.map((notice, idx) => (
+                <motion.div 
+                  key={notice.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className={cn(
+                    "bg-white p-6 rounded-3xl shadow-sm border overflow-hidden relative",
+                    notice.priority === 'high' ? "border-red-200" : "border-slate-200"
+                  )}
+                >
+                  {notice.priority === 'high' && (
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-red-500"></div>
+                  )}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "p-2 rounded-xl",
+                        notice.priority === 'high' ? "bg-red-50 text-red-600" : "bg-indigo-50 text-indigo-600"
+                      )}>
+                        <Megaphone className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-900">{notice.title}</h3>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                          Posted by {notice.authorName} • {notice.createdAt?.toDate ? format(notice.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
+                        </p>
+                      </div>
+                    </div>
+                    {isAdmin && (
+                      <button 
+                        onClick={() => deleteNotice(notice.id!)}
+                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                    {notice.content}
+                  </p>
+                </motion.div>
+              ))}
+              {notices.length === 0 && (
+                <div className="col-span-full bg-white p-12 rounded-3xl border border-slate-200 text-center">
+                  <p className="text-slate-400 italic">No notices have been posted yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
           <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -2309,6 +2687,326 @@ export default function App() {
       </main>
 
       <AnimatePresence>
+        {activeNoticeToast && (
+          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-full max-w-md px-4">
+            <motion.div 
+              initial={{ opacity: 0, y: -50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -50, scale: 0.9 }}
+              className={cn(
+                "bg-white rounded-3xl shadow-2xl border-2 p-6 relative overflow-hidden",
+                activeNoticeToast.priority === 'high' ? "border-red-500 shadow-red-100" : "border-indigo-500 shadow-indigo-100"
+              )}
+            >
+              <button 
+                onClick={() => setActiveNoticeToast(null)}
+                className="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="flex items-start gap-4 pr-8">
+                <div className={cn(
+                  "p-3 rounded-2xl shrink-0",
+                  activeNoticeToast.priority === 'high' ? "bg-red-50 text-red-600" : "bg-indigo-50 text-indigo-600"
+                )}>
+                  <Megaphone className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 text-lg leading-tight mb-1">{activeNoticeToast.title}</h4>
+                  <p className="text-sm text-slate-600 line-clamp-3 mb-3">{activeNoticeToast.content}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {activeNoticeToast.authorName} • {activeNoticeToast.createdAt?.toDate ? format(activeNoticeToast.createdAt.toDate(), 'HH:mm') : 'Just now'}
+                    </span>
+                    <button 
+                      onClick={() => {
+                        setShowNoticeBoard(true);
+                        setActiveNoticeToast(null);
+                      }}
+                      className="text-xs font-black text-indigo-600 hover:underline"
+                    >
+                      View Board
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <motion.div 
+                initial={{ width: "100%" }}
+                animate={{ width: "0%" }}
+                transition={{ duration: 30, ease: "linear" }}
+                className={cn(
+                  "absolute bottom-0 left-0 h-1",
+                  activeNoticeToast.priority === 'high' ? "bg-red-500" : "bg-indigo-500"
+                )}
+              />
+            </motion.div>
+          </div>
+        )}
+
+        {activeNotificationToast && (
+          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-full max-w-md px-4">
+            <motion.div 
+              initial={{ opacity: 0, y: -50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -50, scale: 0.9 }}
+              className="bg-white rounded-3xl shadow-2xl border-2 border-amber-500 shadow-amber-100 p-6 relative overflow-hidden"
+            >
+              <button 
+                onClick={() => setActiveNotificationToast(null)}
+                className="absolute top-4 right-4 p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="flex items-start gap-4 pr-8">
+                <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl shrink-0">
+                  <Bell className="w-6 h-6" />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 text-lg leading-tight mb-1">{activeNotificationToast.title}</h4>
+                  <p className="text-sm text-slate-600 line-clamp-3 mb-3">{activeNotificationToast.message}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      {activeNotificationToast.createdAt?.toDate ? format(activeNotificationToast.createdAt.toDate(), 'HH:mm') : 'Just now'}
+                    </span>
+                    <button 
+                      onClick={() => {
+                        markNotificationAsRead(activeNotificationToast.id!);
+                        if (activeNotificationToast.link) setActiveTab(activeNotificationToast.link as any);
+                        setShowNoticeBoard(true);
+                        setActiveNotificationToast(null);
+                      }}
+                      className="text-xs font-black text-amber-600 hover:underline"
+                    >
+                      View Details
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <motion.div 
+                initial={{ width: "100%" }}
+                animate={{ width: "0%" }}
+                transition={{ duration: 15, ease: "linear" }}
+                className="absolute bottom-0 left-0 h-1 bg-amber-500"
+              />
+            </motion.div>
+          </div>
+        )}
+
+        {showNoticeBoard && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowNoticeBoard(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-slate-50 w-full max-w-2xl h-[80vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 bg-white border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-indigo-50 rounded-2xl">
+                    <Bell className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Notice Board</h3>
+                    <p className="text-sm text-slate-500 font-medium">Stay updated with group announcements</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowNoticeBoard(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                {/* Notices Section */}
+                <section>
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-1">Announcements</h4>
+                  <div className="space-y-4">
+                    {notices.map(notice => (
+                      <div 
+                        key={notice.id}
+                        className={cn(
+                          "bg-white p-6 rounded-3xl border shadow-sm relative overflow-hidden",
+                          notice.priority === 'high' ? "border-red-100" : "border-slate-100"
+                        )}
+                      >
+                        {notice.priority === 'high' && <div className="absolute top-0 left-0 right-0 h-1 bg-red-500" />}
+                        <div className="flex items-start justify-between mb-3">
+                          <h5 className="font-bold text-slate-900">{notice.title}</h5>
+                          {isAdmin && (
+                            <button onClick={() => deleteNotice(notice.id!)} className="text-slate-300 hover:text-red-500 transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-sm text-slate-600 leading-relaxed mb-4 whitespace-pre-wrap">{notice.content}</p>
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <span>{notice.authorName}</span>
+                          <span>{notice.createdAt?.toDate ? format(notice.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {notices.length === 0 && (
+                      <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-200 text-center">
+                        <p className="text-slate-400 italic text-sm">No announcements yet</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* Notifications Section */}
+                <section>
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-1">Your Notifications</h4>
+                  <div className="space-y-3">
+                    {notifications.map(n => (
+                      <div 
+                        key={n.id}
+                        onClick={() => {
+                          markNotificationAsRead(n.id!);
+                          if (n.link) setActiveTab(n.link as any);
+                          setShowNoticeBoard(false);
+                        }}
+                        className={cn(
+                          "bg-white p-4 rounded-2xl border transition-all cursor-pointer hover:border-indigo-200",
+                          !n.read ? "border-indigo-100 bg-indigo-50/30" : "border-slate-100"
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={cn(
+                            "p-2 rounded-xl shrink-0",
+                            !n.read ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 text-slate-400"
+                          )}>
+                            <Bell className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-slate-900 truncate">{n.title}</p>
+                            <p className="text-xs text-slate-500 line-clamp-1">{n.message}</p>
+                            <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                              {n.createdAt?.toDate ? format(n.createdAt.toDate(), 'MMM dd, HH:mm') : 'Just now'}
+                            </p>
+                          </div>
+                          {!n.read && <div className="w-2 h-2 bg-indigo-500 rounded-full mt-2" />}
+                        </div>
+                      </div>
+                    ))}
+                    {notifications.length === 0 && (
+                      <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-200 text-center">
+                        <p className="text-slate-400 italic text-sm">No notifications yet</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddingNotice && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddingNotice(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-indigo-50 rounded-2xl">
+                    <Megaphone className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Post New Notice</h3>
+                </div>
+                <button 
+                  onClick={() => setIsAddingNotice(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Notice Title</label>
+                  <input 
+                    type="text" 
+                    value={newNotice.title}
+                    onChange={(e) => setNewNotice({ ...newNotice, title: e.target.value })}
+                    placeholder="e.g., Monthly Meeting Update"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-900 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Content</label>
+                  <textarea 
+                    value={newNotice.content}
+                    onChange={(e) => setNewNotice({ ...newNotice, content: e.target.value })}
+                    placeholder="Write your message here..."
+                    rows={4}
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-900 font-medium resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 ml-1">Priority</label>
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => setNewNotice({ ...newNotice, priority: 'normal' })}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl font-bold text-sm transition-all",
+                        newNotice.priority === 'normal' ? "bg-indigo-600 text-white shadow-lg shadow-indigo-100" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                      )}
+                    >
+                      Normal
+                    </button>
+                    <button 
+                      onClick={() => setNewNotice({ ...newNotice, priority: 'high' })}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl font-bold text-sm transition-all",
+                        newNotice.priority === 'high' ? "bg-red-600 text-white shadow-lg shadow-red-100" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                      )}
+                    >
+                      High Priority
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-10 flex gap-3">
+                <button 
+                  onClick={() => setIsAddingNotice(false)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={addNotice}
+                  className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+                >
+                  Post Notice
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {deletingUserId && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <motion.div 

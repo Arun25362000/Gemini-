@@ -121,6 +121,18 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /notices/{noticeId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
     match /contributions/{contributionId} {
       // Everyone can see contributions
       allow read: if true;
