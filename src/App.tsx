@@ -213,6 +213,29 @@ export default function App() {
   const [activeNoticeToast, setActiveNoticeToast] = useState<Notice | null>(null);
   const [activeNotificationToast, setActiveNotificationToast] = useState<AppNotification | null>(null);
   const [showNoticeBoard, setShowNoticeBoard] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
+
+  // PWA Install Prompt Handler
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallButton(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+      setShowInstallButton(false);
+    }
+  };
 
   // Notice Toast Trigger (with localStorage to show on login/refresh)
   useEffect(() => {
@@ -1471,6 +1494,14 @@ export default function App() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              {showInstallButton && (
+                <button 
+                  onClick={handleInstallClick}
+                  className="flex items-center gap-2 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] sm:text-xs font-bold hover:bg-indigo-100 transition-all border border-indigo-100"
+                >
+                  <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden xs:inline">Install</span>
+                </button>
+              )}
               <button 
                 onClick={handleForceRefresh}
                 className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all border border-transparent hover:border-indigo-100"
