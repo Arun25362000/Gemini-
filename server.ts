@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 import admin from 'firebase-admin';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { initializeApp as initializeClientApp } from 'firebase/app';
-import { getFirestore as getClientFirestore, collection, getDocs, query, where, limit } from 'firebase/firestore';
+import { getFirestore as getClientFirestore, collection, getDocs, query, where, limit, doc, updateDoc } from 'firebase/firestore';
 import { readFileSync } from 'fs';
 const firebaseConfig = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf-8'));
 
@@ -45,9 +45,10 @@ async function getDb() {
     // 1. Try Admin SDK with Named Database
     try {
       const namedDb = getAdminFirestore(firebaseAdminApp, namedDbId);
+      
       // Use a timeout for the health check to prevent hanging
       const healthCheck = namedDb.collection('users').limit(1).get();
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore Timeout')), 5000));
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore Admin SDK Timeout')), 8000));
       
       await Promise.race([healthCheck, timeoutPromise]);
       
@@ -55,19 +56,20 @@ async function getDb() {
       cachedDb = { type: 'admin', db: namedDb, dbId: namedDbId };
       return cachedDb;
     } catch (err: any) {
-      console.warn(`[getDb] Admin SDK failed for named database ${namedDbId}. Code: ${err.code}. Msg: ${err.message}`);
-      
-      // 2. Try Client SDK with Named Database (as fallback for permission issues)
-      if (err.code === 5 || err.code === 7 || (err.message && (err.message.includes('NOT_FOUND') || err.message.includes('PERMISSION_DENIED')))) {
-        console.log(`[getDb] Attempting Client SDK fallback for named database ${namedDbId}...`);
+      // If it's a permission issue or not found, try to use the client SDK as a fallback
+      if (err.code === 7 || err.code === 5 || (err.message && (err.message.includes('PERMISSION_DENIED') || err.message.includes('NOT_FOUND')))) {
+        // 2. Try Client SDK with Named Database (as fallback for permission issues)
         try {
-          await getDocs(query(collection(clientDb, 'users'), limit(1)));
-          console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Client SDK.`);
+          const q = query(collection(clientDb, 'users'), limit(1));
+          await getDocs(q);
+          console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Client SDK fallback.`);
           cachedDb = { type: 'client', db: clientDb, dbId: namedDbId };
           return cachedDb;
         } catch (clientErr: any) {
-          console.warn(`[getDb] Client SDK fallback failed for ${namedDbId}. Code: ${clientErr.code}. Msg: ${clientErr.message}`);
+          console.warn(`[getDb] Admin SDK failed (${err.message}) and Client SDK fallback failed for ${namedDbId}. Code: ${clientErr.code}. Msg: ${clientErr.message}`);
         }
+      } else {
+        console.warn(`[getDb] Admin SDK failed for named database ${namedDbId}. Code: ${err.code}. Msg: ${err.message}`);
       }
     }
   }
@@ -89,10 +91,46 @@ async function getDb() {
 // Email Transporter (Using Gmail as default, can be changed via SMTP_SERVICE)
 const transporter = nodemailer.createTransport({
   service: process.env.SMTP_SERVICE || 'gmail',
+  pool: true, // Use pooling for multiple emails
+  maxConnections: 5,
+  maxMessages: 100,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS, // Use App Password for Gmail
   },
+});
+
+// Helper for sending mail with retry logic for transient errors
+async function sendMailWithRetry(mailOptions: any, maxRetries = 3) {
+  let lastError: any;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await transporter.sendMail(mailOptions);
+    } catch (err: any) {
+      lastError = err;
+      const errorCode = err.responseCode || (err.response && err.response.split(' ')[0]);
+      const isTransient = errorCode && errorCode.startsWith('4');
+      const isSystemProblem = err.message && err.message.includes('Temporary System Problem');
+
+      if (i < maxRetries - 1 && (isTransient || isSystemProblem)) {
+        const delay = Math.pow(2, i) * 2000; // Exponential backoff: 2s, 4s, 8s
+        console.warn(`[SMTP] Transient error detected (${errorCode || 'unknown'}). Retrying in ${delay}ms... (Attempt ${i + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
+// Verify transporter on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('[SMTP] Verification failed:', error);
+  } else {
+    console.log('[SMTP] Server is ready to take our messages');
+  }
 });
 
 async function sendMonthlyReminders() {
@@ -178,7 +216,6 @@ async function sendMonthlyReminders() {
               <p>Hi ${user.displayName || 'Member'},</p>
               <p>This is a friendly reminder for your monthly contribution for <b>${monthName} ${currentYear}</b>.</p>
               <p>Please contribute <b>₹1,000</b> before the 10th of this month to avoid the ₹100 late fee.</p>
-              <p>You can record your payment directly on the app: <a href="${process.env.APP_URL || '#'}" style="color: #4f46e5; font-weight: bold;">Open Unnati App</a></p>
               <br/>
               <p>Thank you,<br/>Unnati Administration</p>
             </div>
@@ -186,7 +223,7 @@ async function sendMonthlyReminders() {
         };
         
         try {
-          const info = await transporter.sendMail(mailOptions);
+          const info = await sendMailWithRetry(mailOptions);
           console.log(`Reminder email sent to ${user.email}: ${info.messageId}`);
           sentCount++;
         } catch (err) {
@@ -287,10 +324,14 @@ async function startServer() {
   // Welcome Email API
   app.post('/api/admin/send-welcome-email', async (req, res) => {
     const { email, name } = req.body;
+    console.log(`[API] Received request to send welcome email to: ${email} (${name})`);
+    
     if (!email) {
+      console.warn('[API] Email is missing in request body');
       return res.status(400).json({ message: 'Email is required' });
     }
     if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      console.error('[API] SMTP configuration missing');
       return res.status(400).json({ message: 'SMTP is not configured' });
     }
 
@@ -305,7 +346,6 @@ async function startServer() {
           <p>We are excited to have you as a member of the <b>Unnati Savings Group</b>.</p>
           <p>You can now log in to the app using your email to track your contributions and view group progress.</p>
           <p><b>Monthly Contribution:</b> ₹1,000 (Due before 10th of every month)</p>
-          <p><a href="${process.env.APP_URL || '#'}" style="display: inline-block; padding: 10px 20px; background-color: #4f46e5; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">Access the App</a></p>
           <br/>
           <p>Best regards,<br/>Unnati Administration</p>
         </div>
@@ -313,10 +353,12 @@ async function startServer() {
     };
 
     try {
-      await transporter.sendMail(mailOptions);
-      res.json({ message: 'Welcome email sent' });
+      console.log(`[SMTP] Attempting to send welcome email to ${email}...`);
+      const info = await sendMailWithRetry(mailOptions);
+      console.log(`[SMTP] Welcome email sent: ${info.messageId}`);
+      res.json({ message: 'Welcome email sent', messageId: info.messageId });
     } catch (err: any) {
-      console.error('Failed to send welcome email:', err);
+      console.error('[SMTP] Failed to send welcome email:', err);
       res.status(500).json({ message: 'Failed to send email: ' + err.message });
     }
   });

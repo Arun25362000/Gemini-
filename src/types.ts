@@ -17,6 +17,7 @@ export interface Contribution {
   year: number;
   amount: number;
   status: 'paid' | 'pending';
+  paymentMethod?: 'cash' | 'online';
   timestamp: any; // Firestore Timestamp
 }
 

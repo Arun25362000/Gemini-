@@ -41,15 +41,26 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isAdmin() {
-      return isAuthenticated() &&
+    function isSuperAdmin() {
+      return isAuthenticated() && 
         (
-          request.auth.token.email == "arun2102000@gmail.com" ||
-          request.auth.token.email == "arun.cse.rymec@gmail.com" ||
-          request.auth.token.email == "unnati@gmail.com" ||
-          request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2" ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+          (request.auth.token.email == "arun2102000@gmail.com") ||
+          (request.auth.token.email == "arun.cse.rymec@gmail.com") ||
+          (request.auth.token.email == "unnati.finance2026@gmail.com") ||
+          request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2"
+        );
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || 
+        (
+          isAuthenticated() && 
+          (
+            (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ||
+            (exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'admin')
+          )
         );
     }
 
@@ -58,8 +69,8 @@ service cloud.firestore {
       return data.email is string &&
              data.role in ['admin', 'user'] &&
              data.joinDate is string &&
-             (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
-             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 50)) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 200)) &&
              (!('uid' in data) || (data.uid is string));
     }
 
@@ -112,13 +123,13 @@ service cloud.firestore {
       allow create: if (isOwner(userId) || isAdmin()) && 
                     isValidUser(request.resource.data) && 
                     (request.resource.data.role == 'user' || 
-                     (request.resource.data.role == 'admin' && (request.auth.token.email == "arun2102000@gmail.com" || request.auth.token.email == "arun.cse.rymec@gmail.com" || request.auth.token.email == "unnati@gmail.com" || request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2")));
+                     (request.resource.data.role == 'admin' && (request.auth.token.email == "arun2102000@gmail.com" || request.auth.token.email == "arun.cse.rymec@gmail.com" || request.auth.token.email == "unnati.finance2026@gmail.com" || request.auth.uid == "3CO8tprc07TDFkWm55sffTkq9hs2")));
       
       // Only admins can change roles or edit other users, or users can update their own profile (e.g. adding UID)
       allow update: if isAdmin() || (isOwner(userId) && isValidUser(request.resource.data));
       
-      // Only admins can delete users
-      allow delete: if isAdmin();
+      // Only admins can delete users, or a user can delete their own email-keyed document during backfill
+      allow delete: if isAdmin() || (isAuthenticated() && userId == request.auth.token.email);
     }
 
     match /notices/{noticeId} {
@@ -127,10 +138,12 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email);
       allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && 
+                    (resource.data.userId == request.auth.uid || 
+                     (resource.data.userId == request.auth.token.email && request.resource.data.userId == request.auth.uid));
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email);
     }
 
     match /contributions/{contributionId} {
@@ -139,14 +152,17 @@ service cloud.firestore {
       
       // Users can add their own contribution, Admins can add for anyone
       allow create: if isAuthenticated() && 
-                    (request.resource.data.userId == request.auth.uid || isAdmin()) &&
+                    (request.resource.data.userId == request.auth.uid || request.resource.data.userEmail == request.auth.token.email || isAdmin()) &&
                     isValidContribution(request.resource.data);
       
-      // Only admins can edit or delete contributions
-      allow update: if isAdmin() && 
-                    isValidContribution(request.resource.data) &&
-                    request.resource.data.userId == resource.data.userId &&
-                    request.resource.data.timestamp == resource.data.timestamp;
+      // Only admins can edit or delete contributions, 
+      // EXCEPT for backfill where a user updates their own unassigned contribution
+      allow update: if (isAdmin() && isValidContribution(request.resource.data)) || 
+                    (isAuthenticated() && 
+                     resource.data.userId == "" && 
+                     resource.data.userEmail == request.auth.token.email && 
+                     request.resource.data.userId == request.auth.uid &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['userId']));
       
       allow delete: if isAdmin();
     }
@@ -155,11 +171,13 @@ service cloud.firestore {
       // Users can see their own loans, Admins can see all
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       
-      // Users can apply for loans
+      // Users can apply for loans, Admins can record loans for anyone
       allow create: if isAuthenticated() && 
-                    request.resource.data.userId == request.auth.uid &&
-                    isValidLoan(request.resource.data) &&
-                    request.resource.data.status == 'pending';
+                    (
+                      (request.resource.data.userId == request.auth.uid && request.resource.data.status == 'pending') ||
+                      isAdmin()
+                    ) &&
+                    isValidLoan(request.resource.data);
       
       // Admins can approve/decline, Users can potentially update if pending (though not required by UI yet)
       allow update: if isAdmin() && isValidLoan(request.resource.data);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
@@ -23,10 +23,12 @@ import {
   deleteDoc, 
   getDocs,
   writeBatch,
-  getDocFromServer
+  getDocFromServer,
+  Timestamp
 } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { UserProfile, Contribution, Loan, LoanPayment } from './types';
+import { read, utils } from 'xlsx';
 import { 
   LogOut, 
   Plus, 
@@ -48,16 +50,24 @@ import {
   IndianRupee,
   Bell,
   Megaphone,
-  Download,
+  ChevronDown,
+  Upload,
   FileSpreadsheet,
+  X,
+  UserPlus,
+  Users,
+  Download,
   FileDown,
-  X
+  Search,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { Notice, AppNotification } from './types';
 
@@ -82,7 +92,9 @@ const getContributionAmount = (month: number, year: number) => {
   // Early or on-time payment
   return MONTHLY_AMOUNT;
 };
-const ADMIN_EMAILS = ['arun2102000@gmail.com', 'unnati@gmail.com', 'arun.cse.rymec@gmail.com'];
+const ADMIN_EMAILS = ['arun2102000@gmail.com', 'unnati.finance2026@gmail.com', 'arun.cse.rymec@gmail.com'];
+const SYSTEM_ADMIN_EMAIL = 'unnati.finance2026@gmail.com';
+const DEV_USER_NAMES = ['System Admin', 'Arun J', 'Anusha JM', 'shwetha JV'];
 const UPI_VPA = "megha24.anand@ybl"; // Payee UPI ID
 const GROUP_NAME = "Unnati Savings Group";
 
@@ -175,6 +187,7 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
   const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices'>('contributions');
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments'>('applications');
   const [isApplyingLoan, setIsApplyingLoan] = useState(false);
@@ -191,7 +204,10 @@ export default function App() {
   const [approvedLoanPopup, setApprovedLoanPopup] = useState<Loan | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [customAmount, setCustomAmount] = useState<number>(1000);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingNotification, setPendingNotification] = useState<string | null>(null);
   const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
@@ -204,11 +220,102 @@ export default function App() {
   const [phoneInput, setPhoneInput] = useState('');
   const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
   const [isTriggeringReminders, setIsTriggeringReminders] = useState(false);
+  const [isAddingLoan, setIsAddingLoan] = useState(false);
+  const [selectedLoanUserId, setSelectedLoanUserId] = useState<string | null>(null);
+  const [adminLoanAmount, setAdminLoanAmount] = useState(10000);
+  const [adminLoanDetails, setAdminLoanDetails] = useState('');
+  const [adminLoanStatus, setAdminLoanStatus] = useState<'pending' | 'approved'>('approved');
+  const [isSubmittingAdminLoan, setIsSubmittingAdminLoan] = useState(false);
+  const [loanDate, setLoanDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
+  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [appliedFilter, setAppliedFilter] = useState<{ month: number; year: number } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
+  const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
+  const [loanSortConfig, setLoanSortConfig] = useState<{ field: 'member' | 'amount' | 'status' | 'date' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
+  const [customPrincipal, setCustomPrincipal] = useState<number>(5000);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
+
+  const handleSort = (field: 'member' | 'date' | 'status') => {
+    setSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const handleSortMembers = (field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status') => {
+    setMemberSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const handleSortLoans = (field: 'member' | 'amount' | 'status' | 'date') => {
+    setLoanSortConfig(prev => ({
+      field,
+      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const addAdminLoan = async () => {
+    if (!isAdmin || !selectedLoanUserId) return;
+    
+    const targetUser = allUsers.find(u => 
+      (selectedLoanUserId && u.uid === selectedLoanUserId) || 
+      (selectedLoanUserId && u.email.toLowerCase() === selectedLoanUserId.toLowerCase())
+    );
+    if (!targetUser) return;
+
+    setIsSubmittingAdminLoan(true);
+    try {
+      const timestampValue = loanDate ? Timestamp.fromDate(new Date(loanDate)) : serverTimestamp();
+      
+      const loanData: any = {
+        userId: targetUser.uid || '',
+        userEmail: targetUser.email,
+        amount: adminLoanAmount,
+        details: adminLoanDetails,
+        status: adminLoanStatus,
+        createdAt: timestampValue
+      };
+
+      if (adminLoanStatus === 'approved') {
+        loanData.approvedAmount = adminLoanAmount;
+        loanData.interestRate = 0.5;
+        loanData.approvedAt = timestampValue;
+        loanData.installments = Math.ceil(adminLoanAmount / 5000);
+      }
+
+      await addDoc(collection(db, 'loans'), loanData);
+      
+      if (targetUser.uid) {
+        createNotification(
+          targetUser.uid, 
+          adminLoanStatus === 'approved' ? "Loan Recorded" : "Loan Application Recorded", 
+          `An admin has recorded a ${adminLoanStatus === 'approved' ? 'approved' : 'pending'} loan of ₹${adminLoanAmount.toLocaleString()} for you.`, 
+          'loan'
+        );
+      }
+
+      setIsAddingLoan(false);
+      setSelectedLoanUserId(null);
+      setAdminLoanAmount(10000);
+      setAdminLoanDetails('');
+      notify('success', `Loan ${adminLoanStatus === 'approved' ? 'recorded and approved' : 'recorded as pending'} successfully!`);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'loans');
+    } finally {
+      setIsSubmittingAdminLoan(false);
+    }
+  };
   const [isSmtpConfigured, setIsSmtpConfigured] = useState(true);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [deletingLoanId, setDeletingLoanId] = useState<string | null>(null);
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [isBulkAdding, setIsBulkAdding] = useState(false);
+  const [showAddMemberDropdown, setShowAddMemberDropdown] = useState(false);
 
   const [activeNoticeToast, setActiveNoticeToast] = useState<Notice | null>(null);
   const [activeNotificationToast, setActiveNotificationToast] = useState<AppNotification | null>(null);
@@ -288,30 +395,142 @@ export default function App() {
   useEffect(() => {
     console.log("App mounted. User:", user?.email, "isAdmin:", isAdmin);
   }, [user, isAdmin]);
-  const hasActiveLoan = loans.some(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'pending'));
-  const myContributions = contributions.filter(c => c.userId === (user?.uid || 'local-admin'));
+  const hasActiveLoan = loans.some(l => 
+    (l.userId === user?.uid || (user?.email && l.userEmail === user.email)) && 
+    (l.status === 'approved' || l.status === 'pending')
+  );
+  const myContributions = contributions.filter(c => 
+    (user?.uid && c.userId === user.uid) || 
+    (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())
+  );
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
-  const hasPaidCurrent = contributions.some(c => c.userId === (user?.uid || 'local-admin') && c.month === currentMonth && c.year === currentYear && c.status === 'paid');
-  const hasPendingCurrent = contributions.some(c => c.userId === (user?.uid || 'local-admin') && c.month === currentMonth && c.year === currentYear && c.status === 'pending');
+  const hasPaidCurrent = contributions.some(c => 
+    ((user?.uid && c.userId === user.uid) || (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())) && 
+    c.month === currentMonth && 
+    c.year === currentYear && 
+    c.status === 'paid'
+  );
+  const hasPendingCurrent = contributions.some(c => 
+    ((user?.uid && c.userId === user.uid) || (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())) && 
+    c.month === currentMonth && 
+    c.year === currentYear && 
+    c.status === 'pending'
+  );
   const isLate = !hasPaidCurrent && !hasPendingCurrent && new Date().getDate() > DUE_DAY;
 
-  const calculateLoanRemainingTotal = (l: Loan, payments: LoanPayment[]) => {
-    const principalPerMonth = l.approvedAmount! / (l.installments || 10);
-    let totalRemaining = 0;
+  const sortedContributions = useMemo(() => {
+    if (!appliedFilter) return [];
     
-    for (let i = 0; i < (l.installments || 10); i++) {
-      const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
-      const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-      const m = installmentDate.getMonth() + 1;
-      const y = installmentDate.getFullYear();
-      
-      const isPaid = payments.some(p => p.month === m && p.year === y);
-      if (!isPaid) {
-        const remainingPrincipalAtStart = l.approvedAmount! - (i * principalPerMonth);
-        const interest = remainingPrincipalAtStart * 0.005;
-        totalRemaining += (principalPerMonth + interest);
-      }
+    let items = (isAdmin ? contributions : myContributions)
+      .filter(c => c.month === appliedFilter.month && c.year === appliedFilter.year);
+
+    if (isAdmin && searchQuery) {
+      const query = searchQuery.toLowerCase();
+      items = items.filter(c => {
+        const user = allUsers.find(u => (c.userId && u.uid === c.userId) || (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase()));
+        return (
+          user?.displayName?.toLowerCase().includes(query) ||
+          c.userEmail?.toLowerCase().includes(query) ||
+          c.amount.toString().includes(query) ||
+          c.status.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    if (isAdmin && paymentMethodFilter !== 'all') {
+      items = items.filter(c => {
+        if (paymentMethodFilter === 'online') {
+          return c.paymentMethod === 'online' || !c.paymentMethod;
+        }
+        return c.paymentMethod === 'cash';
+      });
+    }
+
+    if (sortConfig.field) {
+      items = [...items].sort((a, b) => {
+        if (sortConfig.field === 'member') {
+          const nameA = allUsers.find(u => (a.userId && u.uid === a.userId) || (a.userEmail && u.email.toLowerCase() === a.userEmail.toLowerCase()))?.displayName || a.userEmail.split('@')[0];
+          const nameB = allUsers.find(u => (b.userId && u.uid === b.userId) || (b.userEmail && u.email.toLowerCase() === b.userEmail.toLowerCase()))?.displayName || b.userEmail.split('@')[0];
+          return sortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+        } else if (sortConfig.field === 'date') {
+          const dateA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : 0;
+          const dateB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : 0;
+          return sortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
+        } else if (sortConfig.field === 'status') {
+          return sortConfig.direction === 'asc' ? a.status.localeCompare(b.status) : b.status.localeCompare(a.status);
+        }
+        return 0;
+      });
+    }
+    return items;
+  }, [contributions, myContributions, isAdmin, appliedFilter, sortConfig, allUsers, searchQuery, paymentMethodFilter]);
+
+  const sortedMembers = useMemo(() => {
+    let items = allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL);
+    
+    if (isAdmin && searchQuery) {
+      const query = searchQuery.toLowerCase();
+      items = items.filter(u => 
+        u.displayName?.toLowerCase().includes(query) ||
+        u.email?.toLowerCase().includes(query) ||
+        u.phoneNumber?.toLowerCase().includes(query) ||
+        u.role.toLowerCase().includes(query)
+      );
+    }
+
+    if (memberSortConfig.field) {
+      items = [...items].sort((a, b) => {
+        const aContribs = contributions.filter(c => (a.uid && c.userId === a.uid) || (a.email && c.userEmail?.toLowerCase() === a.email.toLowerCase()));
+        const bContribs = contributions.filter(c => (b.uid && c.userId === b.uid) || (b.email && c.userEmail?.toLowerCase() === b.email.toLowerCase()));
+        
+        switch (memberSortConfig.field) {
+          case 'name':
+            const nameA = a.displayName || '';
+            const nameB = b.displayName || '';
+            return memberSortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+          case 'contact':
+            const emailA = a.email || '';
+            const emailB = b.email || '';
+            return memberSortConfig.direction === 'asc' ? emailA.localeCompare(emailB) : emailB.localeCompare(emailA);
+          case 'joinDate':
+            const dateA = a.joinDate || '';
+            const dateB = b.joinDate || '';
+            return memberSortConfig.direction === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+          case 'totalPaid':
+            const totalA = aContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
+            const totalB = bContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
+            return memberSortConfig.direction === 'asc' ? totalA - totalB : totalB - totalA;
+          case 'status':
+            const paidA = aContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
+            const paidB = bContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
+            return memberSortConfig.direction === 'asc' ? (paidA === paidB ? 0 : paidA ? -1 : 1) : (paidA === paidB ? 0 : paidA ? 1 : -1);
+          default:
+            return 0;
+        }
+      });
+    }
+    return items;
+  }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery]);
+
+  const calculateLoanRemainingTotal = (l: Loan, payments: LoanPayment[]) => {
+    const paidPayments = payments.filter(p => p.status === 'paid');
+    const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
+    const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
+    
+    if (remainingPrincipal <= 0) return 0;
+
+    // Estimate remaining total (Principal + Interest)
+    // We assume the user continues to pay the standard principal (e.g. 5000) or whatever is left
+    const standardPrincipal = l.approvedAmount! / (l.installments || 10);
+    const remainingInstallments = Math.ceil(remainingPrincipal / standardPrincipal);
+    
+    let totalRemaining = 0;
+    for (let i = 0; i < remainingInstallments; i++) {
+      const currentBalance = remainingPrincipal - (i * standardPrincipal);
+      const interest = Math.max(0, currentBalance * 0.005);
+      const principalForThisMonth = i === remainingInstallments - 1 ? (remainingPrincipal % standardPrincipal || standardPrincipal) : standardPrincipal;
+      totalRemaining += (principalForThisMonth + interest);
     }
     return totalRemaining;
   };
@@ -335,7 +554,96 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    const backfillUserData = async (uid: string, email: string) => {
+      if (!email) return;
+      try {
+        const batch = writeBatch(db);
+        let hasChanges = false;
+
+        // 1. Contributions
+        const contribsQuery = query(
+          collection(db, 'contributions'), 
+          where('userEmail', '==', email)
+        );
+        const contribsSnap = await getDocs(contribsQuery);
+        contribsSnap.docs.forEach(doc => {
+          const data = doc.data();
+          if (!data.userId || data.userId === '') {
+            batch.update(doc.ref, { userId: uid });
+            hasChanges = true;
+          }
+        });
+
+        // 2. Notifications (where userId might be the email)
+        const notificationsQuery = query(
+          collection(db, 'notifications'), 
+          where('userId', '==', email)
+        );
+        const notificationsSnap = await getDocs(notificationsQuery);
+        notificationsSnap.docs.forEach(doc => {
+          batch.update(doc.ref, { userId: uid });
+          hasChanges = true;
+        });
+
+        // 3. Loans
+        const loansQuery = query(
+          collection(db, 'loans'), 
+          where('userEmail', '==', email)
+        );
+        const loansSnap = await getDocs(loansQuery);
+        loansSnap.docs.forEach(doc => {
+          const data = doc.data();
+          if (!data.userId || data.userId === '') {
+            batch.update(doc.ref, { userId: uid });
+            hasChanges = true;
+          }
+        });
+
+        // 4. Loan Payments
+        const loanPaymentsQuery = query(
+          collection(db, 'loanPayments'), 
+          where('userEmail', '==', email)
+        );
+        const loanPaymentsSnap = await getDocs(loanPaymentsQuery);
+        loanPaymentsSnap.docs.forEach(doc => {
+          const data = doc.data();
+          if (!data.userId || data.userId === '') {
+            batch.update(doc.ref, { userId: uid });
+            hasChanges = true;
+          }
+        });
+
+        // 5. Clean up email-keyed user document if it exists separately
+        const emailRef = doc(db, 'users', email);
+        if (email !== uid) {
+          const emailSnap = await getDoc(emailRef);
+          if (emailSnap.exists()) {
+            batch.delete(emailRef);
+            hasChanges = true;
+          }
+        }
+
+        if (hasChanges) {
+          await batch.commit();
+          console.log(`Backfilled data and cleaned up duplicate doc for user ${email}`);
+        }
+      } catch (err) {
+        console.error("Error backfilling user data:", err);
+      }
+    };
+
     const testConnection = async () => {
+      try {
+        // Mandatory Firestore connection test
+        await getDocFromServer(doc(db, 'test', 'connection'));
+        console.log("Firestore connection verified.");
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. The client is offline.");
+        }
+        // Skip logging for other errors, as this is simply a connection test.
+      }
+
       try {
         // Use a timeout for the health check to prevent hanging
         const controller = new AbortController();
@@ -374,12 +682,15 @@ export default function App() {
             await setDoc(userRef, updatedProfile);
             await deleteDoc(emailRef); // Remove the email-keyed doc
             setProfile(updatedProfile);
+            
+            // Backfill contributions and notifications
+            backfillUserData(firebaseUser.uid, email);
           } else {
             // Create new
             const newProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: email,
-              displayName: firebaseUser.displayName || (email === 'unnati@gmail.com' ? 'System Admin' : ''),
+              displayName: firebaseUser.displayName || (email === 'unnati.finance2026@gmail.com' ? 'System Admin' : ''),
               role: ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
               joinDate: format(new Date(), 'yyyy-MM-dd')
             };
@@ -416,6 +727,11 @@ export default function App() {
             setProfile(profileData);
           }
 
+          // Always attempt backfill in case some records were added by email while user was already registered
+          if (firebaseUser.email) {
+            backfillUserData(firebaseUser.uid, firebaseUser.email);
+          }
+          
           if (!profileData.phoneNumber) {
             setShowPhonePrompt(true);
           }
@@ -444,7 +760,17 @@ export default function App() {
 
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as UserProfile);
-      setAllUsers(data);
+      // Ensure uniqueness by email to prevent double counting if a user has both UID and Email docs
+      // Prioritize entries that have a UID
+      const uniqueUsersMap = new Map<string, UserProfile>();
+      data.forEach(u => {
+        const email = u.email.toLowerCase();
+        const existing = uniqueUsersMap.get(email);
+        if (!existing || (!existing.uid && u.uid)) {
+          uniqueUsersMap.set(email, u);
+        }
+      });
+      setAllUsers(Array.from(uniqueUsersMap.values()));
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, 'users');
     });
@@ -522,8 +848,8 @@ export default function App() {
       return;
     }
 
-    // Map 'unnati' to 'unnati@gmail.com'
-    const loginEmail = inputUsername === 'unnati' ? 'unnati@gmail.com' : inputUsername;
+    // Map 'unnati' to 'unnati.finance2026@gmail.com'
+    const loginEmail = inputUsername === 'unnati' ? 'unnati.finance2026@gmail.com' : inputUsername;
 
     setIsLoggingIn(true);
     setShowInitButton(false);
@@ -547,7 +873,7 @@ export default function App() {
         errorMessage.includes('auth/invalid-credential') ||
         errorMessage.includes('auth/user-not-found')
       ) {
-        if (inputUsername === 'unnati') {
+        if (inputUsername === 'unnati' || loginEmail === 'unnati.finance2026@gmail.com' || loginEmail === 'arun2102000@gmail.com') {
           setShowInitButton(true);
           notify('error', "Admin account not found or wrong password. If you haven't initialized the admin account yet, you can do so below.");
         } else {
@@ -565,7 +891,7 @@ export default function App() {
     setIsLoggingIn(true);
     try {
       const inputUsername = credentials.username.toLowerCase().trim();
-      const loginEmail = inputUsername === 'unnati' ? 'unnati@gmail.com' : inputUsername;
+      const loginEmail = inputUsername === 'unnati' ? 'unnati.finance2026@gmail.com' : inputUsername;
       const password = credentials.password.trim();
       
       const userCredential = await createUserWithEmailAndPassword(auth, loginEmail, password);
@@ -686,32 +1012,47 @@ export default function App() {
     window.location.reload();
   };
 
-  const addContribution = async (month: number, year: number, targetUserId?: string, status: 'paid' | 'pending' = 'paid') => {
+  useEffect(() => {
+    setCustomAmount(getContributionAmount(selectedMonth, selectedYear));
+  }, [selectedMonth, selectedYear, isAdding]);
+
+  const addContribution = async (month: number, year: number, targetUserId?: string, status: 'paid' | 'pending' = 'paid', customDate?: string, amount?: number, method?: 'cash' | 'online') => {
     if (!user || !profile) return;
     
     const uid = targetUserId || user.uid;
     // Find user by UID or Email (since pre-added users use email as ID)
-    const targetUser = allUsers.find(u => u.uid === uid || u.email === uid);
+    const targetUser = allUsers.find(u => 
+      (uid && u.uid === uid) || 
+      (uid && u.email.toLowerCase() === uid.toLowerCase())
+    );
     if (!targetUser) return;
 
-    const existing = contributions.find(c => (c.userId === uid || c.userEmail === targetUser.email) && c.month === month && c.year === year);
+    const existing = contributions.find(c => 
+      ((uid && c.userId === uid) || (targetUser.email && c.userEmail?.toLowerCase() === targetUser.email.toLowerCase())) && 
+      c.month === month && c.year === year
+    );
     if (existing) {
       notify('error', "Contribution for this month already recorded.");
       return;
     }
 
     try {
-      const amount = getContributionAmount(month, year);
+      const finalAmount = amount !== undefined ? amount : getContributionAmount(month, year);
+      const timestampValue = customDate ? Timestamp.fromDate(new Date(customDate)) : serverTimestamp();
+      
       await addDoc(collection(db, 'contributions'), {
-        userId: targetUser.uid || '',
+        userId: targetUser.uid || null,
         userEmail: targetUser.email,
         month,
         year,
-        amount,
+        amount: finalAmount,
         status,
-        timestamp: serverTimestamp()
+        paymentMethod: method || 'online',
+        timestamp: timestampValue
       });
       setIsAdding(false);
+      setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+      setPaymentMethod('online'); // Reset to default
       
       if (status === 'pending') {
         notify('success', "Payment recorded as pending! The administrator will verify and approve your payment shortly.");
@@ -733,7 +1074,10 @@ export default function App() {
       
       // Send WhatsApp confirmation if possible (PWC feature)
       if (contrib) {
-        const targetUser = allUsers.find(u => u.uid === contrib.userId || u.email === contrib.userEmail);
+        const targetUser = allUsers.find(u => 
+          (contrib.userId && u.uid === contrib.userId) || 
+          (contrib.userEmail && u.email.toLowerCase() === contrib.userEmail.toLowerCase())
+        );
         if (targetUser && targetUser.phoneNumber) {
           const monthName = format(new Date(contrib.year, contrib.month - 1), 'MMMM');
           const message = `Hi ${targetUser.displayName || 'Member'}, your Unnati contribution of ₹${contrib.amount.toLocaleString()} for ${monthName} ${contrib.year} has been successfully verified and approved. Thank you!`;
@@ -751,6 +1095,13 @@ export default function App() {
   const addMember = async () => {
     if (profile?.role !== 'admin') return;
     if (!newMember.email || !newMember.name) return;
+
+    // Check if user already exists
+    const existing = allUsers.find(u => u.email.toLowerCase() === newMember.email.toLowerCase());
+    if (existing) {
+      notify('error', "A member with this email already exists.");
+      return;
+    }
 
     try {
       // Use email as ID for pre-added users
@@ -786,9 +1137,112 @@ export default function App() {
     }
   };
 
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        // Use cellDates: true to handle Excel dates correctly
+        const wb = read(bstr, { type: 'binary', cellDates: true });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = utils.sheet_to_json(ws) as any[];
+
+        let addedCount = 0;
+        let skippedCount = 0;
+        const batch = writeBatch(db);
+        const addedUsers: { email: string, name: string }[] = [];
+
+        for (const row of data) {
+          const name = String(row['username'] || row['name'] || row['Name'] || row['Username'] || row['Display Name'] || '').trim();
+          const email = String(row['email'] || row['Email'] || '').trim().toLowerCase();
+          const phoneNumber = String(row['phone number'] || row['phone'] || row['Phone'] || row['PhoneNumber'] || row['Mobile'] || '').trim();
+          let joinDate = row['date of joining'] || row['join date'] || row['JoinDate'] || row['Joining Date'];
+          
+          // Handle potential Excel date objects or serial numbers
+          if (joinDate instanceof Date) {
+            joinDate = format(joinDate, 'yyyy-MM-dd');
+          } else if (typeof joinDate === 'number') {
+            // Handle Excel serial date (46023 -> 2026-01-01)
+            const date = new Date(Math.round((joinDate - 25569) * 86400 * 1000));
+            joinDate = format(date, 'yyyy-MM-dd');
+          } else if (joinDate) {
+            joinDate = String(joinDate).trim();
+          } else {
+            joinDate = format(new Date(), 'yyyy-MM-dd');
+          }
+
+          if (!email || !name) {
+            skippedCount++;
+            continue;
+          }
+
+          const existing = allUsers.find(u => u.email.toLowerCase() === email);
+          if (existing) {
+            skippedCount++;
+            continue;
+          }
+
+          const userRef = doc(db, 'users', email);
+          batch.set(userRef, {
+            uid: null, // Use null for pre-added users
+            email: email,
+            displayName: name,
+            phoneNumber: phoneNumber,
+            role: 'user',
+            joinDate: joinDate
+          });
+          addedCount++;
+          addedUsers.push({ email, name });
+        }
+
+        if (addedCount > 0) {
+          await batch.commit();
+          
+          // Send welcome emails for all added users
+          let emailSuccessCount = 0;
+          let emailFailCount = 0;
+          
+          const emailPromises = addedUsers.map(async (u) => {
+            try {
+              const res = await fetch('/api/admin/send-welcome-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: u.email, name: u.name })
+              });
+              if (res.ok) emailSuccessCount++;
+              else emailFailCount++;
+            } catch (err) {
+              console.error(`Failed to send welcome email to ${u.email}:`, err);
+              emailFailCount++;
+            }
+          });
+          
+          await Promise.all(emailPromises);
+          
+          if (emailFailCount > 0) {
+            notify('info', `Bulk upload complete: ${addedCount} members added. Emails: ${emailSuccessCount} sent, ${emailFailCount} failed.`);
+          } else {
+            notify('success', `Bulk upload complete: ${addedCount} members added and all welcome emails sent!`);
+          }
+        }
+
+        notify('success', `Bulk upload complete: ${addedCount} members added, ${skippedCount} skipped.`);
+        setIsBulkAdding(false);
+      } catch (err) {
+        console.error("Bulk upload error:", err);
+        notify('error', "Failed to process XLS file. Please ensure it's a valid Excel file.");
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const deleteUser = async (id: string) => {
     if (profile?.role !== 'admin') return;
-    if (id === 'arun2102000@gmail.com' || id === 'unnati@gmail.com') {
+    if (id === 'arun2102000@gmail.com' || id === 'unnati.finance2026@gmail.com') {
       notify('error', "Cannot delete primary administrators.");
       return;
     }
@@ -805,7 +1259,10 @@ export default function App() {
       contribsSnap.forEach(d => batch.delete(d.ref));
       
       // Also check by email if it's a pre-added user
-      const targetUser = allUsers.find(u => u.uid === id || u.email === id);
+      const targetUser = allUsers.find(u => 
+        (id && u.uid === id) || 
+        (id && u.email.toLowerCase() === id.toLowerCase())
+      );
       if (targetUser && targetUser.email) {
         const contribsEmailQuery = query(collection(db, 'contributions'), where('userEmail', '==', targetUser.email));
         const contribsEmailSnap = await getDocs(contribsEmailQuery);
@@ -869,7 +1326,8 @@ export default function App() {
         await updateDoc(userRef, {
           displayName: editingUser.displayName,
           phoneNumber: editingUser.phoneNumber,
-          email: editingUser.email
+          email: editingUser.email,
+          joinDate: editingUser.joinDate
         });
       }
       setEditingUser(null);
@@ -913,6 +1371,20 @@ export default function App() {
     window.location.href = mailtoUrl;
   };
 
+  const updateContribution = async () => {
+    if (profile?.role !== 'admin' || !editingContribution) return;
+    try {
+      await updateDoc(doc(db, 'contributions', editingContribution.id!), {
+        amount: editingContribution.amount,
+        status: editingContribution.status
+      });
+      notify('success', "Contribution updated successfully.");
+      setEditingContribution(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `contributions/${editingContribution.id}`);
+    }
+  };
+
   const updateStatus = async (id: string, status: 'paid' | 'pending') => {
     if (profile?.role !== 'admin') return;
     try {
@@ -942,7 +1414,7 @@ export default function App() {
 
   const toggleUserRole = async (targetUser: UserProfile) => {
     if (profile?.role !== 'admin') return;
-    if (targetUser.email === 'arun2102000@gmail.com' || targetUser.email === 'unnati@gmail.com') {
+    if (targetUser.email === 'arun2102000@gmail.com' || targetUser.email === 'unnati.finance2026@gmail.com') {
       notify('error', "Cannot change role of the primary administrators.");
       return;
     }
@@ -1002,7 +1474,7 @@ export default function App() {
         type,
         read: false,
         createdAt: serverTimestamp(),
-        link
+        link: link || null
       });
     } catch (err) {
       console.error("Failed to create notification:", err);
@@ -1020,10 +1492,10 @@ export default function App() {
         createdAt: serverTimestamp()
       });
       
-      // Notify all users about new high priority notice
+      // Send notifications to all users
       if (newNotice.priority === 'high') {
         allUsers.forEach(u => {
-          if (u.uid) createNotification(u.uid, "New Important Notice", newNotice.title, 'notice');
+          createNotification(u.uid || u.email, "New Important Notice", newNotice.title, 'notice');
         });
       }
 
@@ -1059,11 +1531,14 @@ export default function App() {
     const wb = XLSX.utils.book_new();
 
     // Master Report
-    const masterReport = allUsers.map(u => {
-      const userContribs = contributions.filter(c => c.userId === u.uid || c.userEmail === u.email);
+    const masterReport = allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map(u => {
+      const userContribs = contributions.filter(c => 
+        (u.uid && c.userId === u.uid) || 
+        (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())
+      );
       const totalDeposited = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
       
-      const userLoans = loans.filter(l => l.userId === u.uid || l.userEmail === u.email);
+      const userLoans = loans.filter(l => (u.uid && l.userId === u.uid) || (u.email && l.userEmail === u.email));
       const activeLoan = userLoans.find(l => l.status === 'approved' || l.status === 'paid');
       const hasLoan = !!activeLoan;
       
@@ -1093,14 +1568,21 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, masterWS, "Master Report");
 
     // All Contributions
-    const contribsWS = XLSX.utils.json_to_sheet(contributions.map(c => ({
-      Member: c.userEmail,
-      Month: format(new Date(c.year, c.month - 1), 'MMMM'),
-      Year: c.year,
-      Amount: c.amount,
-      Status: c.status,
-      Date: c.timestamp?.toDate ? format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm') : 'N/A'
-    })));
+    const contribsWS = XLSX.utils.json_to_sheet(contributions.map(c => {
+      const u = allUsers.find(user => 
+        (c.userId && user.uid === c.userId) || 
+        (c.userEmail && user.email.toLowerCase() === c.userEmail.toLowerCase())
+      );
+      return {
+        Member: u?.displayName || c.userEmail.split('@')[0],
+        Month: format(new Date(c.year, c.month - 1), 'MMMM'),
+        Year: c.year,
+        Amount: c.amount,
+        Status: c.status.toUpperCase(),
+        'Payment Method': c.paymentMethod ? c.paymentMethod.toUpperCase() : 'ONLINE',
+        Date: c.timestamp?.toDate ? format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm') : 'N/A'
+      };
+    }));
     XLSX.utils.book_append_sheet(wb, contribsWS, "All Contributions");
 
     XLSX.writeFile(wb, `Unnati_Admin_Master_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
@@ -1110,7 +1592,9 @@ export default function App() {
   const exportUserStatementToExcel = () => {
     if (!user) return;
     const wb = XLSX.utils.book_new();
-    const userContribs = contributions.filter(c => c.userId === user.uid && c.status === 'paid');
+    const userContribs = contributions.filter(c => 
+      ((user.uid && c.userId === user.uid) || (user.email && c.userEmail?.toLowerCase() === user.email.toLowerCase()))
+    );
     
     const statementData = userContribs.sort((a,b) => b.year - a.year || b.month - a.month).map(c => ({
       'Date': c.timestamp?.toDate ? format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm') : 'N/A',
@@ -1126,70 +1610,239 @@ export default function App() {
     notify('success', "Statement exported to Excel");
   };
 
+  const sortedLoans = useMemo(() => {
+    let items = [...loans];
+    
+    if (isAdmin && searchQuery) {
+      const query = searchQuery.toLowerCase();
+      items = items.filter(l => 
+        l.userEmail?.toLowerCase().includes(query) ||
+        l.amount.toString().includes(query) ||
+        l.status.toLowerCase().includes(query) ||
+        l.details?.toLowerCase().includes(query)
+      );
+    }
+
+    if (loanSortConfig.field) {
+      items = [...items].sort((a, b) => {
+        switch (loanSortConfig.field) {
+          case 'member':
+            const userA = allUsers.find(u => (a.userId && u.uid === a.userId) || (a.userEmail && u.email.toLowerCase() === a.userEmail.toLowerCase()));
+            const userB = allUsers.find(u => (b.userId && u.uid === b.userId) || (b.userEmail && u.email.toLowerCase() === b.userEmail.toLowerCase()));
+            const nameA = userA?.displayName || a.userEmail || '';
+            const nameB = userB?.displayName || b.userEmail || '';
+            return loanSortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+          case 'amount':
+            return loanSortConfig.direction === 'asc' ? a.amount - b.amount : b.amount - a.amount;
+          case 'status':
+            return loanSortConfig.direction === 'asc' ? a.status.localeCompare(b.status) : b.status.localeCompare(a.status);
+          case 'date':
+            const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+            const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+            return loanSortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
+          default:
+            return 0;
+        }
+      });
+    } else {
+      items.sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+        return dateB - dateA;
+      });
+    }
+
+    return items;
+  }, [loans, isAdmin, searchQuery, loanSortConfig, allUsers]);
+
+  const filteredLoanPayments = useMemo(() => {
+    let items = [...loanPayments];
+    if (isAdmin && searchQuery) {
+      const query = searchQuery.toLowerCase();
+      items = items.filter(p => {
+        const targetUser = allUsers.find(u => u.uid === p.userId);
+        return (
+          targetUser?.displayName?.toLowerCase().includes(query) ||
+          targetUser?.email?.toLowerCase().includes(query) ||
+          p.amount.toString().includes(query) ||
+          p.interest.toString().includes(query)
+        );
+      });
+    }
+    return items;
+  }, [loanPayments, isAdmin, searchQuery, allUsers]);
+
   const generateMemberStatement = (targetUserId: string) => {
-    const targetUser = allUsers.find(u => u.uid === targetUserId);
-    if (!targetUser) return;
+    try {
+      console.log("Generating statement for user:", targetUserId);
+      // Find user by UID or by email if UID is not yet set in the profile
+      const targetUser = allUsers.find(u => 
+        u.uid === targetUserId || 
+        (user?.email && u.email.toLowerCase() === user.email.toLowerCase())
+      );
+      
+      if (!targetUser) {
+        console.error("User not found in allUsers list for statement generation. targetUserId:", targetUserId, "currentUserEmail:", user?.email);
+        notify('error', "Could not find member profile for statement. Please try refreshing.");
+        return;
+      }
 
-    const doc = new jsPDF();
-    const userContribs = contributions.filter(c => c.userId === targetUserId && c.status === 'paid');
-    const userLoans = loans.filter(l => l.userId === targetUserId);
-    
-    // Header
-    doc.setFontSize(20);
-    doc.setTextColor(79, 70, 229); // Indigo-600
-    doc.text("UNNATI - Member Statement", 105, 20, { align: 'center' });
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 28, { align: 'center' });
+      console.log("Found targetUser:", targetUser.email);
 
-    // Member Info
-    doc.setFontSize(12);
-    doc.setTextColor(0);
-    doc.text(`Member Name: ${targetUser.displayName || 'N/A'}`, 20, 45);
-    doc.text(`Email: ${targetUser.email}`, 20, 52);
-    doc.text(`Join Date: ${targetUser.joinDate || 'N/A'}`, 20, 59);
+      const doc = new jsPDF();
+      const userContribs = contributions.filter(c => 
+        (c.userId === targetUserId) || 
+        (targetUser.email && c.userEmail?.toLowerCase() === targetUser.email.toLowerCase())
+      );
+      
+      const userLoans = loans.filter(l => 
+        (l.userId === targetUserId) || 
+        (targetUser.email && l.userEmail?.toLowerCase() === targetUser.email.toLowerCase())
+      );
 
-    // Summary
-    const totalSaved = userContribs.reduce((acc, c) => acc + c.amount, 0);
-    doc.setDrawColor(200);
-    doc.line(20, 65, 190, 65);
-    doc.setFont(undefined, 'bold');
-    doc.text(`Total Contributions: Rs. ${totalSaved.toLocaleString()}`, 20, 75);
-    doc.setFont(undefined, 'normal');
+      const userLoanPayments = loanPayments.filter(p => 
+        (p.userId === targetUserId) ||
+        (targetUser.email && allUsers.find(u => u.uid === p.userId)?.email.toLowerCase() === targetUser.email.toLowerCase())
+      );
 
-    // Contributions Table
-    doc.text("Recent Contributions", 20, 90);
-    (doc as any).autoTable({
-      startY: 95,
-      head: [['Month', 'Year', 'Amount', 'Status']],
-      body: userContribs.sort((a,b) => b.year - a.year || b.month - a.month).slice(0, 12).map(c => [
-        format(new Date(c.year, c.month - 1), 'MMMM'),
-        c.year,
-        `Rs. ${c.amount}`,
-        c.status.toUpperCase()
-      ]),
-      theme: 'striped',
-      headStyles: { fillColor: [79, 70, 229] }
-    });
+      console.log(`Found ${userContribs.length} contributions, ${userLoans.length} loans, and ${userLoanPayments.length} loan payments`);
+      
+      // Header
+      doc.setFontSize(20);
+      doc.setTextColor(79, 70, 229); // Indigo-600
+      doc.text("UNNATI - Member Statement", 105, 20, { align: 'center' });
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 28, { align: 'center' });
 
-    // Loans Section
-    const finalY = (doc as any).lastAutoTable.finalY || 150;
-    doc.text("Loan Summary", 20, finalY + 15);
-    (doc as any).autoTable({
-      startY: finalY + 20,
-      head: [['Amount', 'Status', 'Date']],
-      body: userLoans.map(l => [
-        `Rs. ${l.amount}`,
-        l.status.toUpperCase(),
-        l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'N/A'
-      ]),
-      theme: 'grid',
-      headStyles: { fillColor: [79, 70, 229] }
-    });
+      // Member Info
+      doc.setFontSize(12);
+      doc.setTextColor(0);
+      doc.text(`Member Name: ${targetUser.displayName || 'N/A'}`, 20, 45);
+      doc.text(`Email: ${targetUser.email}`, 20, 52);
+      doc.text(`Join Date: ${targetUser.joinDate || 'N/A'}`, 20, 59);
 
-    doc.save(`Unnati_Statement_${targetUser.displayName?.replace(/\s+/g, '_')}.pdf`);
-    notify('success', "Statement generated");
+      // Summary
+      const totalSaved = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + (c.amount || 0), 0);
+      const totalLoanPaid = userLoanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.amount || 0), 0);
+      const totalInterestPaid = userLoanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.interest || 0), 0);
+
+      doc.setDrawColor(200);
+      doc.line(20, 65, 190, 65);
+      doc.setFont(undefined, 'bold');
+      doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString()}`, 20, 75);
+      doc.text(`Total Loan Principal Paid: Rs. ${totalLoanPaid.toLocaleString()}`, 20, 82);
+      doc.text(`Total Interest Paid: Rs. ${totalInterestPaid.toLocaleString()}`, 20, 89);
+      doc.setFont(undefined, 'normal');
+
+      // Contributions Table
+      doc.text("Contribution History", 20, 105);
+      const contributionRows = userContribs
+        .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
+        .map(c => {
+          let monthName = 'N/A';
+          try {
+            if (c.year && c.month) {
+              monthName = format(new Date(c.year, c.month - 1), 'MMMM');
+            }
+          } catch (e) {
+            console.error("Error formatting date for contribution:", c);
+          }
+          
+          let paymentDateTime = 'N/A';
+          if (c.timestamp) {
+            try {
+              const date = c.timestamp.toDate ? c.timestamp.toDate() : new Date(c.timestamp);
+              paymentDateTime = format(date, 'MMM dd, yyyy p');
+            } catch (e) {
+              console.error("Error formatting timestamp:", e);
+            }
+          }
+
+          return [
+            monthName,
+            c.year || 'N/A',
+            paymentDateTime,
+            (c.paymentMethod || 'N/A').toUpperCase(),
+            `Rs. ${(c.amount || 0).toLocaleString()}`,
+            (c.status || 'N/A').toUpperCase()
+          ];
+        });
+
+      autoTable(doc, {
+        startY: 110,
+        head: [['Month', 'Year', 'Date & Time', 'Payment Mode', 'Amount', 'Status']],
+        body: contributionRows,
+        theme: 'striped',
+        headStyles: { fillColor: [79, 70, 229] }
+      });
+
+      // Loan Repayments Section
+      let finalY = (doc as any).lastAutoTable?.finalY || 150;
+      if (userLoanPayments.length > 0) {
+        if (finalY > 240) {
+          doc.addPage();
+          finalY = 20;
+        }
+        doc.text("Loan Repayment History", 20, finalY + 15);
+        const loanPaymentRows = userLoanPayments
+          .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
+          .map(p => {
+            let monthName = 'N/A';
+            try {
+              if (p.year && p.month) {
+                monthName = format(new Date(p.year, p.month - 1), 'MMMM');
+              }
+            } catch (e) {
+              console.error("Error formatting date for loan payment:", p);
+            }
+            return [
+              monthName,
+              p.year || 'N/A',
+              `Rs. ${(p.amount || 0).toLocaleString()}`,
+              `Rs. ${(p.interest || 0).toLocaleString()}`,
+              (p.status || 'N/A').toUpperCase()
+            ];
+          });
+
+        autoTable(doc, {
+          startY: finalY + 20,
+          head: [['Month', 'Year', 'Principal', 'Interest', 'Status']],
+          body: loanPaymentRows,
+          theme: 'striped',
+          headStyles: { fillColor: [16, 185, 129] } // Emerald-600
+        });
+        finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
+      }
+
+      // Loans Summary Section
+      if (userLoans.length > 0) {
+        if (finalY > 240) {
+          doc.addPage();
+          finalY = 20;
+        }
+        doc.text("Loan Summary", 20, finalY + 15);
+        autoTable(doc, {
+          startY: finalY + 20,
+          head: [['Date', 'Amount', 'Status']],
+          body: userLoans.map(l => [
+            l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'N/A',
+            `Rs. ${(l.amount || 0).toLocaleString()}`,
+            (l.status || 'N/A').toUpperCase()
+          ]),
+          theme: 'grid',
+          headStyles: { fillColor: [79, 70, 229] }
+        });
+      }
+
+      const fileName = `Unnati_Statement_${(targetUser.displayName || targetUser.email || 'Member').replace(/\s+/g, '_')}.pdf`;
+      doc.save(fileName);
+      notify('success', "Statement generated successfully!");
+    } catch (err: any) {
+      console.error("Failed to generate PDF statement:", err);
+      notify('error', `Failed to generate PDF: ${err.message || 'Unknown error'}`);
+    }
   };
 
   const calculateDividends = () => {
@@ -1236,6 +1889,43 @@ export default function App() {
     }
   };
 
+  const approveLoanPayment = async (payment: LoanPayment) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      await updateDoc(doc(db, 'loanPayments', payment.id!), {
+        status: 'paid',
+        approvedAt: serverTimestamp()
+      });
+
+      // Check if this was the last payment for the loan
+      const loan = loans.find(l => l.id === payment.loanId);
+      if (loan) {
+        const currentPaidPayments = loanPayments.filter(p => p.loanId === loan.id && (p.status === 'paid' || p.id === payment.id));
+        const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0);
+        
+        if (totalPrincipalPaid >= loan.approvedAmount!) {
+          await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+          createNotification(payment.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString()} is now fully paid.`, 'loan');
+        }
+      }
+
+      createNotification(payment.userId, "Loan Payment Approved", `Your loan payment for ${format(new Date(payment.year, payment.month - 1), 'MMMM yyyy')} has been approved.`, 'payment');
+      notify('success', "Loan payment approved.");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.UPDATE, `loanPayments/${payment.id}`);
+    }
+  };
+
+  const declineLoanPayment = async (paymentId: string) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      await deleteDoc(doc(db, 'loanPayments', paymentId));
+      notify('success', "Loan payment request declined and removed.");
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, `loanPayments/${paymentId}`);
+    }
+  };
+
   const deleteLoan = async (loanId: string) => {
     if (profile?.role !== 'admin') return;
     try {
@@ -1252,22 +1942,17 @@ export default function App() {
       await addDoc(collection(db, 'loanPayments'), {
         loanId: loan.id,
         userId: user.uid,
+        userEmail: user.email,
         month,
         year,
         amount,
         interest,
-        status: 'paid',
+        status: 'pending',
         timestamp: serverTimestamp()
       });
 
-      // Check if this was the last payment
-      const currentPayments = loanPayments.filter(p => p.loanId === loan.id);
-      if (currentPayments.length + 1 >= (loan.installments || 10)) {
-        await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
-        notify('success', "Congratulations! Your loan is fully paid.");
-      } else {
-        notify('success', "Loan installment paid successfully!");
-      }
+      notify('success', 'Payment request submitted for approval!');
+      setIsPayingLoan(false);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'loanPayments');
     }
@@ -1529,7 +2214,7 @@ export default function App() {
           <p className="text-slate-500 font-medium mt-1">Here's what's happening with your Unnati savings.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -1581,28 +2266,67 @@ export default function App() {
             </h3>
             <div className="mt-2 text-3xl font-black text-slate-900">
               ₹{(isAdmin 
-                ? contributions.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0) 
+                ? contributions.filter(c => {
+                    if (c.status !== 'paid') return false;
+                    if (c.userEmail?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase()) return false;
+                    return true;
+                  }).reduce((acc, c) => acc + c.amount, 0) 
                 : myContributions.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0)
               ).toLocaleString()}
             </div>
           </motion.div>
 
-          <motion.div 
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-slate-50 rounded-2xl">
-                <UserIcon className="w-6 h-6 text-slate-600" />
-              </div>
-              <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Group Size</span>
-            </div>
-            <h3 className="text-slate-500 text-sm font-medium">Active Members</h3>
-            <div className="mt-2 text-3xl font-black text-slate-900">
-              {allUsers.length}
-            </div>
-          </motion.div>
+          {isAdmin && (
+            <>
+              <motion.div 
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-slate-50 rounded-2xl">
+                    <UserIcon className="w-6 h-6 text-slate-600" />
+                  </div>
+                  <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Group Size</span>
+                </div>
+                <h3 className="text-slate-500 text-sm font-medium">Active Members</h3>
+                <div className="mt-2 text-3xl font-black text-slate-900">
+                  {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
+                </div>
+              </motion.div>
+
+              <motion.div 
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-indigo-50 rounded-2xl">
+                    <Wallet className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase">Available Funds</span>
+                </div>
+                <h3 className="text-slate-500 text-sm font-medium">Subscription Balance Available</h3>
+                <div className="mt-2 text-3xl font-black text-indigo-600">
+                  ₹{(() => {
+                    const totalCollected = contributions.filter(c => {
+                      if (c.status !== 'paid') return false;
+                      if (c.userEmail?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase()) return false;
+                      return true;
+                    }).reduce((acc, c) => acc + c.amount, 0);
+                    
+                    const outstandingPrincipal = loans.filter(l => l.status === 'approved').reduce((acc, l) => {
+                      const payments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
+                      const paidPrincipal = payments.reduce((pAcc, p) => pAcc + p.amount, 0);
+                      return acc + (l.approvedAmount! - paidPrincipal);
+                    }, 0);
+                    
+                    return (totalCollected - outstandingPrincipal).toLocaleString();
+                  })()}
+                </div>
+              </motion.div>
+            </>
+          )}
         </div>
 
         {isAdmin && (
@@ -1692,7 +2416,27 @@ export default function App() {
               </div>
             )}
           </div>
-          <div className="flex gap-3 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
+            {isAdmin && (
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input 
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                />
+                {searchQuery && (
+                  <button 
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-full transition-all"
+                  >
+                    <X className="w-3 h-3 text-slate-400" />
+                  </button>
+                )}
+              </div>
+            )}
             {isAdmin && activeTab === 'contributions' && (
               <button 
                 onClick={exportAllDataToExcel}
@@ -1718,12 +2462,45 @@ export default function App() {
               </button>
             )}
             {isAdmin && activeTab === 'members' && (
-              <button 
-                onClick={() => setIsAddingMember(true)}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-600 border border-indigo-100 rounded-2xl font-bold hover:bg-indigo-50 transition-all active:scale-95"
-              >
-                <Plus className="w-5 h-5" /> Add Member
-              </button>
+              <div className="flex items-center gap-2 flex-1 sm:flex-none">
+                <div className="relative flex-1 sm:flex-none">
+                  <button 
+                    onClick={() => setShowAddMemberDropdown(!showAddMemberDropdown)}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                  >
+                    <Plus className="w-5 h-5" /> Add Member <ChevronDown className={cn("w-4 h-4 transition-transform", showAddMemberDropdown && "rotate-180")} />
+                  </button>
+                  
+                  {showAddMemberDropdown && (
+                    <>
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={() => setShowAddMemberDropdown(false)}
+                      />
+                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 z-20 overflow-hidden">
+                        <button
+                          onClick={() => {
+                            setIsAddingMember(true);
+                            setShowAddMemberDropdown(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                        >
+                          <UserPlus className="w-4 h-4" /> Individual Add
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsBulkAdding(true);
+                            setShowAddMemberDropdown(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
+                        >
+                          <Users className="w-4 h-4" /> Bulk Upload (XLS)
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
             {isAdmin && activeTab === 'members' && (
               <button 
@@ -1798,17 +2575,80 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Join Date</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Total Paid</th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                      <th 
+                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        onClick={() => handleSortMembers('name')}
+                      >
+                        <div className="flex items-center gap-2">
+                          Member
+                          {memberSortConfig.field === 'name' ? (
+                            memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th 
+                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        onClick={() => handleSortMembers('contact')}
+                      >
+                        <div className="flex items-center gap-2">
+                          Contact
+                          {memberSortConfig.field === 'contact' ? (
+                            memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th 
+                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        onClick={() => handleSortMembers('joinDate')}
+                      >
+                        <div className="flex items-center gap-2">
+                          Join Date
+                          {memberSortConfig.field === 'joinDate' ? (
+                            memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th 
+                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        onClick={() => handleSortMembers('totalPaid')}
+                      >
+                        <div className="flex items-center gap-2">
+                          Total Paid
+                          {memberSortConfig.field === 'totalPaid' ? (
+                            memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                          )}
+                        </div>
+                      </th>
+                      <th 
+                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        onClick={() => handleSortMembers('status')}
+                      >
+                        <div className="flex items-center gap-2">
+                          Status
+                          {memberSortConfig.field === 'status' ? (
+                            memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                          )}
+                        </div>
+                      </th>
                       <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {allUsers.map((u, idx) => {
-                      const userContribs = contributions.filter(c => c.userId === u.uid || c.userEmail === u.email);
+                    {sortedMembers.map((u, idx) => {
+                      const userContribs = contributions.filter(c => 
+                        (u.uid && c.userId === u.uid) || 
+                        (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())
+                      );
                       const totalPaid = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
                       const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
                       
@@ -1882,6 +2722,16 @@ export default function App() {
                                 </>
                               )}
                               <button 
+                                onClick={() => {
+                                  setSelectedLoanUserId(u.uid || u.email);
+                                  setIsAddingLoan(true);
+                                }}
+                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                title="Add Loan"
+                              >
+                                <IndianRupee className="w-4 h-4" />
+                              </button>
+                              <button 
                                 onClick={() => setEditingUser(u)}
                                 className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                                 title="Edit"
@@ -1916,8 +2766,11 @@ export default function App() {
 
             {/* Mobile Card View */}
             <div className="lg:hidden grid grid-cols-1 gap-4">
-              {allUsers.map((u, idx) => {
-                const userContribs = contributions.filter(c => c.userId === u.uid || c.userEmail === u.email);
+              {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, idx) => {
+                const userContribs = contributions.filter(c => 
+                  (u.uid && c.userId === u.uid) || 
+                  (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())
+                );
                 const totalPaid = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
                 const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
 
@@ -1999,6 +2852,15 @@ export default function App() {
                       </button>
                       <button 
                         onClick={() => {
+                          setSelectedLoanUserId(u.uid || u.email);
+                          setIsAddingLoan(true);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold active:scale-95"
+                      >
+                        <IndianRupee className="w-4 h-4" /> Add Loan
+                      </button>
+                      <button 
+                        onClick={() => {
                           setSelectedUserId(u.uid || u.email);
                           setIsAdding(true);
                         }}
@@ -2024,33 +2886,79 @@ export default function App() {
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-100">
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
+                              <th 
+                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                onClick={() => handleSortLoans('member')}
+                              >
+                                <div className="flex items-center gap-2">
+                                  Member
+                                  {loanSortConfig.field === 'member' ? (
+                                    loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                  ) : (
+                                    <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                                  )}
+                                </div>
+                              </th>
+                              <th 
+                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                onClick={() => handleSortLoans('amount')}
+                              >
+                                <div className="flex items-center gap-2">
+                                  Amount
+                                  {loanSortConfig.field === 'amount' ? (
+                                    loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                  ) : (
+                                    <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                                  )}
+                                </div>
+                              </th>
                               <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Details</th>
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
+                              <th 
+                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                onClick={() => handleSortLoans('status')}
+                              >
+                                <div className="flex items-center gap-2">
+                                  Status
+                                  {loanSortConfig.field === 'status' ? (
+                                    loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                  ) : (
+                                    <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                                  )}
+                                </div>
+                              </th>
+                              <th 
+                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                onClick={() => handleSortLoans('date')}
+                              >
+                                <div className="flex items-center gap-2">
+                                  Date
+                                  {loanSortConfig.field === 'date' ? (
+                                    loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                  ) : (
+                                    <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                                  )}
+                                </div>
+                              </th>
                               <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {loans.sort((a, b) => {
-                              const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
-                              const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
-                              return dateB - dateA;
-                            }).map((l, idx) => (
-                              <motion.tr 
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: idx * 0.05 }}
-                                key={l.id} 
-                                className="hover:bg-slate-50/50 transition-colors"
-                              >
-                                <td className="px-6 py-4">
-                                  <div className="flex flex-col">
-                                    <span className="text-sm font-semibold text-slate-900">{l.userEmail?.split('@')[0]}</span>
-                                    <span className="text-xs text-slate-500">{l.userEmail}</span>
-                                  </div>
-                                </td>
+                            {sortedLoans.map((l, idx) => {
+                              const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                              return (
+                                <motion.tr 
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ delay: idx * 0.05 }}
+                                  key={l.id} 
+                                  className="hover:bg-slate-50/50 transition-colors"
+                                >
+                                  <td className="px-6 py-4">
+                                    <div className="flex flex-col">
+                                      <span className="text-sm font-semibold text-slate-900">{targetUser?.displayName || l.userEmail?.split('@')[0]}</span>
+                                      <span className="text-xs text-slate-500">{l.userEmail}</span>
+                                    </div>
+                                  </td>
                                 <td className="px-6 py-4">
                                   <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
                                 </td>
@@ -2103,8 +3011,9 @@ export default function App() {
                                   </div>
                                 </td>
                               </motion.tr>
-                            ))}
-                            {loans.length === 0 && (
+                              );
+                            })}
+                            {sortedLoans.length === 0 && (
                               <tr>
                                 <td colSpan={6} className="px-6 py-12 text-center text-slate-400 italic">
                                   No loan applications found.
@@ -2118,21 +3027,23 @@ export default function App() {
 
                     {/* Mobile Card View */}
                     <div className="lg:hidden space-y-4">
-                      {loans.map((l, idx) => (
-                        <motion.div 
-                          key={l.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: idx * 0.05 }}
-                          className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
-                        >
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold text-slate-900">{l.userEmail?.split('@')[0]}</span>
-                              <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
-                                {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
-                              </span>
-                            </div>
+                      {sortedLoans.map((l, idx) => {
+                        const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                        return (
+                          <motion.div 
+                            key={l.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                          >
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex flex-col">
+                                <span className="text-sm font-bold text-slate-900">{targetUser?.displayName || l.userEmail?.split('@')[0]}</span>
+                                <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
+                                  {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
+                                </span>
+                              </div>
                             <span className={cn(
                               "px-2.5 py-1 rounded-full text-[10px] font-bold",
                               l.status === 'approved' ? "bg-emerald-50 text-emerald-600" : 
@@ -2181,11 +3092,62 @@ export default function App() {
                             </button>
                           </div>
                         </motion.div>
-                      ))}
-                    </div>
+                      );
+                    })}
+                  </div>
                   </div>
                 ) : (
                   <div className="space-y-6">
+                    {/* Pending Payment Approvals */}
+                    {filteredLoanPayments.filter(p => p.status === 'pending').length > 0 && (
+                      <div className="bg-amber-50 rounded-3xl border border-amber-100 p-6 mb-8">
+                        <div className="flex items-center gap-2 mb-4">
+                          <Clock className="w-5 h-5 text-amber-600" />
+                          <h3 className="font-bold text-amber-900">Pending Repayment Approvals</h3>
+                        </div>
+                        <div className="space-y-3">
+                          {filteredLoanPayments.filter(p => p.status === 'pending').map((p, idx) => {
+                            const targetUser = allUsers.find(u => u.uid === p.userId);
+                            return (
+                              <div key={p.id} className="bg-white p-4 rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center font-bold">
+                                    {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-slate-900">{targetUser?.displayName || p.userId}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                                      {format(new Date(p.year, p.month - 1), 'MMMM yyyy')} • Principal: ₹{p.amount.toLocaleString()} • Interest: ₹{p.interest.toLocaleString()}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <div className="text-right">
+                                    <p className="text-sm font-black text-slate-900">₹{(p.amount + p.interest).toLocaleString()}</p>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase">Total Amount</p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button 
+                                      onClick={() => approveLoanPayment(p)}
+                                      className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button 
+                                      onClick={() => declineLoanPayment(p.id!)}
+                                      className="px-4 py-2 bg-red-50 text-red-600 text-xs font-bold rounded-xl hover:bg-red-100 transition-all"
+                                    >
+                                      Decline
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Summary Section */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
@@ -2198,7 +3160,7 @@ export default function App() {
                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Outstanding Principal</p>
                         <p className="text-2xl font-black text-slate-900">
                           ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
-                            const payments = loanPayments.filter(p => p.loanId === l.id);
+                            const payments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
                             const paidPrincipal = payments.reduce((pAcc, p) => pAcc + p.amount, 0);
                             return acc + (l.approvedAmount! - paidPrincipal);
                           }, 0).toLocaleString()}
@@ -2217,20 +3179,27 @@ export default function App() {
                       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Overdue Repayments</p>
                         <p className="text-2xl font-black text-red-600">
-                          {loans.filter(l => l.status === 'approved').filter(l => {
-                            const isPaidThisMonth = loanPayments.some(p => p.loanId === l.id && p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear());
-                            return !isPaidThisMonth && new Date().getDate() > 10;
+                          {sortedLoans.filter(l => l.status === 'approved').filter(l => {
+                            const isPaidThisMonth = loanPayments.some(p => p.loanId === l.id && p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'paid');
+                            const isPendingThisMonth = loanPayments.some(p => p.loanId === l.id && p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'pending');
+                            const loanApprovedThisMonth = l.approvedAt?.toDate && 
+                              l.approvedAt.toDate().getMonth() === new Date().getMonth() && 
+                              l.approvedAt.toDate().getFullYear() === new Date().getFullYear();
+                            return !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanApprovedThisMonth;
                           }).length}
                         </p>
                       </div>
                     </div>
 
-                    {loans.filter(l => l.status === 'approved' || l.status === 'paid').map((l, idx) => {
+                    {sortedLoans.filter(l => l.status === 'approved' || l.status === 'paid').map((l, idx) => {
                       const payments = loanPayments.filter(p => p.loanId === l.id);
                       const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
                       const remainingPrincipal = l.approvedAmount! - totalPaid;
                       const remainingTotal = calculateLoanRemainingTotal(l, payments);
-                      const targetUser = allUsers.find(u => u.uid === l.userId || u.email === l.userEmail);
+                      const targetUser = allUsers.find(u => 
+                        (l.userId && u.uid === l.userId) || 
+                        (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
+                      );
                       
                       // Calculate current installment
                       const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
@@ -2241,9 +3210,12 @@ export default function App() {
                       const remainingPrincipalAtStart = l.approvedAmount! - (currentInstallmentIdx * principal);
                       const interest = remainingPrincipalAtStart * 0.005;
                       const currentTotal = principal + interest;
-                      
-                      const isPaidThisMonth = payments.some(p => p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear());
-                      const isLate = !isPaidThisMonth && new Date().getDate() > 10;
+                      const isPaidThisMonth = payments.some(p => p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'paid');
+                      const isPendingThisMonth = payments.some(p => p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'pending');
+                      const loanApprovedThisMonth = l.approvedAt?.toDate && 
+                        l.approvedAt.toDate().getMonth() === new Date().getMonth() && 
+                        l.approvedAt.toDate().getFullYear() === new Date().getFullYear();
+                      const isLate = !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanApprovedThisMonth;
 
                       return (
                         <motion.div 
@@ -2279,22 +3251,24 @@ export default function App() {
                               </div>
                               <div>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Progress</p>
-                                <p className="font-bold text-slate-900">{payments.length} / {l.installments} Paid</p>
+                                <p className="font-bold text-slate-900">{payments.filter(p => p.status === 'paid').length} / {l.installments} Paid</p>
                               </div>
                               <div>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status</p>
                                 <span className={cn(
                                   "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold",
                                   isPaidThisMonth ? "bg-emerald-50 text-emerald-600" : 
-                                  isLate ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
+                                  isPendingThisMonth ? "bg-amber-50 text-amber-600" :
+                                  isLate ? "bg-red-50 text-red-600" : 
+                                  loanApprovedThisMonth ? "bg-blue-50 text-blue-600" : "bg-amber-50 text-amber-600"
                                 )}>
-                                  {isPaidThisMonth ? 'PAID' : isLate ? 'OVERDUE' : 'PENDING'}
+                                  {isPaidThisMonth ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
                                 </span>
                               </div>
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {!isPaidThisMonth && targetUser && (
+                              {!isPaidThisMonth && !isPendingThisMonth && targetUser && (
                                 <>
                                   <button 
                                     onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
@@ -2327,38 +3301,52 @@ export default function App() {
                           {selectedLoan?.id === l.id && (
                             <div className="px-6 pb-6 border-t border-slate-100 bg-slate-50/30">
                               <div className="mt-6 space-y-2">
-                                {Array.from({ length: l.installments || 10 }).map((_, i) => {
-                                  const installmentNum = i + 1;
-                                  const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-                                  const installmentMonth = installmentDate.getMonth() + 1;
-                                  const installmentYear = installmentDate.getFullYear();
-                                  const isPaid = payments.some(p => p.month === installmentMonth && p.year === installmentYear);
-                                  
-                                  const principal = l.approvedAmount! / (l.installments || 10);
-                                  const remainingPrincipalAtStart = l.approvedAmount! - (i * principal);
-                                  const interest = remainingPrincipalAtStart * 0.005;
-                                  const total = principal + interest;
+                                {(() => {
+                                  let runningPrincipal = l.approvedAmount!;
+                                  return Array.from({ length: l.installments || 10 }).map((_, i) => {
+                                    const installmentNum = i + 1;
+                                    const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
+                                    const installmentMonth = installmentDate.getMonth() + 1;
+                                    const installmentYear = installmentDate.getFullYear();
+                                    const payment = payments.find(p => p.month === installmentMonth && p.year === installmentYear);
+                                    const isPaid = payment?.status === 'paid';
+                                    const isPending = payment?.status === 'pending';
+                                    
+                                    const interest = runningPrincipal * 0.005;
+                                    const scheduledPrincipal = l.approvedAmount! / (l.installments || 10);
+                                    const principalToDisplay = isPaid ? payment.amount : scheduledPrincipal;
+                                    const total = principalToDisplay + interest;
 
-                                  return (
-                                    <div key={i} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100">
-                                      <div className="flex items-center gap-3">
-                                        <span className="text-xs font-bold text-slate-400 w-6">{installmentNum}.</span>
-                                        <div>
-                                          <p className="text-sm font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
-                                          <p className="text-[10px] text-slate-500">₹{principal.toLocaleString()} + ₹{interest.toLocaleString()} Int.</p>
+                                    // Update running principal for next iteration
+                                    if (isPaid) {
+                                      runningPrincipal = Math.max(0, runningPrincipal - payment.amount);
+                                    } else {
+                                      runningPrincipal = Math.max(0, runningPrincipal - scheduledPrincipal);
+                                    }
+
+                                    return (
+                                      <div key={i} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100">
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-xs font-bold text-slate-400 w-6">{installmentNum}.</span>
+                                          <div>
+                                            <p className="text-sm font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
+                                            <p className="text-[10px] text-slate-500">₹{principalToDisplay.toLocaleString()} + ₹{interest.toLocaleString()} Int.</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                          <span className="text-sm font-black text-slate-900">₹{total.toLocaleString()}</span>
+                                          {isPaid ? (
+                                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">PAID</span>
+                                          ) : isPending ? (
+                                            <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">AWAITING APPROVAL</span>
+                                          ) : (
+                                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">PENDING</span>
+                                          )}
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-4">
-                                        <span className="text-sm font-black text-slate-900">₹{total.toLocaleString()}</span>
-                                        {isPaid ? (
-                                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">PAID</span>
-                                        ) : (
-                                          <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">PENDING</span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  });
+                                })()}
                               </div>
                             </div>
                           )}
@@ -2424,75 +3412,92 @@ export default function App() {
                           </div>
 
                           <div className="space-y-3">
-                            {Array.from({ length: l.installments || 10 }).map((_, i) => {
-                              const installmentNum = i + 1;
-                              // Repayment starts from next month
-                              const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
-                              const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-                              const installmentMonth = installmentDate.getMonth() + 1;
-                              const installmentYear = installmentDate.getFullYear();
-                              
-                              const isPaid = payments.some(p => p.month === installmentMonth && p.year === installmentYear);
-                              const principal = l.approvedAmount! / (l.installments || 10);
-                              
-                              // Interest = 0.5% of remaining principal
-                              const remainingPrincipalAtStart = l.approvedAmount! - (i * principal);
-                              const interest = remainingPrincipalAtStart * 0.005;
-                              const total = principal + interest;
+                            {(() => {
+                              let runningPrincipal = l.approvedAmount!;
+                              return Array.from({ length: l.installments || 10 }).map((_, i) => {
+                                const installmentNum = i + 1;
+                                // Repayment starts from next month
+                                const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                                const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
+                                const installmentMonth = installmentDate.getMonth() + 1;
+                                const installmentYear = installmentDate.getFullYear();
+                                
+                                const payment = payments.find(p => p.month === installmentMonth && p.year === installmentYear);
+                                const isPaid = payment?.status === 'paid';
+                                const isPending = payment?.status === 'pending';
+                                
+                                const interest = runningPrincipal * 0.005;
+                                const scheduledPrincipal = l.approvedAmount! / (l.installments || 10);
+                                const principalToDisplay = isPaid ? payment.amount : scheduledPrincipal;
+                                const total = principalToDisplay + interest;
 
-                              const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
-                              const isFuture = installmentDate > new Date();
-                              const isPast = installmentDate < new Date() && !isCurrentMonth;
+                                // Update running principal for next iteration
+                                if (isPaid) {
+                                  runningPrincipal = Math.max(0, runningPrincipal - payment.amount);
+                                } else {
+                                  runningPrincipal = Math.max(0, runningPrincipal - scheduledPrincipal);
+                                }
 
-                              return (
-                                <div 
-                                  key={i}
-                                  className={cn(
-                                    "flex items-center justify-between p-4 rounded-2xl border transition-all",
-                                    isPaid ? "bg-slate-50 border-slate-100 opacity-60" : 
-                                    isCurrentMonth ? "bg-white border-indigo-200 ring-2 ring-indigo-50 shadow-md" :
-                                    isFuture ? "bg-white border-slate-100 opacity-40 blur-[0.5px]" : "bg-white border-slate-200"
-                                  )}
-                                >
-                                  <div className="flex items-center gap-4">
-                                    <div className={cn(
-                                      "w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm",
-                                      isPaid ? "bg-emerald-100 text-emerald-600" : 
-                                      isCurrentMonth ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
-                                    )}>
-                                      {installmentNum}
-                                    </div>
-                                    <div>
-                                      <p className="font-bold text-slate-900 text-sm">
-                                        {format(installmentDate, 'MMMM yyyy')}
-                                      </p>
-                                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                        ₹{principal.toLocaleString()} + ₹{interest.toLocaleString()} Interest
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <span className="font-black text-slate-900">₹{total.toLocaleString()}</span>
-                                    {!isPaid && (
-                                      <button 
-                                        onClick={() => {
-                                          setSelectedLoan(l);
-                                          setIsPayingLoan(true);
-                                        }}
-                                        disabled={!isCurrentMonth}
-                                        className={cn(
-                                          "p-2 rounded-lg transition-all",
-                                          isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-100 text-slate-300 cursor-not-allowed"
-                                        )}
-                                      >
-                                        <Plus className="w-4 h-4" />
-                                      </button>
+                                const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
+                                const isFuture = installmentDate > new Date();
+                                const isPast = installmentDate < new Date() && !isCurrentMonth;
+
+                                return (
+                                  <div 
+                                    key={i}
+                                    className={cn(
+                                      "flex items-center justify-between p-4 rounded-2xl border transition-all",
+                                      isPaid ? "bg-slate-50 border-slate-100 opacity-60" : 
+                                      isPending ? "bg-amber-50 border-amber-100 shadow-sm" :
+                                      isCurrentMonth ? "bg-white border-indigo-200 ring-2 ring-indigo-50 shadow-md" :
+                                      isFuture ? "bg-white border-slate-100 opacity-40 blur-[0.5px]" : "bg-white border-slate-200"
                                     )}
-                                    {isPaid && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
+                                  >
+                                    <div className="flex items-center gap-4">
+                                      <div className={cn(
+                                        "w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm",
+                                        isPaid ? "bg-emerald-100 text-emerald-600" : 
+                                        isPending ? "bg-amber-100 text-amber-600" :
+                                        isCurrentMonth ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                                      )}>
+                                        {installmentNum}
+                                      </div>
+                                      <div>
+                                        <p className="font-bold text-slate-900 text-sm">
+                                          {format(installmentDate, 'MMMM yyyy')}
+                                        </p>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                          ₹{principalToDisplay.toLocaleString()} + ₹{interest.toLocaleString()} Interest
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-black text-slate-900">₹{total.toLocaleString()}</span>
+                                      {!isPaid && !isPending && (
+                                        <button 
+                                          onClick={() => {
+                                            setSelectedLoan(l);
+                                            setIsPayingLoan(true);
+                                            setCustomPrincipal(l.approvedAmount! / (l.installments || 10));
+                                          }}
+                                          disabled={!isCurrentMonth}
+                                          className={cn(
+                                            "p-2 rounded-lg transition-all",
+                                            isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                                          )}
+                                        >
+                                          <Plus className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                      {isPending && (
+                                        <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-md">AWAITING APPROVAL</span>
+                                      )}
+                                      {isPaid && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              });
+                            })()}
                           </div>
                         </div>
                       </motion.div>
@@ -2618,101 +3623,334 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50/50 border-b border-slate-100">
-                    {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Member</th>}
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Month / Year</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
-                    {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(isAdmin ? contributions : myContributions).map((c, idx) => (
-                    <motion.tr 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                      key={c.id} 
-                      className="hover:bg-slate-50/50 transition-colors"
+          <div className="space-y-6">
+            {/* Filter Section */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+              <div className="flex flex-col md:flex-row md:items-end gap-4">
+                <div className="flex-1 grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Month</label>
+                    <select 
+                      value={filterMonth}
+                      onChange={(e) => setFilterMonth(Number(e.target.value))}
+                      className="w-full p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     >
-                      {isAdmin && (
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-semibold text-slate-900">{c.userEmail.split('@')[0]}</span>
-                            <span className="text-xs text-slate-500">{c.userEmail}</span>
-                          </div>
-                        </td>
-                      )}
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-medium text-slate-700">
-                          {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString()}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className={cn(
-                            "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
-                            c.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-                          )}>
-                            {c.status === 'paid' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                            {c.status.toUpperCase()}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs text-slate-500">
-                          {c.timestamp?.toDate ? format(c.timestamp.toDate(), 'MMM dd, hh:mm a') : 'Just now'}
-                        </span>
-                      </td>
-                      {isAdmin && (
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {c.status === 'pending' && (
-                              <button 
-                                onClick={() => updateStatus(c.id!, 'paid')}
-                                className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all shadow-sm shadow-emerald-100"
-                                title="Approve Payment"
-                              >
-                                Approve
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => updateStatus(c.id!, c.status === 'paid' ? 'pending' : 'paid')}
-                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                              title="Toggle Status"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => setDeletingId(c.id!)}
-                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </motion.tr>
-                  ))}
-                  {(isAdmin ? contributions : myContributions).length === 0 && (
-                    <tr>
-                      <td colSpan={isAdmin ? 6 : 4} className="px-6 py-12 text-center text-slate-400 italic">
-                        No records found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {format(new Date(2024, i, 1), 'MMMM')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Year</label>
+                    <select 
+                      value={filterYear}
+                      onChange={(e) => setFilterYear(Number(e.target.value))}
+                      className="w-full p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    >
+                      {[2024, 2025, 2026].map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    setAppliedFilter({ month: filterMonth, year: filterYear });
+                    setPaymentMethodFilter('all');
+                  }}
+                  className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Search className="w-4 h-4" /> Show Payments
+                </button>
+              </div>
+
+              {isAdmin && appliedFilter && (
+                <div className="mt-6 pt-6 border-t border-slate-100 flex flex-wrap gap-4">
+                  {(() => {
+                    const filtered = contributions.filter(c => c.month === appliedFilter.month && c.year === appliedFilter.year && c.status === 'paid');
+                    const cash = filtered.filter(c => c.paymentMethod === 'cash').length;
+                    const online = filtered.filter(c => c.paymentMethod === 'online' || !c.paymentMethod).length;
+                    const total = filtered.reduce((acc, c) => acc + c.amount, 0);
+                    
+                    return (
+                      <>
+                        <button 
+                          onClick={() => setPaymentMethodFilter(prev => prev === 'online' ? 'all' : 'online')}
+                          className={cn(
+                            "px-4 py-2 rounded-xl border transition-all text-left active:scale-95",
+                            paymentMethodFilter === 'online' 
+                              ? "bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100" 
+                              : "bg-emerald-50 border-emerald-100 text-emerald-600 hover:bg-emerald-100"
+                          )}
+                        >
+                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'online' ? "text-emerald-50" : "text-emerald-600")}>Online Payments</p>
+                          <p className={cn("text-lg font-black", paymentMethodFilter === 'online' ? "text-white" : "text-emerald-700")}>{online}</p>
+                        </button>
+                        <button 
+                          onClick={() => setPaymentMethodFilter(prev => prev === 'cash' ? 'all' : 'cash')}
+                          className={cn(
+                            "px-4 py-2 rounded-xl border transition-all text-left active:scale-95",
+                            paymentMethodFilter === 'cash' 
+                              ? "bg-amber-600 border-amber-600 text-white shadow-lg shadow-amber-100" 
+                              : "bg-amber-50 border-amber-100 text-amber-600 hover:bg-amber-100"
+                          )}
+                        >
+                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'cash' ? "text-amber-50" : "text-amber-600")}>Cash Payments</p>
+                          <p className={cn("text-lg font-black", paymentMethodFilter === 'cash' ? "text-white" : "text-amber-700")}>{cash}</p>
+                        </button>
+                        <button 
+                          onClick={() => setPaymentMethodFilter('all')}
+                          className={cn(
+                            "px-4 py-2 rounded-xl border transition-all text-left active:scale-95",
+                            paymentMethodFilter === 'all' 
+                              ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100" 
+                              : "bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-100"
+                          )}
+                        >
+                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'all' ? "text-indigo-50" : "text-indigo-600")}>Total Amount</p>
+                          <p className={cn("text-lg font-black", paymentMethodFilter === 'all' ? "text-white" : "text-indigo-700")}>₹{total.toLocaleString()}</p>
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
+
+            {appliedFilter ? (
+              <>
+                {/* Desktop Table View */}
+                <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50/50 border-b border-slate-100">
+                          {isAdmin && (
+                            <th 
+                              className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                              onClick={() => handleSort('member')}
+                            >
+                              <div className="flex items-center gap-2">
+                                Member
+                                {sortConfig.field === 'member' ? (
+                                  sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+                          )}
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Month / Year</th>
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
+                          <th 
+                            className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                            onClick={() => handleSort('status')}
+                          >
+                            <div className="flex items-center gap-2">
+                              Status
+                              {sortConfig.field === 'status' ? (
+                                sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                              )}
+                            </div>
+                          </th>
+                          <th 
+                            className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                            onClick={() => handleSort('date')}
+                          >
+                            <div className="flex items-center gap-2">
+                              Date
+                              {sortConfig.field === 'date' ? (
+                                sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                              ) : (
+                                <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                              )}
+                            </div>
+                          </th>
+                          {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {sortedContributions.map((c, idx) => (
+                        <motion.tr 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          key={c.id} 
+                          className="hover:bg-slate-50/50 transition-colors"
+                        >
+                          {isAdmin && (
+                            <td className="px-6 py-4">
+                              <span className="text-sm font-semibold text-slate-900">
+                                {allUsers.find(u => 
+                                  (c.userId && u.uid === c.userId) || 
+                                  (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
+                                )?.displayName || c.userEmail.split('@')[0]}
+                              </span>
+                            </td>
+                          )}
+                          <td className="px-6 py-4">
+                            <span className="text-sm font-medium text-slate-700">
+                              {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString()}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col gap-1">
+                              <span className={cn(
+                                "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold w-fit",
+                                c.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                              )}>
+                                {c.status === 'paid' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                                {c.status.toUpperCase()}
+                              </span>
+                              {c.status === 'paid' && (
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                                  {c.paymentMethod || 'online'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-xs text-slate-500">
+                              {c.timestamp?.toDate ? format(c.timestamp.toDate(), 'MMM dd, hh:mm a') : 'Just now'}
+                            </span>
+                          </td>
+                          {isAdmin && (
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {c.status === 'pending' && (
+                                  <button 
+                                    onClick={() => updateStatus(c.id!, 'paid')}
+                                    className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all shadow-sm shadow-emerald-100"
+                                    title="Approve Payment"
+                                  >
+                                    Approve
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => setEditingContribution(c)}
+                                  className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                  title="Edit Contribution"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => setDeletingId(c.id!)}
+                                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </motion.tr>
+                      ))}
+                        {sortedContributions.length === 0 && (
+                          <tr>
+                            <td colSpan={isAdmin ? 6 : 4} className="px-6 py-12 text-center text-slate-400 italic">
+                              No records found for {format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Mobile Card View */}
+                <div className="lg:hidden space-y-4">
+                  {sortedContributions.map((c, idx) => {
+                      const member = allUsers.find(u => 
+                        (c.userId && u.uid === c.userId) || 
+                        (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
+                      );
+                      return (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          key={c.id}
+                          className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                        >
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-slate-900">
+                                {member?.displayName || c.userEmail.split('@')[0]}
+                              </span>
+                              <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
+                                {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
+                              </span>
+                            </div>
+                            <span className={cn(
+                              "px-2.5 py-1 rounded-full text-[10px] font-bold",
+                              c.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                            )}>
+                              {c.status.toUpperCase()}
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Amount</p>
+                              <p className="text-lg font-black text-slate-900">₹{c.amount.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Method</p>
+                              <p className="text-sm font-bold text-slate-700 uppercase">{c.paymentMethod || 'online'}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                            <span className="text-[10px] text-slate-400">
+                              {c.timestamp?.toDate ? format(c.timestamp.toDate(), 'MMM dd, hh:mm a') : 'Just now'}
+                            </span>
+                            {isAdmin && (
+                              <div className="flex items-center gap-2">
+                                {c.status === 'pending' && (
+                                  <button 
+                                    onClick={() => updateStatus(c.id!, 'paid')}
+                                    className="px-3 py-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded-lg"
+                                  >
+                                    Approve
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => setEditingContribution(c)}
+                                  className="p-2 text-slate-400 hover:text-indigo-600"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => setDeletingId(c.id!)}
+                                  className="p-2 text-slate-400 hover:text-red-600"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  {sortedContributions.length === 0 && (
+                    <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
+                      <p className="text-slate-400 italic">No records found for {format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
+                <p className="text-slate-400 italic">Please select a month and year to view contributions.</p>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -3172,6 +4410,72 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {/* Bulk Add Modal */}
+        {isBulkAdding && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Bulk Member Upload</h3>
+                    <p className="text-xs text-slate-500 font-medium">Upload Excel (.xlsx, .xls) file</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsBulkAdding(false)} className="p-2 hover:bg-white rounded-full transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              <div className="p-8">
+                <div className="mb-8 p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                  <div className="flex gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                    <div>
+                      <h4 className="text-sm font-bold text-amber-900 mb-1">XLS Format Requirements</h4>
+                      <p className="text-xs text-amber-700 leading-relaxed">
+                        Your file must include columns for: <br/>
+                        <span className="font-bold">username, email, phone number, date of joining</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <label className="group relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-200 rounded-3xl hover:border-indigo-400 hover:bg-indigo-50/30 transition-all cursor-pointer">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    <div className="w-16 h-16 bg-slate-50 group-hover:bg-indigo-100 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-all mb-4">
+                      <Upload className="w-8 h-8" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-600 mb-1">Click to upload or drag and drop</p>
+                    <p className="text-xs text-slate-400">Excel files only (.xlsx, .xls)</p>
+                  </div>
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    accept=".xlsx, .xls"
+                    onChange={handleBulkUpload}
+                  />
+                </label>
+
+                <div className="mt-8 flex gap-3">
+                  <button 
+                    onClick={() => setIsBulkAdding(false)}
+                    className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {isAddingMember && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
@@ -3293,6 +4597,15 @@ export default function App() {
                     className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Join Date</label>
+                  <input 
+                    type="date"
+                    value={editingUser.joinDate || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, joinDate: e.target.value })}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
 
                 <div className="flex gap-3 pt-4">
                   <button 
@@ -3338,6 +4651,230 @@ export default function App() {
           </motion.div>
         )}
 
+        {isAddingLoan && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddingLoan(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Record Loan</h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Select Member</label>
+                  <select 
+                    value={selectedLoanUserId || ''}
+                    onChange={(e) => setSelectedLoanUserId(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="">Select a member...</option>
+                    {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map(u => (
+                      <option key={u.uid || u.email} value={u.uid || u.email}>
+                        {u.displayName || u.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Amount (₹)</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[10000, 25000, 50000].map(amt => (
+                      <button
+                        key={amt}
+                        onClick={() => setAdminLoanAmount(amt)}
+                        className={cn(
+                          "py-3 rounded-xl text-sm font-bold transition-all border",
+                          adminLoanAmount === amt 
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
+                            : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
+                        )}
+                      >
+                        ₹{amt.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                  <input 
+                    type="number" 
+                    value={adminLoanAmount}
+                    onChange={(e) => setAdminLoanAmount(Number(e.target.value))}
+                    className="w-full mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="Enter custom amount"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Details / Purpose</label>
+                  <textarea 
+                    value={adminLoanDetails}
+                    onChange={(e) => setAdminLoanDetails(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[100px]"
+                    placeholder="e.g. Personal emergency, Business expansion..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Date</label>
+                  <input 
+                    type="date"
+                    value={loanDate}
+                    onChange={(e) => setLoanDate(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Initial Status</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setAdminLoanStatus('approved')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        adminLoanStatus === 'approved' 
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
+                      )}
+                    >
+                      Approved
+                    </button>
+                    <button
+                      onClick={() => setAdminLoanStatus('pending')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        adminLoanStatus === 'pending' 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                      )}
+                    >
+                      Pending
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setIsAddingLoan(false)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={isSubmittingAdminLoan || !selectedLoanUserId}
+                    onClick={addAdminLoan}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingAdminLoan ? (
+                      <>
+                        <Clock className="w-5 h-5 animate-spin" /> Recording...
+                      </>
+                    ) : (
+                      'Record Loan'
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {editingContribution && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingContribution(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Edit Contribution</h2>
+              <div className="space-y-6">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Member</p>
+                  <p className="font-bold text-slate-900">
+                    {allUsers.find(u => 
+                      (editingContribution.userId && u.uid === editingContribution.userId) || 
+                      (editingContribution.userEmail && u.email.toLowerCase() === editingContribution.userEmail.toLowerCase())
+                    )?.displayName || editingContribution.userEmail.split('@')[0]}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Period</p>
+                  <p className="font-bold text-slate-900">{format(new Date(editingContribution.year, editingContribution.month - 1), 'MMMM yyyy')}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₹</span>
+                    <input 
+                      type="number"
+                      value={editingContribution.amount}
+                      onChange={(e) => setEditingContribution({ ...editingContribution, amount: Number(e.target.value) })}
+                      className="w-full pl-8 pr-4 py-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Status</label>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setEditingContribution({ ...editingContribution, status: 'paid' })}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl font-bold border transition-all",
+                        editingContribution.status === 'paid' 
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
+                      )}
+                    >
+                      Paid
+                    </button>
+                    <button 
+                      onClick={() => setEditingContribution({ ...editingContribution, status: 'pending' })}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl font-bold border transition-all",
+                        editingContribution.status === 'pending' 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                      )}
+                    >
+                      Pending
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setEditingContribution(null)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={updateContribution}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {isAdding && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
@@ -3367,7 +4904,7 @@ export default function App() {
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
                       <option value="">Select a member...</option>
-                      {allUsers.map(u => (
+                      {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map(u => (
                         <option key={u.uid || u.email} value={u.uid || u.email}>
                           {u.displayName || u.email}
                         </option>
@@ -3405,13 +4942,46 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-bold text-indigo-700">Amount to Pay</span>
-                    <span className="text-xl font-black text-indigo-900">₹{getContributionAmount(selectedMonth, selectedYear).toLocaleString()}</span>
+                {isAdmin && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">Payment Date</label>
+                      <input 
+                        type="date"
+                        value={paymentDate}
+                        onChange={(e) => setPaymentDate(e.target.value)}
+                        className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-2">Method</label>
+                      <select 
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'online')}
+                        className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                      >
+                        <option value="online">Online</option>
+                        <option value="cash">Cash</option>
+                      </select>
+                    </div>
                   </div>
-                  {getContributionAmount(selectedMonth, selectedYear) > MONTHLY_AMOUNT && (
-                    <p className="text-[10px] text-indigo-500 font-bold mt-1 uppercase tracking-wider">Includes ₹{LATE_FEE} Late Fee</p>
+                )}
+
+                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-bold text-indigo-700">Amount to Pay</span>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-900 font-black">₹</span>
+                      <input 
+                        type="number"
+                        value={customAmount}
+                        onChange={(e) => setCustomAmount(Number(e.target.value))}
+                        className="w-32 pl-7 pr-4 py-2 bg-white rounded-xl border border-indigo-200 text-indigo-900 font-black focus:ring-2 focus:ring-indigo-500 outline-none text-right"
+                      />
+                    </div>
+                  </div>
+                  {customAmount > MONTHLY_AMOUNT && (
+                    <p className="text-[10px] text-indigo-500 font-bold mt-1 uppercase tracking-wider">Includes ₹{LATE_FEE} Late Fee (Calculated: ₹{getContributionAmount(selectedMonth, selectedYear)})</p>
                   )}
                 </div>
 
@@ -3427,7 +4997,7 @@ export default function App() {
                   </button>
                   {isAdmin ? (
                     <button 
-                      onClick={() => addContribution(selectedMonth, selectedYear, selectedUserId || undefined, 'paid')}
+                      onClick={() => addContribution(selectedMonth, selectedYear, selectedUserId || undefined, 'paid', paymentDate, customAmount, paymentMethod)}
                       className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
                     >
                       Record Payment
@@ -3599,8 +5169,13 @@ export default function App() {
                 let nextYear = 2024;
                 
                 const approvedDate = selectedLoan.approvedAt?.toDate ? selectedLoan.approvedAt.toDate() : new Date();
-                const startMonth = approvedDate.getMonth() + 1;
-                const startYear = approvedDate.getFullYear();
+                // Repayment starts from the next month after approval
+                const startMonth = (approvedDate.getMonth() + 1) % 12 + 1;
+                const startYear = approvedDate.getFullYear() + (approvedDate.getMonth() === 11 ? 1 : 0);
+
+                const paidPayments = loanPayments.filter(p => p.loanId === selectedLoan.id && p.status === 'paid');
+                const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
+                const currentRemainingPrincipal = Math.max(0, selectedLoan.approvedAmount! - totalPrincipalPaid);
 
                 for (let i = 0; i < (selectedLoan.installments || 12); i++) {
                   const m = (startMonth + i - 1) % 12 + 1;
@@ -3612,8 +5187,8 @@ export default function App() {
                   }
                 }
 
-                const principal = selectedLoan.approvedAmount! / (selectedLoan.installments || 12);
-                const interest = selectedLoan.approvedAmount! * 0.005;
+                const principal = customPrincipal;
+                const interest = currentRemainingPrincipal * 0.005;
                 const total = principal + interest;
 
                 return (
@@ -3624,9 +5199,17 @@ export default function App() {
                         <span className="text-slate-600 font-medium">Month</span>
                         <span className="font-bold text-slate-900">{format(new Date(nextYear, nextMonth - 1), 'MMMM yyyy')}</span>
                       </div>
-                      <div className="flex justify-between mb-2">
+                      <div className="flex justify-between items-center mb-2">
                         <span className="text-slate-600 font-medium">Principal</span>
-                        <span className="font-bold text-slate-900">₹{principal.toFixed(0)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400 text-sm font-bold">₹</span>
+                          <input 
+                            type="number"
+                            value={customPrincipal}
+                            onChange={(e) => setCustomPrincipal(Number(e.target.value))}
+                            className="w-24 p-1.5 bg-white border border-slate-200 rounded-lg text-right font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
                       </div>
                       <div className="flex justify-between mb-4">
                         <span className="text-slate-600 font-medium">Interest (0.5%)</span>
