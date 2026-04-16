@@ -237,6 +237,10 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
 
+  const [deletingRepaymentId, setDeletingRepaymentId] = useState<string | null>(null);
+
+  const [settlingLoanId, setSettlingLoanId] = useState<string | null>(null);
+
   const handleSort = (field: 'member' | 'date' | 'status') => {
     setSortConfig(prev => ({
       field,
@@ -1248,6 +1252,16 @@ export default function App() {
     }
 
     try {
+      // Check if user has active loans or pending repayments
+      const userLoans = loans.filter(l => l.userId === id || l.userEmail === id);
+      const hasActiveLoan = userLoans.some(l => l.status === 'approved');
+      const hasPendingRepayment = loanPayments.some(p => p.userId === id && p.status === 'pending');
+      
+      if (hasActiveLoan || hasPendingRepayment) {
+        notify('error', "Cannot delete member: User has an active loan or pending repayment.");
+        return;
+      }
+
       const batch = writeBatch(db);
       
       // 1. Delete user document
@@ -1852,9 +1866,73 @@ export default function App() {
     return totalInterestEarned / totalMembers;
   };
 
+  const settleLoanImmediately = async (loan: Loan) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      const payments = loanPayments.filter(p => p.loanId === loan.id);
+      const totalPrincipalPaid = payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
+      const remainingPrincipal = Math.max(0, loan.approvedAmount! - totalPrincipalPaid);
+      
+      if (remainingPrincipal <= 0) {
+        await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+        notify('success', "Loan is already fully paid.");
+        return;
+      }
+
+      // Calculate interest for the current month
+      const interest = remainingPrincipal * 0.005;
+      
+      // Create a final settlement payment
+      await addDoc(collection(db, 'loanPayments'), {
+        loanId: loan.id,
+        userId: loan.userId,
+        userEmail: loan.userEmail,
+        month: new Date().getMonth() + 1,
+        year: new Date().getFullYear(),
+        amount: remainingPrincipal,
+        interest: interest,
+        status: 'paid',
+        timestamp: serverTimestamp(),
+        approvedAt: serverTimestamp(),
+        paymentMethod: 'cash' // Default to cash for immediate settlement
+      });
+
+      // Mark loan as paid
+      await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+      
+      createNotification(loan.userId, "Loan Settled", `Your loan of ₹${loan.approvedAmount?.toLocaleString()} has been settled immediately.`, 'loan');
+      notify('success', "Loan settled immediately with final principal and interest.");
+      setSettlingLoanId(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, `loans/${loan.id}/settle`);
+    }
+  };
+
   const approveLoan = async (loan: Loan) => {
     if (profile?.role !== 'admin') return;
     try {
+      // Calculate current available balance
+      const totalCollected = contributions.filter(c => {
+        if (c.status !== 'paid') return false;
+        if (c.userEmail?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase()) return false;
+        return true;
+      }).reduce((acc, c) => acc + c.amount, 0);
+      
+      const totalInterest = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.interest || 0), 0);
+      
+      const outstandingPrincipal = loans.filter(l => l.status === 'approved').reduce((acc, l) => {
+        const payments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
+        const paidPrincipal = payments.reduce((pAcc, p) => pAcc + p.amount, 0);
+        return acc + (l.approvedAmount! - paidPrincipal);
+      }, 0);
+
+      const availableBalance = totalCollected + totalInterest - outstandingPrincipal;
+
+      if (loan.amount > availableBalance) {
+        notify('error', `Low balance! Available: ₹${availableBalance.toLocaleString()}. Required: ₹${loan.amount.toLocaleString()}`);
+        return;
+      }
+
       // Approve this loan
       await updateDoc(doc(db, 'loans', loan.id!), {
         status: 'approved',
@@ -1886,6 +1964,17 @@ export default function App() {
       notify('success', "Loan application declined.");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `loans/${loanId}`);
+    }
+  };
+
+  const deleteLoanRepayment = async (paymentId: string) => {
+    if (profile?.role !== 'admin') return;
+    try {
+      await deleteDoc(doc(db, 'loanPayments', paymentId));
+      notify('success', "Loan repayment record deleted successfully.");
+      setDeletingRepaymentId(null);
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.DELETE, `loanPayments/${paymentId}`);
     }
   };
 
@@ -1939,17 +2028,33 @@ export default function App() {
   const payLoanInstallment = async (loan: Loan, month: number, year: number, amount: number, interest: number) => {
     if (!user || !profile) return;
     try {
-      await addDoc(collection(db, 'loanPayments'), {
-        loanId: loan.id,
-        userId: user.uid,
-        userEmail: user.email,
-        month,
-        year,
-        amount,
-        interest,
-        status: 'pending',
-        timestamp: serverTimestamp()
-      });
+      // Check if there's already a pending payment for this month/year
+      const existingPending = loanPayments.find(p => 
+        p.loanId === loan.id && 
+        p.month === month && 
+        p.year === year && 
+        p.status === 'pending'
+      );
+
+      if (existingPending) {
+        await updateDoc(doc(db, 'loanPayments', existingPending.id!), {
+          amount,
+          interest,
+          timestamp: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'loanPayments'), {
+          loanId: loan.id,
+          userId: user.uid,
+          userEmail: user.email,
+          month,
+          year,
+          amount,
+          interest,
+          status: 'pending',
+          timestamp: serverTimestamp()
+        });
+      }
 
       notify('success', 'Payment request submitted for approval!');
       setIsPayingLoan(false);
@@ -2266,11 +2371,16 @@ export default function App() {
             </h3>
             <div className="mt-2 text-3xl font-black text-slate-900">
               ₹{(isAdmin 
-                ? contributions.filter(c => {
-                    if (c.status !== 'paid') return false;
-                    if (c.userEmail?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase()) return false;
-                    return true;
-                  }).reduce((acc, c) => acc + c.amount, 0) 
+                ? (() => {
+                    const totalContribs = contributions.filter(c => {
+                      if (c.status !== 'paid') return false;
+                      if (c.userEmail?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase()) return false;
+                      return true;
+                    }).reduce((acc, c) => acc + c.amount, 0);
+                    
+                    const totalInterest = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.interest || 0), 0);
+                    return totalContribs + totalInterest;
+                  })()
                 : myContributions.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0)
               ).toLocaleString()}
             </div>
@@ -2315,13 +2425,15 @@ export default function App() {
                       return true;
                     }).reduce((acc, c) => acc + c.amount, 0);
                     
+                    const totalInterest = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.interest || 0), 0);
+                    
                     const outstandingPrincipal = loans.filter(l => l.status === 'approved').reduce((acc, l) => {
                       const payments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
                       const paidPrincipal = payments.reduce((pAcc, p) => pAcc + p.amount, 0);
                       return acc + (l.approvedAmount! - paidPrincipal);
                     }, 0);
                     
-                    return (totalCollected - outstandingPrincipal).toLocaleString();
+                    return (totalCollected + totalInterest - outstandingPrincipal).toLocaleString();
                   })()}
                 </div>
               </motion.div>
@@ -3193,22 +3305,18 @@ export default function App() {
 
                     {sortedLoans.filter(l => l.status === 'approved' || l.status === 'paid').map((l, idx) => {
                       const payments = loanPayments.filter(p => p.loanId === l.id);
-                      const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
-                      const remainingPrincipal = l.approvedAmount! - totalPaid;
+                      const paidPayments = payments.filter(p => p.status === 'paid');
+                      const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
+                      const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
                       const remainingTotal = calculateLoanRemainingTotal(l, payments);
                       const targetUser = allUsers.find(u => 
                         (l.userId && u.uid === l.userId) || 
                         (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
                       );
                       
-                      // Calculate current installment
-                      const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
-                      const currentMonthIndex = (new Date().getFullYear() - approvedDate.getFullYear()) * 12 + (new Date().getMonth() - approvedDate.getMonth());
-                      const currentInstallmentIdx = Math.max(0, currentMonthIndex);
-                      
+                      // Calculate current installment interest based on actual remaining principal
                       const principal = l.approvedAmount! / (l.installments || 10);
-                      const remainingPrincipalAtStart = l.approvedAmount! - (currentInstallmentIdx * principal);
-                      const interest = remainingPrincipalAtStart * 0.005;
+                      const interest = remainingPrincipal * 0.005;
                       const currentTotal = principal + interest;
                       const isPaidThisMonth = payments.some(p => p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'paid');
                       const isPendingThisMonth = payments.some(p => p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'pending');
@@ -3271,6 +3379,13 @@ export default function App() {
                               {!isPaidThisMonth && !isPendingThisMonth && targetUser && (
                                 <>
                                   <button 
+                                    onClick={() => setSettlingLoanId(l.id!)}
+                                    className="p-2.5 text-amber-600 hover:bg-amber-50 rounded-xl transition-all border border-transparent hover:border-amber-100"
+                                    title="Settle Loan Immediately"
+                                  >
+                                    <CheckCircle2 className="w-5 h-5" />
+                                  </button>
+                                  <button 
                                     onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
                                     className="p-2.5 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all border border-transparent hover:border-emerald-100"
                                     title="WhatsApp Reminder"
@@ -3303,6 +3418,7 @@ export default function App() {
                               <div className="mt-6 space-y-2">
                                 {(() => {
                                   let runningPrincipal = l.approvedAmount!;
+                                  const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
                                   return Array.from({ length: l.installments || 10 }).map((_, i) => {
                                     const installmentNum = i + 1;
                                     const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
@@ -3314,14 +3430,17 @@ export default function App() {
                                     
                                     const interest = runningPrincipal * 0.005;
                                     const scheduledPrincipal = l.approvedAmount! / (l.installments || 10);
-                                    const principalToDisplay = isPaid ? payment.amount : scheduledPrincipal;
+                                    const principalToDisplay = (isPaid || isPending) ? payment.amount : Math.min(runningPrincipal, scheduledPrincipal);
                                     const total = principalToDisplay + interest;
 
-                                    // Update running principal for next iteration
+                                    // Update running principal for next iteration based on actual payments
                                     if (isPaid) {
                                       runningPrincipal = Math.max(0, runningPrincipal - payment.amount);
+                                    } else if (installmentDate < new Date()) {
+                                      // If it's a past installment that wasn't paid, the principal didn't decrease
                                     } else {
-                                      runningPrincipal = Math.max(0, runningPrincipal - scheduledPrincipal);
+                                      // For future installments in the schedule, we assume standard principal will be paid
+                                      runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
                                     }
 
                                     return (
@@ -3336,7 +3455,16 @@ export default function App() {
                                         <div className="flex items-center gap-4">
                                           <span className="text-sm font-black text-slate-900">₹{total.toLocaleString()}</span>
                                           {isPaid ? (
-                                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">PAID</span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">PAID</span>
+                                              <button 
+                                                onClick={() => setDeletingRepaymentId(payment.id!)}
+                                                className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                                                title="Delete Repayment Record"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
                                           ) : isPending ? (
                                             <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">AWAITING APPROVAL</span>
                                           ) : (
@@ -3370,8 +3498,10 @@ export default function App() {
                   {/* Active Loan Info */}
                   {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).map(l => {
                     const payments = loanPayments.filter(p => p.loanId === l.id);
-                    const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
-                    const remaining = l.approvedAmount! - totalPaid;
+                    const paidPayments = payments.filter(p => p.status === 'paid');
+                    const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
+                    const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
+                    const remainingTotal = calculateLoanRemainingTotal(l, payments);
                     
                     return (
                       <motion.div 
@@ -3397,7 +3527,8 @@ export default function App() {
                             </div>
                             <div>
                               <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Remaining Due</p>
-                              <p className="text-xl font-bold">₹{remaining.toLocaleString()}</p>
+                              <p className="text-xl font-bold">₹{remainingTotal.toLocaleString()}</p>
+                              <p className="text-[10px] text-indigo-200 font-bold">₹{remainingPrincipal.toLocaleString()} Principal</p>
                             </div>
                           </div>
                         </div>
@@ -3422,20 +3553,35 @@ export default function App() {
                                 const installmentMonth = installmentDate.getMonth() + 1;
                                 const installmentYear = installmentDate.getFullYear();
                                 
-                                const payment = payments.find(p => p.month === installmentMonth && p.year === installmentYear);
+                                // Find the most relevant payment for this installment
+                                const payment = payments
+                                  .filter(p => p.month === installmentMonth && p.year === installmentYear)
+                                  .sort((a, b) => {
+                                    // Prefer paid, then pending, then others
+                                    const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
+                                    const orderA = statusOrder[a.status] ?? 3;
+                                    const orderB = statusOrder[b.status] ?? 3;
+                                    if (orderA !== orderB) return orderA - orderB;
+                                    // Then most recent
+                                    return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
+                                  })[0];
+
                                 const isPaid = payment?.status === 'paid';
                                 const isPending = payment?.status === 'pending';
                                 
-                                const interest = runningPrincipal * 0.005;
+                                const interest = (isPaid || isPending) ? (payment.interest || 0) : (runningPrincipal * 0.005);
                                 const scheduledPrincipal = l.approvedAmount! / (l.installments || 10);
-                                const principalToDisplay = isPaid ? payment.amount : scheduledPrincipal;
+                                const principalToDisplay = (isPaid || isPending) ? payment.amount : Math.min(runningPrincipal, scheduledPrincipal);
                                 const total = principalToDisplay + interest;
 
-                                // Update running principal for next iteration
+                                // Update running principal for next iteration based on actual payments
                                 if (isPaid) {
                                   runningPrincipal = Math.max(0, runningPrincipal - payment.amount);
+                                } else if (installmentDate < new Date()) {
+                                  // If it's a past installment that wasn't paid, the principal didn't decrease
                                 } else {
-                                  runningPrincipal = Math.max(0, runningPrincipal - scheduledPrincipal);
+                                  // For future installments in the schedule, we assume standard principal will be paid
+                                  runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
                                 }
 
                                 const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
@@ -5180,7 +5326,8 @@ export default function App() {
                 for (let i = 0; i < (selectedLoan.installments || 12); i++) {
                   const m = (startMonth + i - 1) % 12 + 1;
                   const y = startYear + Math.floor((startMonth + i - 1) / 12);
-                  if (!payments.some(p => p.month === m && p.year === y)) {
+                  // Only skip if there's a paid or pending payment
+                  if (!payments.some(p => p.month === m && p.year === y && (p.status === 'paid' || p.status === 'pending'))) {
                     nextMonth = m;
                     nextYear = y;
                     break;
@@ -5255,6 +5402,94 @@ export default function App() {
             </motion.div>
           </div>
         )}
+        {settlingLoanId && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSettlingLoanId(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Wallet className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Settle Loan?</h3>
+              <p className="text-slate-600 mb-8">
+                This will immediately pay off the remaining principal of 
+                <span className="font-bold text-slate-900"> ₹{(() => {
+                  const l = loans.find(loan => loan.id === settlingLoanId);
+                  if (!l) return 0;
+                  const payments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
+                  const paidPrincipal = payments.reduce((acc, p) => acc + p.amount, 0);
+                  return (l.approvedAmount! - paidPrincipal).toLocaleString();
+                })()}</span> plus current month's interest.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setSettlingLoanId(null)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    const l = loans.find(loan => loan.id === settlingLoanId);
+                    if (l) settleLoanImmediately(l);
+                  }}
+                  className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100"
+                >
+                  Settle Now
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {deletingRepaymentId && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeletingRepaymentId(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Repayment?</h3>
+              <p className="text-slate-600 mb-8">This will remove the payment record and reset the loan balance. This action cannot be undone.</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeletingRepaymentId(null)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => deleteLoanRepayment(deletingRepaymentId)}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {deletingId && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
