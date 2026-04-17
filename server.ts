@@ -9,6 +9,7 @@ import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { initializeApp as initializeClientApp } from 'firebase/app';
 import { getFirestore as getClientFirestore, collection, getDocs, query, where, limit, doc, updateDoc } from 'firebase/firestore';
 import { readFileSync } from 'fs';
+import * as XLSX from 'xlsx';
 const firebaseConfig = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf-8'));
 
 // Initialize Firebase Admin
@@ -254,6 +255,124 @@ cron.schedule('0 9 1 * *', () => {
   sendMonthlyReminders();
 });
 
+async function sendMonthlyFullReport() {
+  console.log('Generating monthly full report automation...');
+  const { type, db } = await getDb();
+  
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.error('[Automation] SMTP configuration missing for full report');
+    return { success: false, message: 'SMTP configuration missing' };
+  }
+
+  try {
+    console.log(`[Automation] Fetching all data for report using ${type} SDK...`);
+    let usersData: any[] = [];
+    let contributionsData: any[] = [];
+    let loansData: any[] = [];
+    let paymentsData: any[] = [];
+
+    if (type === 'admin') {
+      const adminDb = db as admin.firestore.Firestore;
+      const [uSnap, cSnap, lSnap, pSnap] = await Promise.all([
+        adminDb.collection('users').get(),
+        adminDb.collection('contributions').get(),
+        adminDb.collection('loans').get(),
+        adminDb.collection('loanPayments').get()
+      ]);
+      usersData = uSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      contributionsData = cSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      loansData = lSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      paymentsData = pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      const [uSnap, cSnap, lSnap, pSnap] = await Promise.all([
+        getDocs(collection(db as any, 'users')),
+        getDocs(collection(db as any, 'contributions')),
+        getDocs(collection(db as any, 'loans')),
+        getDocs(collection(db as any, 'loanPayments'))
+      ]);
+      usersData = uSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      contributionsData = cSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      loansData = lSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      paymentsData = pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+
+    console.log(`[Automation] Data fetched: ${usersData.length} members, ${contributionsData.length} contributions, ${loansData.length} loans, ${paymentsData.length} payments.`);
+
+    // Create Excel Workbook
+    const wb = XLSX.utils.book_new();
+
+    // Transform data for better Excel readability
+    const formatData = (data: any[]) => data.map(item => {
+      const newItem = { ...item };
+      // Convert timestamps to readable strings if they exist
+      Object.keys(newItem).forEach(key => {
+        if (newItem[key] && typeof newItem[key] === 'object' && newItem[key].toDate) {
+          newItem[key] = newItem[key].toDate().toLocaleString();
+        } else if (newItem[key] && typeof newItem[key] === 'object' && newItem[key]._seconds) {
+           newItem[key] = new Date(newItem[key]._seconds * 1000).toLocaleString();
+        }
+      });
+      return newItem;
+    });
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(usersData)), "Members");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(contributionsData)), "Contributions");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(loansData)), "Loans");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(paymentsData)), "Loan_Repayments");
+
+    // Generate buffer
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const now = new Date();
+    const monthName = now.toLocaleString('default', { month: 'long' });
+    const year = now.getFullYear();
+
+    const mailOptions = {
+      from: `"Unnati Automated Reports" <${process.env.SMTP_USER}>`,
+      to: 'unnati.finance2026@gmail.com',
+      subject: `Monthly Full Financial Report - Unnati - ${monthName} ${year}`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #4f46e5;">Monthly Automated Report</h2>
+          <p>Please find attached the detailed Excel report for <b>${monthName} ${year}</b>.</p>
+          <p>This report includes:</p>
+          <ul>
+            <li>Member Profiles</li>
+            <li>Savings Contributions</li>
+            <li>Active & Past Loans</li>
+            <li>Loan Repayment History</li>
+          </ul>
+          <br/>
+          <p>Sent automatically by Unnati Finance System.</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `Unnati_Full_Report_${monthName}_${year}.xlsx`,
+          content: buffer
+        }
+      ]
+    };
+
+    const info = await sendMailWithRetry(mailOptions);
+    console.log(`[Automation] Monthly full report sent: ${info.messageId}`);
+    return { success: true, message: 'Full report sent successfully' };
+  } catch (err: any) {
+    console.error('[Automation] Failed to generate/send full report:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+// Schedule Full Report for the end of every month at 11:55 PM
+cron.schedule('55 23 28-31 * *', () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  if (tomorrow.getDate() === 1) {
+    console.log('Today is the last day of the month. Triggering full report...');
+    sendMonthlyFullReport();
+  }
+});
+
 async function startServer() {
   const PORT = 3000;
   console.log('--- SERVER STARTING ---');
@@ -363,6 +482,49 @@ async function startServer() {
     }
   });
 
+  // Loan Closure Email API
+  app.post('/api/admin/send-loan-closure-email', async (req, res) => {
+    const { email, name, amount, interest, date } = req.body;
+    console.log(`[API] Received request to send loan closure email to: ${email}`);
+    
+    if (!email) return res.status(400).json({ message: 'Email is required' });
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(400).json({ message: 'SMTP is not configured' });
+    }
+
+    const mailOptions = {
+      from: `"Unnati Savings Group" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: `Loan Fully Settled - Unnati Savings Group`,
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; rounded: 12px;">
+          <h2 style="color: #059669; margin-bottom: 16px;">Congratulations! Your Loan is Settled</h2>
+          <p>Hi ${name || 'Member'},</p>
+          <p>We are pleased to inform you that your loan has been fully settled and closed on <b>${date}</b>.</p>
+          
+          <div style="background-color: #f8fafc; padding: 16px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 4px 0;"><b>Principal Paid:</b> ₹${Number(amount).toLocaleString()}</p>
+            <p style="margin: 4px 0;"><b>Interest Paid:</b> ₹${Number(interest).toLocaleString()}</p>
+            <p style="margin: 4px 0; color: #059669;"><b>Total Settlement:</b> ₹${(Number(amount) + Number(interest)).toLocaleString()}</p>
+          </div>
+
+          <p>Your loan record in the system has been updated to <b>PAID IN FULL</b>. No further installments are due for this loan.</p>
+          <p>Thank you for being a responsible member of the Unnati Savings Group.</p>
+          <br/>
+          <p>Best regards,<br/>Unnati Administration</p>
+        </div>
+      `
+    };
+
+    try {
+      const info = await sendMailWithRetry(mailOptions);
+      res.json({ message: 'Loan closure email sent', messageId: info.messageId });
+    } catch (err: any) {
+      console.error('[SMTP] Failed to send loan closure email:', err);
+      res.status(500).json({ message: 'Failed to send email: ' + err.message });
+    }
+  });
+
   // Manual trigger for testing reminders
   app.post('/api/admin/trigger-reminders', async (req, res) => {
     try {
@@ -374,6 +536,21 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error('API Error in trigger-reminders:', err);
+      res.status(500).json({ message: 'Internal server error: ' + err.message });
+    }
+  });
+
+  // Manual trigger for testing full report
+  app.post('/api/admin/trigger-full-report', async (req, res) => {
+    try {
+      const result = await sendMonthlyFullReport();
+      if (result.success) {
+        res.json({ message: result.message });
+      } else {
+        res.status(500).json({ message: result.message });
+      }
+    } catch (err: any) {
+      console.error('API Error in trigger-full-report:', err);
       res.status(500).json({ message: 'Internal server error: ' + err.message });
     }
   });

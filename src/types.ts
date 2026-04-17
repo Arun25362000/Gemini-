@@ -33,6 +33,7 @@ export interface Loan {
   createdAt: any;
   approvedAt?: any;
   installments?: number;
+  declineReason?: string;
 }
 
 export interface LoanPayment {
@@ -45,6 +46,9 @@ export interface LoanPayment {
   interest: number;
   status: 'paid' | 'pending';
   timestamp: any;
+  approvedAt?: any;
+  paymentMethod?: 'cash' | 'online';
+  userEmail?: string;
 }
 
 export interface Notice {
