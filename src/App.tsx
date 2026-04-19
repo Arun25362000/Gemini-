@@ -434,18 +434,75 @@ export default function App() {
   );
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
-  const hasPaidCurrent = contributions.some(c => 
-    ((user?.uid && c.userId === user.uid) || (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())) && 
-    c.month === currentMonth && 
-    c.year === currentYear && 
-    c.status === 'paid'
-  );
-  const hasPendingCurrent = contributions.some(c => 
-    ((user?.uid && c.userId === user.uid) || (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())) && 
-    c.month === currentMonth && 
-    c.year === currentYear && 
-    c.status === 'pending'
-  );
+  const isSystemAdmin = user?.email?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase();
+
+  const hasPaidCurrent = useMemo(() => {
+    if (isSystemAdmin) {
+      const nonAdminUsers = allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase());
+      if (nonAdminUsers.length === 0) return true;
+
+      const allMembersPaidContrib = nonAdminUsers.every(u => 
+        contributions.some(c => 
+          ((u.uid && c.userId === u.uid) || (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) &&
+          c.month === currentMonth && c.year === currentYear && c.status === 'paid'
+        )
+      );
+
+      const activeLoans = loans.filter(l => {
+        if (l.status !== 'approved') return false;
+        // Skip loans approved in the current month - repayments start from the following month
+        const approvedAt = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+        const approvedMonth = approvedAt.getMonth() + 1;
+        const approvedYear = approvedAt.getFullYear();
+        return !(approvedYear === currentYear && approvedMonth === currentMonth);
+      });
+      const allRepaymentsPaid = activeLoans.every(l => 
+        loanPayments.some(p => 
+          p.loanId === l.id && p.month === currentMonth && p.year === currentYear && p.status === 'paid'
+        )
+      );
+
+      return allMembersPaidContrib && allRepaymentsPaid;
+    }
+    return contributions.some(c => 
+      ((user?.uid && c.userId === user.uid) || (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())) && 
+      c.month === currentMonth && 
+      c.year === currentYear && 
+      c.status === 'paid'
+    );
+  }, [user, isSystemAdmin, allUsers, contributions, loans, loanPayments, currentMonth, currentYear]);
+
+  const hasPendingCurrent = useMemo(() => {
+    if (isSystemAdmin) {
+      if (hasPaidCurrent) return false;
+      const nonAdminUsers = allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase());
+      const anyPendingContrib = nonAdminUsers.some(u => 
+        contributions.some(c => 
+          ((u.uid && c.userId === u.uid) || (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) &&
+          c.month === currentMonth && c.year === currentYear && c.status === 'pending'
+        )
+      );
+      const activeLoans = loans.filter(l => {
+        if (l.status !== 'approved') return false;
+        const approvedAt = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+        const approvedMonth = approvedAt.getMonth() + 1;
+        const approvedYear = approvedAt.getFullYear();
+        return !(approvedYear === currentYear && approvedMonth === currentMonth);
+      });
+      const anyPendingLoan = activeLoans.some(l => 
+        loanPayments.some(p => 
+          p.loanId === l.id && p.month === currentMonth && p.year === currentYear && p.status === 'pending'
+        )
+      );
+      return anyPendingContrib || anyPendingLoan;
+    }
+    return contributions.some(c => 
+      ((user?.uid && c.userId === user.uid) || (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())) && 
+      c.month === currentMonth && 
+      c.year === currentYear && 
+      c.status === 'pending'
+    );
+  }, [user, isSystemAdmin, hasPaidCurrent, allUsers, contributions, loans, loanPayments, currentMonth, currentYear]);
   const isLate = !hasPaidCurrent && !hasPendingCurrent && new Date().getDate() > DUE_DAY;
 
   const sortedContributions = useMemo(() => {
