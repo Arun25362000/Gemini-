@@ -2817,6 +2817,7 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100">
+                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
                       <th 
                         className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                         onClick={() => handleSortMembers('name')}
@@ -2902,6 +2903,9 @@ export default function App() {
                           key={u.uid || u.email} 
                           className="hover:bg-slate-50/50 transition-colors"
                         >
+                          <td className="px-6 py-4">
+                            <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
+                          </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
@@ -3022,8 +3026,11 @@ export default function App() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
                     key={u.uid || u.email}
-                    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm"
+                    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden"
                   >
+                    <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                      #{idx + 1}
+                    </div>
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-lg">
@@ -3128,6 +3135,7 @@ export default function App() {
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-100">
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
                               <th 
                                 className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                                 onClick={() => handleSortLoans('member')}
@@ -3195,6 +3203,9 @@ export default function App() {
                                   key={l.id} 
                                   className="hover:bg-slate-50/50 transition-colors"
                                 >
+                                  <td className="px-6 py-4">
+                                    <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
+                                  </td>
                                   <td className="px-6 py-4">
                                     <div className="flex flex-col">
                                       <span className="text-sm font-semibold text-slate-900">{targetUser?.displayName || l.userEmail?.split('@')[0]}</span>
@@ -3283,8 +3294,11 @@ export default function App() {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.05 }}
-                            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 relative overflow-hidden"
                           >
+                            <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                              #{idx + 1}
+                            </div>
                             <div className="flex items-center justify-between mb-4">
                               <div className="flex flex-col">
                                 <span className="text-sm font-bold text-slate-900">{targetUser?.displayName || l.userEmail?.split('@')[0]}</span>
@@ -3473,8 +3487,11 @@ export default function App() {
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
-                          className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden"
+                          className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden relative"
                         >
+                          <div className="absolute top-0 right-0 px-3 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200 z-10">
+                            #{idx + 1}
+                          </div>
                           <div className="p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
                             <div className="flex items-center gap-4">
                               <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-lg">
@@ -3879,6 +3896,9 @@ export default function App() {
                     notice.priority === 'high' ? "border-red-200" : "border-slate-200"
                   )}
                 >
+                  <div className="absolute top-0 right-0 px-3 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                    #{idx + 1}
+                  </div>
                   {notice.priority === 'high' && (
                     <div className="absolute top-0 left-0 right-0 h-1 bg-red-500"></div>
                   )}
@@ -4023,6 +4043,7 @@ export default function App() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50/50 border-b border-slate-100">
+                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
                           {isAdmin && (
                             <th 
                               className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
@@ -4078,6 +4099,9 @@ export default function App() {
                           key={c.id} 
                           className="hover:bg-slate-50/50 transition-colors"
                         >
+                          <td className="px-6 py-4">
+                            <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
+                          </td>
                           {isAdmin && (
                             <td className="px-6 py-4">
                               <span className="text-sm font-semibold text-slate-900">
@@ -4173,8 +4197,11 @@ export default function App() {
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
                           key={c.id}
-                          className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                          className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 relative overflow-hidden"
                         >
+                          <div className="absolute top-0 right-0 px-3 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                            #{idx + 1}
+                          </div>
                           <div className="flex items-center justify-between mb-4">
                             <div className="flex flex-col">
                               <span className="text-sm font-bold text-slate-900">
