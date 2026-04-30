@@ -168,8 +168,8 @@ service cloud.firestore {
     }
 
     match /loans/{loanId} {
-      // Users can see their own loans, Admins can see all
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Users can see loans (needed for group financial health calculations), Admins can see all
+      allow read: if isAuthenticated();
       
       // Users can apply for loans, Admins can record loans for anyone
       allow create: if isAuthenticated() && 
@@ -186,8 +186,8 @@ service cloud.firestore {
     }
 
     match /loanPayments/{paymentId} {
-      // Users can see their own payments, Admins can see all
-      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Users can see payments (needed for group financial health calculations), Admins can see all
+      allow read: if isAuthenticated();
       
       // Users can record their own payments, Admins can record for anyone
       allow create: if isAuthenticated() && 

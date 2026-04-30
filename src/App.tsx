@@ -61,9 +61,11 @@ import {
   Search,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  PieChart as GraphIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import Graphs from './components/Graphs';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
 import jsPDF from 'jspdf';
@@ -188,7 +190,7 @@ export default function App() {
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
-  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices'>('contributions');
+  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs'>('contributions');
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments'>('applications');
   const [isApplyingLoan, setIsApplyingLoan] = useState(false);
   const [loanAmount, setLoanAmount] = useState(10000);
@@ -895,9 +897,7 @@ export default function App() {
       handleFirestoreError(err, OperationType.GET, 'users');
     });
 
-    const loansQuery = isAdmin 
-      ? collection(db, 'loans') 
-      : query(collection(db, 'loans'), where('userId', '==', user.uid));
+    const loansQuery = collection(db, 'loans');
 
     const unsubscribeLoans = onSnapshot(loansQuery, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Loan));
@@ -917,9 +917,7 @@ export default function App() {
       handleFirestoreError(err, OperationType.GET, 'loans');
     });
 
-    const paymentsQuery = isAdmin
-      ? collection(db, 'loanPayments')
-      : query(collection(db, 'loanPayments'), where('userId', '==', user.uid));
+    const paymentsQuery = collection(db, 'loanPayments');
 
     const unsubscribeLoanPayments = onSnapshot(paymentsQuery, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LoanPayment));
@@ -1746,7 +1744,10 @@ export default function App() {
   };
 
   const sortedLoans = useMemo(() => {
-    let items = [...loans];
+    let items = isAdmin ? [...loans] : loans.filter(l => 
+      (user?.uid && l.userId === user.uid) || 
+      (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase())
+    );
     
     if (isAdmin && searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -1791,7 +1792,10 @@ export default function App() {
   }, [loans, isAdmin, searchQuery, loanSortConfig, allUsers]);
 
   const filteredLoanPayments = useMemo(() => {
-    let items = [...loanPayments];
+    let items = isAdmin ? [...loanPayments] : loanPayments.filter(p => 
+      (user?.uid && p.userId === user.uid) || 
+      (user?.email && p.userEmail?.toLowerCase() === user.email.toLowerCase())
+    );
     if (isAdmin && searchQuery) {
       const query = searchQuery.toLowerCase();
       items = items.filter(p => {
@@ -2615,6 +2619,16 @@ export default function App() {
             >
               Notices
             </button>
+            <button 
+              onClick={() => setActiveTab('graphs')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              <GraphIcon className="w-4 h-4" />
+              Graphs
+            </button>
           </div>
         )}
 
@@ -2641,6 +2655,16 @@ export default function App() {
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
               )}
             </button>
+            <button 
+              onClick={() => setActiveTab('graphs')}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              <GraphIcon className="w-4 h-4" />
+              Graphs
+            </button>
           </div>
         )}
 
@@ -2648,8 +2672,8 @@ export default function App() {
           <div className="flex flex-col">
             <h2 className="text-2xl font-bold text-slate-900">
               {isAdmin 
-                ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : activeTab === 'loans' ? 'Loan Applications' : 'Notice Board') 
-                : (activeTab === 'contributions' ? 'Your History' : 'Loan Dashboard')}
+                ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : activeTab === 'loans' ? 'Loan Applications' : activeTab === 'graphs' ? 'Data Analytics' : 'Notice Board') 
+                : (activeTab === 'contributions' ? 'Your History' : activeTab === 'graphs' ? 'Group Insights' : 'Loan Dashboard')}
             </h2>
             {isAdmin && activeTab === 'members' && !isSmtpConfigured && (
               <div className="mt-1 flex items-center gap-1.5 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-100 w-fit">
@@ -3882,6 +3906,16 @@ export default function App() {
               </div>
             )}
           </div>
+        ) : activeTab === 'graphs' ? (
+          <Graphs 
+            allUsers={allUsers}
+            contributions={contributions}
+            loans={loans}
+            loanPayments={loanPayments}
+            financials={financials}
+            userEmail={user?.email || ''}
+            isAdmin={isAdmin}
+          />
         ) : activeTab === 'notices' ? (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
