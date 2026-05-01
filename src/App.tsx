@@ -3602,9 +3602,11 @@ export default function App() {
                             <div className="px-6 pb-6 border-t border-slate-100 bg-slate-50/30">
                               <div className="mt-6 space-y-2">
                                 {(() => {
-                                  let runningPrincipal = l.approvedAmount!;
+                                  const approvedAmount = l.approvedAmount || 0;
+                                  const installments = l.installments || 10;
                                   const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
-                                  return Array.from({ length: l.installments || 10 }).map((_, i) => {
+                                  
+                                  return Array.from({ length: installments }).map((_, i) => {
                                     const installmentNum = i + 1;
                                     const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
                                     const installmentMonth = installmentDate.getMonth() + 1;
@@ -3613,20 +3615,12 @@ export default function App() {
                                     const isPaid = payment?.status === 'paid';
                                     const isPending = payment?.status === 'pending';
                                     
-                                    const interest = runningPrincipal * 0.005;
-                                    const scheduledPrincipal = l.approvedAmount! / (l.installments || 10);
-                                    const principalToDisplay = (isPaid || isPending) ? payment.amount : Math.min(runningPrincipal, scheduledPrincipal);
+                                    // Calculate interest based on planned reducing balance
+                                    const scheduledPrincipal = approvedAmount / installments;
+                                    const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
+                                    const interest = Math.round(plannedRemainingPrincipal * 0.005);
+                                    const principalToDisplay = (isPaid || isPending) ? payment.amount : scheduledPrincipal;
                                     const total = principalToDisplay + interest;
-
-                                    // Update running principal for next iteration based on actual payments
-                                    if (isPaid) {
-                                      runningPrincipal = Math.max(0, runningPrincipal - payment.amount);
-                                    } else if (installmentDate < new Date()) {
-                                      // If it's a past installment that wasn't paid, the principal didn't decrease
-                                    } else {
-                                      // For future installments in the schedule, we assume standard principal will be paid
-                                      runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
-                                    }
 
                                     return (
                                       <div key={i} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100">
@@ -3729,11 +3723,13 @@ export default function App() {
 
                           <div className="space-y-3">
                             {(() => {
-                              let runningPrincipal = l.approvedAmount!;
-                              return Array.from({ length: l.installments || 10 }).map((_, i) => {
+                              const approvedAmount = l.approvedAmount || 0;
+                              const installments = l.installments || 10;
+                              const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+
+                              return Array.from({ length: installments }).map((_, i) => {
                                 const installmentNum = i + 1;
                                 // Repayment starts from next month
-                                const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
                                 const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
                                 const installmentMonth = installmentDate.getMonth() + 1;
                                 const installmentYear = installmentDate.getFullYear();
@@ -3742,32 +3738,22 @@ export default function App() {
                                 const payment = payments
                                   .filter(p => p.month === installmentMonth && p.year === installmentYear)
                                   .sort((a, b) => {
-                                    // Prefer paid, then pending, then others
                                     const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
                                     const orderA = statusOrder[a.status] ?? 3;
                                     const orderB = statusOrder[b.status] ?? 3;
                                     if (orderA !== orderB) return orderA - orderB;
-                                    // Then most recent
                                     return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
                                   })[0];
 
                                 const isPaid = payment?.status === 'paid';
                                 const isPending = payment?.status === 'pending';
                                 
-                                const interest = (isPaid || isPending) ? (payment.interest || 0) : (runningPrincipal * 0.005);
-                                const scheduledPrincipal = l.approvedAmount! / (l.installments || 10);
-                                const principalToDisplay = (isPaid || isPending) ? payment.amount : Math.min(runningPrincipal, scheduledPrincipal);
+                                // Calculate interest based on planned reducing balance
+                                const scheduledPrincipal = approvedAmount / installments;
+                                const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
+                                const interest = (isPaid || isPending) ? (payment.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
+                                const principalToDisplay = (isPaid || isPending) ? payment.amount : scheduledPrincipal;
                                 const total = principalToDisplay + interest;
-
-                                // Update running principal for next iteration based on actual payments
-                                if (isPaid) {
-                                  runningPrincipal = Math.max(0, runningPrincipal - payment.amount);
-                                } else if (installmentDate < new Date()) {
-                                  // If it's a past installment that wasn't paid, the principal didn't decrease
-                                } else {
-                                  // For future installments in the schedule, we assume standard principal will be paid
-                                  runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
-                                }
 
                                 const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
                                 const isFuture = installmentDate > new Date();
@@ -5616,7 +5602,7 @@ export default function App() {
                 }
 
                 const principal = customPrincipal;
-                const interest = currentRemainingPrincipal * 0.005;
+                const interest = Math.round(currentRemainingPrincipal * 0.005);
                 const total = principal + interest;
 
                 return (
