@@ -1,8 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { 
   signInWithPopup, 
-  signInWithRedirect,
-  getRedirectResult,
   GoogleAuthProvider, 
   onAuthStateChanged, 
   signOut, 
@@ -849,28 +847,6 @@ export default function App() {
     };
 
     const testConnection = async () => {
-      // Handle redirect result first (for Capacitor/Mobile support)
-      try {
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          console.log("Redirect login successful:", result.user.email);
-          notify('success', `Welcome, ${result.user.displayName || 'Member'}!`);
-        }
-      } catch (err: any) {
-        if (err.code === 'auth/unauthorized-domain') {
-          console.warn("Unauthorized domain for redirect result - if in the app, please add 'localhost' to Firebase Authorized Domains.");
-        } else if (err.code === 'auth/missing-initial-state' || err.message?.includes('missing initial state')) {
-          console.warn("Recoverable Auth Error: Missing initial state. This usually happens on Android when the session is lost. Attempting to check if user is already signed in via state listener...");
-          // We don't notify error here because often the user is actually signed in 
-          // and onAuthStateChanged will handle it.
-        } else if (err.code === 'auth/popup-closed-by-user') {
-          // Ignore
-        } else {
-          console.error("Redirect result error:", err);
-          // notify('error', "Login result error: " + err.message);
-        }
-      }
-
       try {
         // Mandatory Firestore connection test - but handle offline gracefully
         // Using a shorter timeout for this specific test
@@ -1127,51 +1103,21 @@ export default function App() {
     try {
       const provider = new GoogleAuthProvider();
       
-      // On Capacitor/Android, popups are extremely unreliable and often lead to blank screens.
-      // We force Redirect for a much smoother experience in the mobile app.
-      const isCapacitor = typeof window !== 'undefined' && 
-        (window.location.origin.includes('localhost') || 
-         window.location.origin.includes('capacitor') || 
-         window.location.protocol === 'file:');
-      
-      if (isCapacitor) {
-        console.log('Detected Capacitor environment - using Redirect flow');
-        try {
-          // If we previously had a "missing initial state" error, 
-          // Redirect might be stuck. We ensure a fresh start.
-          await signInWithRedirect(auth, provider);
-        } catch (redirErr: any) {
-          console.warn("Redirect error:", redirErr);
-          if (redirErr.code === 'auth/unauthorized-domain') {
-            notify('error', 'Login Domain Error: Please ensure you have added "localhost" (exactly as written, no "http://") to the "Authorized Domains" list in your Firebase Console (Authentication > Settings).');
-          } else {
-            // Fallback to popup if redirect fails, even if unreliable, it's better than nothing
-            // or if it fails with missing-initial-state we might want to tell user to try again
-            notify('info', "Login redirect issue. Attempting popup fallback...");
-            try {
-              await signInWithPopup(auth, provider);
-            } catch (pErr: any) {
-              notify('error', "Login failed: " + pErr.message);
-            }
-          }
-        }
-      } else {
-        // Desktop/Web flow
-        try {
-          await signInWithPopup(auth, provider);
-        } catch (popupErr: any) {
-          if (popupErr.code === 'auth/unauthorized-domain') {
-            notify('error', 'Login Domain Error: Please add this domain to your Firebase Authorized Domains whitelist.');
-          } else {
-            // Fallback to redirect if popup is blocked
-            console.warn('Popup failed or was blocked, trying redirect...', popupErr);
-            await signInWithRedirect(auth, provider);
-          }
+      // Defaulting to signInWithPopup as requested for better state consistency in Android/Capacitor
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (popupErr: any) {
+        if (popupErr.code === 'auth/unauthorized-domain') {
+          notify('error', 'Login Domain Error: Please ensure "localhost" is added to "Authorized Domains" in your Firebase console under Authentication > Settings.');
+        } else if (popupErr.code === 'auth/popup-blocked') {
+          notify('error', 'Login popup was blocked by your browser. Please allow popups for this site.');
+        } else {
+          notify('error', popupErr.message || "Failed to sign in. Please try again.");
         }
       }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-by-user') {
-        notify('error', err.message || "Failed to sign in. Please try again.");
+        notify('error', err.message || "An unexpected error occurred during login.");
       }
     }
   };
