@@ -854,12 +854,17 @@ export default function App() {
         const result = await getRedirectResult(auth);
         if (result?.user) {
           console.log("Redirect login successful:", result.user.email);
+          notify('success', `Welcome, ${result.user.displayName || 'Member'}!`);
         }
       } catch (err: any) {
         if (err.code === 'auth/unauthorized-domain') {
           console.warn("Unauthorized domain for redirect result - if in the app, please add 'localhost' to Firebase Authorized Domains.");
+        } else if (err.code === 'auth/missing-initial-state' || err.message?.includes('missing initial state')) {
+          console.warn("Recoverable Auth Error: Missing initial state. This usually happens on Android. Trying to detect if user is already signed in...");
+          // If we reach here, onAuthStateChanged will usually pick up the user anyway if the session was created
         } else {
           console.error("Redirect login error:", err);
+          notify('error', "Login error: " + err.message);
         }
       }
 
@@ -1132,7 +1137,7 @@ export default function App() {
           await signInWithRedirect(auth, provider);
         } catch (redirErr: any) {
           if (redirErr.code === 'auth/unauthorized-domain') {
-            notify('error', 'Login Domain Error: Please ensure you have added "localhost" to the "Authorized Domains" list in your Firebase Console (Authentication > Settings). Do NOT include "https://" or "capacitor://", just add the word "localhost".');
+            notify('error', 'Login Domain Error: Please ensure you have added "localhost" (exactly as written, no "http://") to the "Authorized Domains" list in your Firebase Console (Authentication > Settings).');
           } else {
             notify('error', "Redirect login failed: " + redirErr.message);
           }

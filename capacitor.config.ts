@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Unnati',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
+    androidScheme: 'http',
     hostname: 'localhost',
     allowNavigation: [
       'gen-lang-client-0691055733.firebaseapp.com',
