@@ -29,6 +29,7 @@ import {
 import { auth, db } from './lib/firebase';
 import { UserProfile, Contribution, Loan, LoanPayment } from './types';
 import { read, utils } from 'xlsx';
+import { QRCodeCanvas } from 'qrcode.react';
 import { 
   LogOut, 
   Plus, 
@@ -54,6 +55,7 @@ import {
   Upload,
   FileSpreadsheet,
   X,
+  PlusCircle,
   UserPlus,
   Users,
   Download,
@@ -62,7 +64,13 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  PieChart as GraphIcon
+  Copy,
+  PieChart as GraphIcon,
+  QrCode,
+  Banknote,
+  CreditCard,
+  Zap,
+  Star
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -75,29 +83,19 @@ import { Notice, AppNotification } from './types';
 
 // --- Constants ---
 const MONTHLY_AMOUNT = 1000;
-const LATE_FEE = 100;
+const LATE_FEE = 0;
 const DUE_DAY = 10;
 
 const getContributionAmount = (month: number, year: number) => {
-  const now = new Date();
-  const currentMonth = now.getMonth() + 1;
-  const currentYear = now.getFullYear();
-  const currentDay = now.getDate();
-
-  // If paying for a past year
-  if (year < currentYear) return MONTHLY_AMOUNT + LATE_FEE;
-  // If paying for a past month in the current year
-  if (year === currentYear && month < currentMonth) return MONTHLY_AMOUNT + LATE_FEE;
-  // If paying for the current month after the due day
-  if (year === currentYear && month === currentMonth && currentDay > DUE_DAY) return MONTHLY_AMOUNT + LATE_FEE;
-  
-  // Early or on-time payment
   return MONTHLY_AMOUNT;
 };
 const ADMIN_EMAILS = ['arun2102000@gmail.com', 'unnati.finance2026@gmail.com', 'arun.cse.rymec@gmail.com'];
 const SYSTEM_ADMIN_EMAIL = 'unnati.finance2026@gmail.com';
 const DEV_USER_NAMES = ['System Admin', 'Arun J', 'Anusha JM', 'shwetha JV'];
-const UPI_VPA = "megha24.anand@ybl"; // Payee UPI ID
+const UPI_VPA = "9535173734@okbizaxis"; // Payee UPI ID
+const PI_NAME = "Unnati Trust"; // Registered name for this UPI ID
+const MERCHANT_ID = "BCR2DN5TQ322VPIY"; // Merchant ID for Google Pay
+const MERCHANT_CODE = "6012"; // Merchant Category Code (Financial Services)
 const GROUP_NAME = "Unnati Savings Group";
 
 // --- Types ---
@@ -156,6 +154,46 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+/**
+ * Creates a Firestore Timestamp from a YYYY-MM-DD string,
+ * but combines it with the current local time to make it dynamic.
+ * If the provided date matches today's local date, we return serverTimestamp()
+ * or Timestamp.now() to ensure full precision.
+ */
+function getTimestampFromDateString(dateStr: string): Timestamp {
+  if (!dateStr) return serverTimestamp() as Timestamp;
+  
+  try {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const now = new Date();
+    
+    // Check if the selected date is today
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentDay = now.getDate();
+    
+    if (year === currentYear && month === currentMonth && day === currentDay) {
+      // If it's today, use Timestamp.now() for full real-time precision
+      // We use now() instead of serverTimestamp() here because we often need 
+      // the value immediately for local state or approval logic
+      return Timestamp.now();
+    }
+    
+    // If it's a different date, we still want the "time of recording"
+    // so we set the date parts but keep current hours/minutes/seconds
+    const targetDate = new Date();
+    targetDate.setFullYear(year);
+    targetDate.setMonth(month - 1);
+    targetDate.setDate(day);
+    // hours, minutes, seconds are already from 'new Date()' above
+    
+    return Timestamp.fromDate(targetDate);
+  } catch (e) {
+    console.error("Error creating timestamp from date string:", dateStr, e);
+    return serverTimestamp() as Timestamp;
+  }
+}
+
 // --- Components ---
 
 function ErrorBoundary({ error }: { error: string }) {
@@ -189,6 +227,7 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [originalEditingEmail, setOriginalEditingEmail] = useState<string | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
   const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs'>('contributions');
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments'>('applications');
@@ -222,6 +261,7 @@ export default function App() {
   const [phoneInput, setPhoneInput] = useState('');
   const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
   const [isTriggeringReminders, setIsTriggeringReminders] = useState(false);
+  const [isSendingReport, setIsSendingReport] = useState(false);
   const [isAddingLoan, setIsAddingLoan] = useState(false);
   const [selectedLoanUserId, setSelectedLoanUserId] = useState<string | null>(null);
   const [adminLoanAmount, setAdminLoanAmount] = useState(10000);
@@ -234,7 +274,6 @@ export default function App() {
   const [appliedFilter, setAppliedFilter] = useState<{ month: number; year: number } | null>(null);
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
-  const [loanSortConfig, setLoanSortConfig] = useState<{ field: 'member' | 'amount' | 'status' | 'date' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [customPrincipal, setCustomPrincipal] = useState<number>(5000);
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
@@ -244,8 +283,51 @@ export default function App() {
   const [settlingLoanId, setSettlingLoanId] = useState<string | null>(null);
   const [settlePrincipal, setSettlePrincipal] = useState<number>(0);
   const [settleInterest, setSettleInterest] = useState<number>(0);
+  const [showNoticeBoard, setShowNoticeBoard] = useState(false);
+  const [paymentModal, setPaymentModal] = useState<{
+    isOpen: boolean;
+    amount: number;
+    note: string;
+    type: 'contribution' | 'loan';
+    mode: 'online' | 'cash';
+  }>({ isOpen: false, amount: 0, note: '', type: 'contribution', mode: 'online' });
+  const [selectedLoanForPayment, setSelectedLoanForPayment] = useState<{
+    loan: Loan;
+    month: number;
+    year: number;
+    principal: number;
+    interest: number;
+  } | null>(null);
   const [settleDate, setSettleDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [isSettlingPending, setIsSettlingPending] = useState(false);
+  const [settlePaymentMode, setSettlePaymentMode] = useState<'Online' | 'Cash'>('Online');
+  const [approvingLoanForPaymentMode, setApprovingLoanForPaymentMode] = useState<Loan | null>(null);
+  const [selectedDisbursalMode, setSelectedDisbursalMode] = useState<'Online' | 'Cash'>('Online');
+
+  const [loanSortConfig, setLoanSortConfig] = useState<{
+    field: 'name' | 'amount' | 'remaining' | 'status' | 'date';
+    direction: 'asc' | 'desc';
+  }>({ field: 'date', direction: 'desc' });
+
+  const [adminManualRepayment, setAdminManualRepayment] = useState<{
+    isOpen: boolean;
+    loan: Loan | null;
+    month: number;
+    year: number;
+    amount: number;
+    interest: number;
+    method: 'cash' | 'online';
+    paymentDate: string;
+  }>({
+    isOpen: false,
+    loan: null,
+    month: 1,
+    year: 2026,
+    amount: 0,
+    interest: 0,
+    method: 'online',
+    paymentDate: format(new Date(), 'yyyy-MM-dd')
+  });
 
   useEffect(() => {
     if (settlingLoanId) {
@@ -275,9 +357,9 @@ export default function App() {
     }));
   };
 
-  const handleSortLoans = (field: 'member' | 'amount' | 'status' | 'date') => {
+  const handleSortLoans = (field: 'name' | 'amount' | 'remaining' | 'status' | 'date') => {
     setLoanSortConfig(prev => ({
-      field,
+      field: field as any,
       direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
     }));
   };
@@ -298,7 +380,7 @@ export default function App() {
         return;
       }
 
-      const timestampValue = loanDate ? Timestamp.fromDate(new Date(loanDate)) : serverTimestamp();
+      const timestampValue = loanDate ? getTimestampFromDateString(loanDate) : serverTimestamp();
       
       const loanData: any = {
         userId: targetUser.uid || '',
@@ -350,7 +432,6 @@ export default function App() {
 
   const [activeNoticeToast, setActiveNoticeToast] = useState<Notice | null>(null);
   const [activeNotificationToast, setActiveNotificationToast] = useState<AppNotification | null>(null);
-  const [showNoticeBoard, setShowNoticeBoard] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
 
@@ -559,12 +640,13 @@ export default function App() {
     
     if (isAdmin && searchQuery) {
       const query = searchQuery.toLowerCase();
-      items = items.filter(u => 
-        u.displayName?.toLowerCase().includes(query) ||
-        u.email?.toLowerCase().includes(query) ||
-        u.phoneNumber?.toLowerCase().includes(query) ||
-        u.role.toLowerCase().includes(query)
-      );
+      items = items.filter(u => {
+        const nameMatch = u.displayName?.toLowerCase().includes(query) || false;
+        const emailMatch = u.email?.toLowerCase().includes(query) || false;
+        const phoneMatch = u.phoneNumber?.toLowerCase().includes(query) || false;
+        const roleMatch = u.role?.toLowerCase().includes(query) || false;
+        return nameMatch || emailMatch || phoneMatch || roleMatch;
+      });
     }
 
     if (memberSortConfig.field) {
@@ -586,12 +668,14 @@ export default function App() {
             const dateB = b.joinDate || '';
             return memberSortConfig.direction === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
           case 'totalPaid':
-            const totalA = aContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
-            const totalB = bContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
+            // Include both paid and pending for dynamic reflection
+            const totalA = aContribs.reduce((acc, c) => acc + c.amount, 0);
+            const totalB = bContribs.reduce((acc, c) => acc + c.amount, 0);
             return memberSortConfig.direction === 'asc' ? totalA - totalB : totalB - totalA;
           case 'status':
-            const paidA = aContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
-            const paidB = bContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
+            // Check for both paid and pending recorded for the current month
+            const paidA = aContribs.some(c => c.month === currentMonth && c.year === currentYear);
+            const paidB = bContribs.some(c => c.month === currentMonth && c.year === currentYear);
             return memberSortConfig.direction === 'asc' ? (paidA === paidB ? 0 : paidA ? -1 : 1) : (paidA === paidB ? 0 : paidA ? 1 : -1);
           default:
             return 0;
@@ -601,39 +685,42 @@ export default function App() {
     return items;
   }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery]);
 
-  // Financial summary calculated directly from database records with accounting calibration
-  const financials = useMemo(() => {
-    const totalCollected = contributions.filter(c => {
-      if (c.status !== 'paid') return false;
-      if (c.userEmail?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase()) return false;
-      return true;
-    }).reduce((acc, c) => acc + c.amount, 0);
-    
-    // We include interest in the available pool, but the user requested a specific baseline
-    const totalInterest = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.interest || 0), 0);
-    
-    const outstandingPrincipal = loans.filter(l => l.status === 'approved').reduce((acc, l) => {
-      const payments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
-      const paidPrincipal = payments.reduce((pAcc, p) => pAcc + p.amount, 0);
-      return acc + (l.approvedAmount! - paidPrincipal);
-    }, 0);
+    // Financial summary calculated directly from database records
+    const financials = useMemo(() => {
+      // Filter contributions to only include paid records from 2026 onwards as requested
+      const paidContributions = contributions.filter(c => c.status === 'paid' && c.year >= 2026);
+      
+      // Filter loan payments belonging to approved or paid loans
+      const activeLoanIds = new Set(loans.filter(l => l.status === 'approved' || l.status === 'paid').map(l => l.id));
+      const paidLoanPayments = loanPayments.filter(p => {
+        // Use p.year for filtering as it's more reliable than parsing timestamp strings
+        return p.status === 'paid' && activeLoanIds.has(p.loanId) && (p.year || 0) >= 2026;
+      });
+      
+      const totalCollected = paidContributions.reduce((acc, c) => acc + c.amount, 0);
+      const totalInterest = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+      const totalPrincipalPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      
+      const approvedLoans = loans.filter(l => l.status === 'approved');
+      const outstandingPrincipal = approvedLoans.reduce((acc, l) => {
+        const payments = paidLoanPayments.filter(p => p.loanId === l.id);
+        const paidOfThisLoan = payments.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
+        return acc + Math.max(0, (l.approvedAmount || 0) - paidOfThisLoan);
+      }, 0);
 
-    const currentTotalInternal = totalCollected + totalInterest;
-    
-    // User requested absolute targets for "as of today"
-    // Total Group Savings: 172,000
-    // Subscription Balance Available: 2,000
-    // Outstanding Principal is calculated from DB (~170,000)
-    // This allows Available Balance to move dynamically when loans are deleted/settled.
-    const baseSavings = 172000;
-    const availableBalance = baseSavings - outstandingPrincipal;
+      // Total Group Savings is purely dynamic based on records in the database from 2026 onwards.
+      const totalSavings = totalCollected + totalInterest; 
+      const availableBalance = totalSavings - outstandingPrincipal;
 
-    return {
-      totalSavings: baseSavings,
-      availableBalance: Math.max(0, availableBalance),
-      outstandingPrincipal
-    };
-  }, [contributions, loanPayments, loans]);
+      return {
+        totalSavings,
+        availableBalance: Math.max(0, availableBalance),
+        outstandingPrincipal,
+        totalInterest,
+        totalLoanIssued: loans.filter(l => l.status === 'approved' || l.status === 'paid').reduce((acc, l) => acc + (l.approvedAmount || 0), 0),
+        totalLoanPaid: totalPrincipalPaid
+      };
+    }, [contributions, loanPayments, loans]);
 
   const calculateLoanRemainingTotal = (l: Loan, payments: LoanPayment[]) => {
     const paidPayments = payments.filter(p => p.status === 'paid');
@@ -756,14 +843,22 @@ export default function App() {
 
     const testConnection = async () => {
       try {
-        // Mandatory Firestore connection test
-        await getDocFromServer(doc(db, 'test', 'connection'));
+        // Mandatory Firestore connection test - but handle offline gracefully
+        // Using a shorter timeout for this specific test
+        const testPromise = getDocFromServer(doc(db, 'test', 'connection'));
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Connection test timed out')), 3000)
+        );
+        
+        await Promise.race([testPromise, timeoutPromise]);
         console.log("Firestore connection verified.");
       } catch (error) {
-        if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. The client is offline.");
+        // We log as warning instead of error to avoid scaring the user/system 
+        // if it's just a temporary network glitch or slow connection.
+        console.warn("Firestore connection check info:", error instanceof Error ? error.message : String(error));
+        if (error instanceof Error && (error.message.includes('the client is offline') || error.message.includes('timed out'))) {
+          console.info("Application will operate in offline mode until connection is restored.");
         }
-        // Skip logging for other errors, as this is simply a connection test.
       }
 
       try {
@@ -798,7 +893,7 @@ export default function App() {
           const emailSnap = await getDoc(emailRef);
 
           if (emailSnap.exists()) {
-            // Link UID to existing record
+            // Link UID to existing record (User was pre-registered by email)
             const existingData = emailSnap.data() as UserProfile;
             const updatedProfile = { ...existingData, uid: firebaseUser.uid, displayName: firebaseUser.displayName || existingData.displayName };
             await setDoc(userRef, updatedProfile);
@@ -808,29 +903,13 @@ export default function App() {
             // Backfill contributions and notifications
             backfillUserData(firebaseUser.uid, email);
           } else {
-            // Create new
-            const newProfile: UserProfile = {
-              uid: firebaseUser.uid,
-              email: email,
-              displayName: firebaseUser.displayName || (email === 'unnati.finance2026@gmail.com' ? 'System Admin' : ''),
-              role: ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
-              joinDate: format(new Date(), 'yyyy-MM-dd')
-            };
-            try {
-              await setDoc(userRef, newProfile);
-              setProfile(newProfile);
-
-              // Trigger Welcome Email for self-registering users
-              if (newProfile.email) {
-                fetch('/api/admin/send-welcome-email', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ email: newProfile.email, name: newProfile.displayName })
-                }).catch(err => console.error('Failed to send self-reg welcome email:', err));
-              }
-            } catch (err: any) {
-              handleFirestoreError(err, OperationType.CREATE, `users/${firebaseUser.uid}`);
-            }
+            // STRICT VERIFICATION: Not in database = Access Denied
+            await signOut(auth);
+            notify('error', "Access Denied: Your email is not registered in our system. Only pre-authorized members can log in.");
+            setProfile(null);
+            setIsLocalAdmin(false);
+            setLoading(false);
+            return;
           }
         } else {
           const profileData = userSnap.data() as UserProfile;
@@ -874,19 +953,19 @@ export default function App() {
 
     const q = query(collection(db, 'contributions'), orderBy('timestamp', 'desc'));
     const unsubscribeContribs = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Contribution));
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Contribution));
       setContributions(data);
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, 'contributions');
     });
 
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data() as UserProfile);
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as UserProfile)).filter(u => u && u.email);
       // Ensure uniqueness by email to prevent double counting if a user has both UID and Email docs
       // Prioritize entries that have a UID
       const uniqueUsersMap = new Map<string, UserProfile>();
       data.forEach(u => {
-        const email = u.email.toLowerCase();
+        const email = u.email.trim().toLowerCase();
         const existing = uniqueUsersMap.get(email);
         if (!existing || (!existing.uid && u.uid)) {
           uniqueUsersMap.set(email, u);
@@ -900,7 +979,7 @@ export default function App() {
     const loansQuery = collection(db, 'loans');
 
     const unsubscribeLoans = onSnapshot(loansQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Loan));
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Loan));
       setLoans(data);
       
       // Check for newly approved loans for current user
@@ -920,20 +999,20 @@ export default function App() {
     const paymentsQuery = collection(db, 'loanPayments');
 
     const unsubscribeLoanPayments = onSnapshot(paymentsQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LoanPayment));
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as LoanPayment));
       setLoanPayments(data);
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, 'loanPayments');
     });
 
     const unsubscribeNotices = onSnapshot(query(collection(db, 'notices'), orderBy('createdAt', 'desc')), (snapshot) => {
-      setNotices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notice)));
+      setNotices(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Notice)));
     });
 
     const unsubscribeNotifications = onSnapshot(
       query(collection(db, 'notifications'), where('userId', '==', user.uid), orderBy('createdAt', 'desc')),
       (snapshot) => {
-        setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification)));
+        setNotifications(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AppNotification)));
       }
     );
 
@@ -947,12 +1026,82 @@ export default function App() {
     };
   }, [user, isAdmin]);
 
+  // --- One-time Data Migration for Existing Loans ---
+  useEffect(() => {
+    if (profile?.role === 'admin' && loans.length > 0 && allUsers.length > 0) {
+      const updates = [
+        { name: 'Meghashri Srinivas', mode: 'Cash' as const },
+        { name: 'SudhakarJP', mode: 'Online' as const },
+        { name: 'Soumya Santosh Batavi', mode: 'Online' as const },
+        { name: 'Priya SB', mode: 'Online' as const }
+      ];
+
+      loans.forEach(async (loan) => {
+        // Only update if it's an approved or paid loan without a payment mode
+        if ((loan.status === 'approved' || loan.status === 'paid') && !loan.paymentMode && loan.id) {
+          const userProfile = allUsers.find(u => 
+            (loan.userId && u.uid === loan.userId) || 
+            (loan.userEmail && u.email?.toLowerCase() === loan.userEmail.toLowerCase())
+          );
+          
+          if (userProfile && userProfile.displayName) {
+            const normalizedName = userProfile.displayName.toLowerCase().replace(/\s/g, '');
+            const match = updates.find(upd => 
+              upd.name === userProfile.displayName || 
+              upd.name.toLowerCase().replace(/\s/g, '') === normalizedName
+            );
+            if (match) {
+              try {
+                await updateDoc(doc(db, 'loans', loan.id), { paymentMode: match.mode });
+                console.log(`Auto-updated paymentMode for loan ${loan.id} (${match.name}): ${match.mode}`);
+              } catch (e) {
+              }
+            }
+          }
+        }
+      });
+
+      // Special fix for Priya SB's repayments
+      loanPayments.forEach(async (p) => {
+        const userProfile = allUsers.find(u => 
+          (p.userId && u.uid === p.userId) || 
+          (p.userEmail && u.email?.toLowerCase() === p.userEmail.toLowerCase())
+        );
+        if (userProfile && userProfile.displayName === 'Priya SB') {
+          // Fix mode if showing as Cash
+          if (p.paymentMode === 'Cash' || p.paymentMethod === 'Cash') {
+            try {
+              await updateDoc(doc(db, 'loanPayments', p.id!), { 
+                paymentMode: 'Online', 
+                paymentMethod: 'Online' 
+              });
+            } catch (e) {}
+          }
+          // Ensure year is set for financials if it was missing
+          if (!p.year || p.year < 2026) {
+             const payDate = p.timestamp?.toDate ? p.timestamp.toDate() : new Date();
+             if (payDate.getFullYear() >= 2026) {
+               try {
+                 await updateDoc(doc(db, 'loanPayments', p.id!), { 
+                   year: payDate.getFullYear(),
+                   month: payDate.getMonth() + 1
+                 });
+               } catch (e) {}
+             }
+          }
+        }
+      });
+    }
+  }, [profile, loans, allUsers, loanPayments]);
+
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err: any) {
-      setError(err.message);
+      if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-by-user') {
+        notify('error', err.message || "Failed to sign in. Please try again.");
+      }
     }
   };
 
@@ -1066,6 +1215,55 @@ export default function App() {
     }
   };
 
+  const triggerFullBackupReport = async () => {
+    if (!isAdmin) return;
+    
+    if (!isSmtpConfigured) {
+      notify('error', "SMTP is not configured. Please set SMTP_USER and SMTP_PASS in your environment variables.");
+      return;
+    }
+
+    setIsSendingReport(true);
+    try {
+      notify('info', "Gathering data for backup...");
+      
+      // Fetch all required collections
+      const [uSnap, cSnap, lSnap, pSnap, nSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'contributions')),
+        getDocs(collection(db, 'loans')),
+        getDocs(collection(db, 'loanPayments')),
+        getDocs(collection(db, 'notices'))
+      ]);
+
+      const dataPayload = {
+        users: uSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        contributions: cSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        loans: lSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        payments: pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+        notices: nSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      };
+
+      notify('info', "Sending backup to server...");
+
+      const response = await fetch('/api/admin/send-backup-report-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(dataPayload)
+      });
+      
+      const data = await response.json();
+      const message = data.message || data.error || (response.ok ? "Full backup report sent successfully to jpvenu2000@gmail.com!" : "Failed to send report");
+      notify(response.ok ? 'success' : 'error', message);
+    } catch (err: any) {
+      notify('error', "Failed to send full backup report: " + err.message);
+    } finally {
+      setIsSendingReport(false);
+    }
+  };
+
   const handleUpdatePhone = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !phoneInput.trim()) return;
@@ -1156,7 +1354,7 @@ export default function App() {
 
     try {
       const finalAmount = amount !== undefined ? amount : getContributionAmount(month, year);
-      const timestampValue = customDate ? Timestamp.fromDate(new Date(customDate)) : serverTimestamp();
+      const timestampValue = customDate ? getTimestampFromDateString(customDate) : serverTimestamp();
       
       await addDoc(collection(db, 'contributions'), {
         userId: targetUser.uid || null,
@@ -1360,19 +1558,34 @@ export default function App() {
 
   const deleteUser = async (id: string) => {
     if (profile?.role !== 'admin') return;
-    if (id === 'arun2102000@gmail.com' || id === 'unnati.finance2026@gmail.com') {
+    if (id === 'arun2102000@gmail.com' || id === 'unnati.finance2026@gmail.com' || 
+        id === 'LckmqupxqXfZ2gtrRU4m5gySmjm1' || id === 'aTG3MEJf2dPCNWEV6jYGaZXx6RD3') {
       notify('error', "Cannot delete primary administrators.");
       return;
     }
 
     try {
       // Check if user has active loans or pending repayments
-      const userLoans = loans.filter(l => l.userId === id || l.userEmail === id);
-      const hasActiveLoan = userLoans.some(l => l.status === 'approved');
-      const hasPendingRepayment = loanPayments.some(p => p.userId === id && p.status === 'pending');
+      const targetUser = allUsers.find(u => 
+        (id && u.uid === id) || 
+        (id && u.email && u.email.toLowerCase() === id.toLowerCase())
+      );
+      const userEmails = [id.toLowerCase()];
+      if (targetUser && targetUser.email) userEmails.push(targetUser.email.toLowerCase());
+      const uniqueEmails = Array.from(new Set(userEmails));
+
+      const userLoans = loans.filter(l => 
+        (l.userId === id) || 
+        (l.userEmail && uniqueEmails.includes(l.userEmail.toLowerCase()))
+      );
+      const hasActiveLoan = userLoans.some(l => l.status === 'approved' || l.status === 'pending');
+      const hasPendingRepayment = loanPayments.some(p => 
+        (p.userId === id || (p.userEmail && uniqueEmails.includes(p.userEmail.toLowerCase()))) && 
+        p.status === 'pending'
+      );
       
       if (hasActiveLoan || hasPendingRepayment) {
-        notify('error', "Cannot delete member: User has an active loan or pending repayment.");
+        notify('error', "Member has an active or pending loan/repayment and cannot be deleted.");
         return;
       }
 
@@ -1381,34 +1594,52 @@ export default function App() {
       // 1. Delete user document
       batch.delete(doc(db, 'users', id));
       
-      // 2. Delete contributions
-      const contribsQuery = query(collection(db, 'contributions'), where('userId', '==', id));
-      const contribsSnap = await getDocs(contribsQuery);
-      contribsSnap.forEach(d => batch.delete(d.ref));
+      // 2. Delete contributions (Crucial for financials adjustment)
+      const contribsByIdQuery = query(collection(db, 'contributions'), where('userId', '==', id));
+      const contribsByIdSnap = await getDocs(contribsByIdQuery);
+      contribsByIdSnap.forEach(d => batch.delete(d.ref));
       
-      // Also check by email if it's a pre-added user
-      const targetUser = allUsers.find(u => 
-        (id && u.uid === id) || 
-        (id && u.email.toLowerCase() === id.toLowerCase())
-      );
-      if (targetUser && targetUser.email) {
-        const contribsEmailQuery = query(collection(db, 'contributions'), where('userEmail', '==', targetUser.email));
-        const contribsEmailSnap = await getDocs(contribsEmailQuery);
-        contribsEmailSnap.forEach(d => batch.delete(d.ref));
+      for (const email of uniqueEmails) {
+        const contribsByEmailQuery = query(collection(db, 'contributions'), where('userEmail', '==', email));
+        const contribsByEmailSnap = await getDocs(contribsByEmailQuery);
+        contribsByEmailSnap.forEach(d => batch.delete(d.ref));
       }
 
       // 3. Delete loans
-      const loansQuery = query(collection(db, 'loans'), where('userId', '==', id));
-      const loansSnap = await getDocs(loansQuery);
-      loansSnap.forEach(d => batch.delete(d.ref));
+      const loansByIdQuery = query(collection(db, 'loans'), where('userId', '==', id));
+      const loansByIdSnap = await getDocs(loansByIdQuery);
+      loansByIdSnap.forEach(d => batch.delete(d.ref));
+
+      for (const email of uniqueEmails) {
+        const loansByEmailQuery = query(collection(db, 'loans'), where('userEmail', '==', email));
+        const loansByEmailSnap = await getDocs(loansByEmailQuery);
+        loansByEmailSnap.forEach(d => batch.delete(d.ref));
+      }
 
       // 4. Delete loan payments
-      const paymentsQuery = query(collection(db, 'loanPayments'), where('userId', '==', id));
-      const paymentsSnap = await getDocs(paymentsQuery);
-      paymentsSnap.forEach(d => batch.delete(d.ref));
+      const paymentsByIdQuery = query(collection(db, 'loanPayments'), where('userId', '==', id));
+      const paymentsByIdSnap = await getDocs(paymentsByIdQuery);
+      paymentsByIdSnap.forEach(d => batch.delete(d.ref));
+
+      for (const email of uniqueEmails) {
+        const paymentsByEmailQuery = query(collection(db, 'loanPayments'), where('userEmail', '==', email));
+        const paymentsByEmailSnap = await getDocs(paymentsByEmailQuery);
+        paymentsByEmailSnap.forEach(d => batch.delete(d.ref));
+      }
+
+      // 5. Delete notifications
+      const notifsByIdQuery = query(collection(db, 'notifications'), where('userId', '==', id));
+      const notifsByIdSnap = await getDocs(notifsByIdQuery);
+      notifsByIdSnap.forEach(d => batch.delete(d.ref));
+
+      for (const email of uniqueEmails) {
+        const notifsByEmailQuery = query(collection(db, 'notifications'), where('userId', '==', email));
+        const notifsByEmailSnap = await getDocs(notifsByEmailQuery);
+        notifsByEmailSnap.forEach(d => batch.delete(d.ref));
+      }
 
       await batch.commit();
-      notify('success', "Member and all related data removed successfully.");
+      notify('success', "Member and all related data removed. Group financials adjusted.");
       setDeletingUserId(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.DELETE, `users/${id}`);
@@ -1421,26 +1652,35 @@ export default function App() {
     const monthName = format(new Date(year, month - 1), 'MMMM');
     const amount = getContributionAmount(month, year);
     const note = `Unnati Contribution - ${monthName} ${year}`;
-    // Standard UPI Deep Link format
-    const upiUrl = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(GROUP_NAME)}&am=${amount}&cu=INR&tn=${encodeURIComponent(note)}`;
-    
-    // Attempt to open UPI app
-    window.location.href = upiUrl;
-    
-    // Record as pending after redirect
-    setTimeout(() => {
-      addContribution(month, year, undefined, 'pending');
-    }, 1000);
+    setPaymentModal({
+      isOpen: true,
+      amount: typeof amount === 'number' ? amount : parseFloat(String(amount)),
+      note,
+      type: 'contribution',
+      mode: 'online'
+    });
+    setSelectedLoanForPayment(null);
+  };
+
+  const handlePayLoanInstallment = (loan: Loan, month: number, year: number, principal: number, interest: number) => {
+    const note = `Loan Payment - ${format(new Date(year, month - 1), 'MMM yyyy')}`;
+    setPaymentModal({
+      isOpen: true,
+      amount: principal + interest,
+      note,
+      type: 'loan',
+      mode: 'online'
+    });
+    setSelectedLoanForPayment({ loan, month, year, principal, interest });
   };
 
   const updateMember = async () => {
-    if (profile?.role !== 'admin' || !editingUser) return;
+    if (profile?.role !== 'admin' || !editingUser || !originalEditingEmail) return;
     try {
-      const oldId = editingUser.uid || editingUser.email;
-      const userRef = doc(db, 'users', oldId);
+      const userRef = doc(db, 'users', originalEditingEmail);
       
       // If the user hasn't logged in yet (ID is email) and the email is being changed
-      if (!editingUser.uid && editingUser.email !== oldId) {
+      if (!editingUser.uid && editingUser.email !== originalEditingEmail) {
         // Create new doc with new email as ID
         const newRef = doc(db, 'users', editingUser.email);
         await setDoc(newRef, {
@@ -1459,9 +1699,10 @@ export default function App() {
         });
       }
       setEditingUser(null);
+      setOriginalEditingEmail(null);
       notify('success', 'Member updated successfully');
     } catch (err: any) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${editingUser.uid || editingUser.email}`);
+      handleFirestoreError(err, OperationType.UPDATE, `users/${originalEditingEmail}`);
     }
   };
 
@@ -1572,11 +1813,6 @@ export default function App() {
       return;
     }
 
-    if (loanAmount > financials.availableBalance) {
-      notify('error', `Insufficient funds in group savings! Maximum available to borrow right now: ₹${financials.availableBalance.toLocaleString()}`);
-      return;
-    }
-
     setIsSubmittingLoan(true);
     try {
       await addDoc(collection(db, 'loans'), {
@@ -1666,18 +1902,26 @@ export default function App() {
     // Master Report
     const masterReport = allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map(u => {
       const userContribs = contributions.filter(c => 
-        (u.uid && c.userId === u.uid) || 
-        (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())
+        (u.uid && c.userId && c.userId === u.uid) || 
+        (u.email && c.userEmail && c.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim())
       );
       const totalDeposited = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
       
-      const userLoans = loans.filter(l => (u.uid && l.userId === u.uid) || (u.email && l.userEmail === u.email));
-      const activeLoan = userLoans.find(l => l.status === 'approved' || l.status === 'paid');
+      const userLoans = loans.filter(l => 
+        (u.uid && l.userId && l.userId === u.uid) || 
+        (u.email && l.userEmail && l.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim())
+      );
+      // Prioritize identifying an approved (active) loan over a fully paid (historical) one
+      const activeLoan = userLoans.find(l => l.status === 'approved') || userLoans.find(l => l.status === 'paid');
       const hasLoan = !!activeLoan;
       
-      const userPayments = loanPayments.filter(p => p.userId === u.uid);
-      const totalLoanPaid = userPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
-      const totalLoanInterestPaid = userPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.interest, 0);
+      const userPayments = loanPayments.filter(p => 
+        (u.uid && p.userId && p.userId === u.uid) || 
+        (u.email && p.userEmail && p.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim())
+      );
+      // Only count payments related specifically to the identified active loan to avoid including orphaned or historical data incorrectly
+      const totalLoanPaid = userPayments.filter(p => p.loanId === activeLoan?.id && p.status === 'paid').reduce((acc, p) => acc + p.amount, 0);
+      const totalLoanInterestPaid = userPayments.filter(p => p.loanId === activeLoan?.id && p.status === 'paid').reduce((acc, p) => acc + p.interest, 0);
       
       const approvedAmount = activeLoan?.approvedAmount || 0;
       const loanPending = approvedAmount > 0 ? (approvedAmount - totalLoanPaid) : 0;
@@ -1704,7 +1948,7 @@ export default function App() {
     const contribsWS = XLSX.utils.json_to_sheet(contributions.map(c => {
       const u = allUsers.find(user => 
         (c.userId && user.uid === c.userId) || 
-        (c.userEmail && user.email.toLowerCase() === c.userEmail.toLowerCase())
+        (c.userEmail && user.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim())
       );
       return {
         Member: u?.displayName || c.userEmail.split('@')[0],
@@ -1726,7 +1970,7 @@ export default function App() {
     if (!user) return;
     const wb = XLSX.utils.book_new();
     const userContribs = contributions.filter(c => 
-      ((user.uid && c.userId === user.uid) || (user.email && c.userEmail?.toLowerCase() === user.email.toLowerCase()))
+      ((user.uid && c.userId && c.userId === user.uid) || (user.email && c.userEmail && c.userEmail.toLowerCase() === user.email.toLowerCase()))
     );
     
     const statementData = userContribs.sort((a,b) => b.year - a.year || b.month - a.month).map(c => ({
@@ -1745,31 +1989,41 @@ export default function App() {
 
   const sortedLoans = useMemo(() => {
     let items = isAdmin ? [...loans] : loans.filter(l => 
-      (user?.uid && l.userId === user.uid) || 
-      (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase())
+      (user?.uid && l.userId && l.userId === user.uid) || 
+      (user?.email && l.userEmail && l.userEmail.toLowerCase() === user.email.toLowerCase())
     );
     
     if (isAdmin && searchQuery) {
       const query = searchQuery.toLowerCase();
-      items = items.filter(l => 
-        l.userEmail?.toLowerCase().includes(query) ||
-        l.amount.toString().includes(query) ||
-        l.status.toLowerCase().includes(query) ||
-        l.details?.toLowerCase().includes(query)
-      );
+      items = items.filter(l => {
+        const user = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+        return (
+          user?.displayName?.toLowerCase().includes(query) ||
+          l.userEmail?.toLowerCase().includes(query) ||
+          l.amount.toString().includes(query) ||
+          l.status.toLowerCase().includes(query) ||
+          l.details?.toLowerCase().includes(query)
+        );
+      });
     }
 
     if (loanSortConfig.field) {
       items = [...items].sort((a, b) => {
         switch (loanSortConfig.field) {
-          case 'member':
-            const userA = allUsers.find(u => (a.userId && u.uid === a.userId) || (a.userEmail && u.email.toLowerCase() === a.userEmail.toLowerCase()));
-            const userB = allUsers.find(u => (b.userId && u.uid === b.userId) || (b.userEmail && u.email.toLowerCase() === b.userEmail.toLowerCase()));
+          case 'name':
+            const userA = allUsers.find(u => (a.userId && u.uid === a.userId) || (a.userEmail && u.email?.toLowerCase() === a.userEmail?.toLowerCase()));
+            const userB = allUsers.find(u => (b.userId && u.uid === b.userId) || (b.userEmail && u.email?.toLowerCase() === b.userEmail?.toLowerCase()));
             const nameA = userA?.displayName || a.userEmail || '';
             const nameB = userB?.displayName || b.userEmail || '';
             return loanSortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
           case 'amount':
             return loanSortConfig.direction === 'asc' ? a.amount - b.amount : b.amount - a.amount;
+          case 'remaining':
+            const paymentsA = loanPayments.filter(p => p.loanId === a.id);
+            const paymentsB = loanPayments.filter(p => p.loanId === b.id);
+            const remA = calculateLoanRemainingTotal(a, paymentsA);
+            const remB = calculateLoanRemainingTotal(b, paymentsB);
+            return loanSortConfig.direction === 'asc' ? remA - remB : remB - remA;
           case 'status':
             return loanSortConfig.direction === 'asc' ? a.status.localeCompare(b.status) : b.status.localeCompare(a.status);
           case 'date':
@@ -1784,12 +2038,23 @@ export default function App() {
       items.sort((a, b) => {
         const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
         const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
-        return dateB - dateA;
+        return dateA - dateB;
       });
     }
 
     return items;
-  }, [loans, isAdmin, searchQuery, loanSortConfig, allUsers]);
+  }, [loans, isAdmin, searchQuery, loanSortConfig, allUsers, loanPayments]);
+
+  const oldestPendingLoanId = useMemo(() => {
+    const pending = loans
+      .filter(l => l.status === 'pending')
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+        return dateA - dateB;
+      });
+    return pending.length > 0 ? pending[0].id : null;
+  }, [loans]);
 
   const filteredLoanPayments = useMemo(() => {
     let items = isAdmin ? [...loanPayments] : loanPayments.filter(p => 
@@ -1830,18 +2095,18 @@ export default function App() {
 
       const doc = new jsPDF();
       const userContribs = contributions.filter(c => 
-        (c.userId === targetUserId) || 
-        (targetUser.email && c.userEmail?.toLowerCase() === targetUser.email.toLowerCase())
+        (targetUserId && c.userId && c.userId === targetUserId) || 
+        (targetUser.email && c.userEmail && c.userEmail.toLowerCase() === targetUser.email.toLowerCase())
       );
       
       const userLoans = loans.filter(l => 
-        (l.userId === targetUserId) || 
-        (targetUser.email && l.userEmail?.toLowerCase() === targetUser.email.toLowerCase())
+        (targetUserId && l.userId && l.userId === targetUserId) || 
+        (targetUser.email && l.userEmail && l.userEmail.toLowerCase() === targetUser.email.toLowerCase())
       );
 
       const userLoanPayments = loanPayments.filter(p => 
-        (p.userId === targetUserId) ||
-        (targetUser.email && allUsers.find(u => u.uid === p.userId)?.email.toLowerCase() === targetUser.email.toLowerCase())
+        (targetUserId && p.userId && p.userId === targetUserId) ||
+        (targetUser.email && p.userEmail && p.userEmail.toLowerCase() === targetUser.email.toLowerCase())
       );
 
       console.log(`Found ${userContribs.length} contributions, ${userLoans.length} loans, and ${userLoanPayments.length} loan payments`);
@@ -1936,9 +2201,22 @@ export default function App() {
             } catch (e) {
               console.error("Error formatting date for loan payment:", p);
             }
+
+            let paymentDateTime = 'N/A';
+            if (p.timestamp) {
+              try {
+                const date = p.timestamp.toDate ? p.timestamp.toDate() : new Date(p.timestamp);
+                paymentDateTime = format(date, 'MMM dd, yyyy p');
+              } catch (e) {
+                console.error("Error formatting timestamp for loan payment:", e);
+              }
+            }
+
             return [
               monthName,
               p.year || 'N/A',
+              paymentDateTime,
+              (p.paymentMethod || 'N/A').toUpperCase(),
               `Rs. ${(p.amount || 0).toLocaleString()}`,
               `Rs. ${(p.interest || 0).toLocaleString()}`,
               (p.status || 'N/A').toUpperCase()
@@ -1947,7 +2225,7 @@ export default function App() {
 
         autoTable(doc, {
           startY: finalY + 20,
-          head: [['Month', 'Year', 'Principal', 'Interest', 'Status']],
+          head: [['Month', 'Year', 'Date & Time', 'Payment Mode', 'Principal', 'Interest', 'Status']],
           body: loanPaymentRows,
           theme: 'striped',
           headStyles: { fillColor: [16, 185, 129] } // Emerald-600
@@ -1964,9 +2242,9 @@ export default function App() {
         doc.text("Loan Summary", 20, finalY + 15);
         autoTable(doc, {
           startY: finalY + 20,
-          head: [['Date', 'Amount', 'Status']],
+          head: [['Date & Time', 'Amount', 'Status']],
           body: userLoans.map(l => [
-            l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'N/A',
+            l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy p') : 'N/A',
             `Rs. ${(l.amount || 0).toLocaleString()}`,
             (l.status || 'N/A').toUpperCase()
           ]),
@@ -1992,10 +2270,13 @@ export default function App() {
   };
 
   const settleLoanImmediately = async (loan: Loan) => {
-    if (profile?.role !== 'admin') return;
+    const isOwner = loan.userId === user?.uid || (user?.email && loan.userEmail === user.email);
+    if (profile?.role !== 'admin' && !isOwner) return;
+    
     setIsSettlingPending(true);
     try {
-      const settlementTimestamp = Timestamp.fromDate(new Date(settleDate));
+      const settlementTimestamp = getTimestampFromDateString(settleDate);
+      const isActuallyAdmin = profile?.role === 'admin';
       
       // Create a final settlement payment
       await addDoc(collection(db, 'loanPayments'), {
@@ -2006,43 +2287,55 @@ export default function App() {
         year: new Date(settleDate).getFullYear(),
         amount: settlePrincipal,
         interest: settleInterest,
-        status: 'paid',
+        status: isActuallyAdmin ? 'paid' : 'pending',
         timestamp: settlementTimestamp,
-        approvedAt: settlementTimestamp,
-        paymentMethod: 'cash'
+        approvedAt: isActuallyAdmin ? settlementTimestamp : null,
+        paymentMethod: settlePaymentMode,
+        paymentMode: settlePaymentMode,
+        isSettlement: true
       });
 
-      // Mark loan as paid
-      await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
-      
-      createNotification(loan.userId, "Loan Settled", `Your loan of ₹${loan.approvedAmount?.toLocaleString()} has been settled immediately.`, 'loan');
-      
-      // Get target user for notifications
-      const targetUser = allUsers.find(u => u.uid === loan.userId || u.email.toLowerCase() === loan.userEmail.toLowerCase());
-      
-      // Send Email via API
-      if (targetUser?.email) {
-        fetch('/api/admin/send-loan-closure-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: targetUser.email,
-            name: targetUser.displayName || targetUser.email.split('@')[0],
-            amount: settlePrincipal,
-            interest: settleInterest,
-            date: format(new Date(settleDate), 'MMM dd, yyyy')
-          })
-        }).catch(err => console.error('Failed to send closure email:', err));
+      if (isActuallyAdmin) {
+        // Mark loan as paid
+        await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+        
+        createNotification(loan.userId, "Loan Settled", `Your loan of ₹${loan.approvedAmount?.toLocaleString()} has been settled immediately.`, 'loan');
+        
+        // Get target user for notifications
+        const targetUser = allUsers.find(u => u.uid === loan.userId || u.email.toLowerCase() === loan.userEmail.toLowerCase());
+        
+        // Send Email via API
+        if (targetUser?.email) {
+          fetch('/api/admin/send-loan-closure-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: targetUser.email,
+              name: targetUser.displayName || targetUser.email.split('@')[0],
+              amount: settlePrincipal,
+              interest: settleInterest,
+              date: format(new Date(settleDate), 'MMM dd, yyyy')
+            })
+          }).catch(err => console.error('Failed to send closure email:', err));
+        }
+
+        // Prepare WhatsApp message
+        if (targetUser?.phoneNumber) {
+          const message = `*Loan Fully Settled - Unnati Finance*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString()} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: ₹${settlePrincipal.toLocaleString()}\n- Interest: ₹${settleInterest.toLocaleString()}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
+          const encodedMessage = encodeURIComponent(message);
+          window.open(`https://wa.me/${targetUser.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+        }
+
+        notify('success', "Loan settled immediately with final principal and interest.");
+      } else {
+        notify('success', "Settlement request submitted for approval!");
+        // Find an admin to notify
+        const adminUser = allUsers.find(u => u.role === 'admin');
+        if (adminUser?.uid) {
+          createNotification(adminUser.uid, "Settlement Request", `${profile?.displayName || profile?.email || 'A member'} has requested a one-time loan settlement.`, 'loan');
+        }
       }
 
-      // Prepare WhatsApp message
-      if (targetUser?.phoneNumber) {
-        const message = `*Loan Fully Settled - Unnati Finance*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString()} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: ₹${settlePrincipal.toLocaleString()}\n- Interest: ₹${settleInterest.toLocaleString()}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
-        const encodedMessage = encodeURIComponent(message);
-        window.open(`https://wa.me/${targetUser.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
-      }
-
-      notify('success', "Loan settled immediately with final principal and interest.");
       setSettlingLoanId(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.WRITE, `loans/${loan.id}/settle`);
@@ -2053,6 +2346,13 @@ export default function App() {
 
   const approveLoan = async (loan: Loan) => {
     if (profile?.role !== 'admin') return;
+    setApprovingLoanForPaymentMode(loan);
+    setSelectedDisbursalMode('Online');
+  };
+
+  const approveLoanWithMode = async () => {
+    if (profile?.role !== 'admin' || !approvingLoanForPaymentMode) return;
+    const loan = approvingLoanForPaymentMode;
     try {
       if (loan.amount > financials.availableBalance) {
         notify('error', `Low balance! Available: ₹${financials.availableBalance.toLocaleString()}. Required: ₹${loan.amount.toLocaleString()}`);
@@ -2065,19 +2365,15 @@ export default function App() {
         approvedAmount: loan.amount,
         interestRate: 0.5,
         approvedAt: serverTimestamp(),
-        installments: Math.ceil(loan.amount / 5000) // 10 months for 50k
+        installments: Math.ceil(loan.amount / 5000), // 10 months for 50k
+        paymentMode: selectedDisbursalMode
       });
 
-      // Automatically decline other pending loans for this user
-      const otherPending = loans.filter(l => l.userId === loan.userId && l.status === 'pending' && l.id !== loan.id);
-      for (const l of otherPending) {
-        await updateDoc(doc(db, 'loans', l.id!), { status: 'declined' });
-      }
-
       // Notify user
-      createNotification(loan.userId, "Loan Approved", `Your loan of Rs. ${loan.amount} has been approved.`, 'loan');
+      createNotification(loan.userId, "Loan Approved", `Your loan of Rs. ${loan.amount} has been approved via ${selectedDisbursalMode}.`, 'loan');
 
-      notify('success', "Loan approved and others declined.");
+      notify('success', "Loan approved.");
+      setApprovingLoanForPaymentMode(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `loans/${loan.id}`);
     }
@@ -2184,7 +2480,7 @@ export default function App() {
     }
   };
 
-  const payLoanInstallment = async (loan: Loan, month: number, year: number, amount: number, interest: number) => {
+  const payLoanInstallment = async (loan: Loan, month: number, year: number, amount: number, interest: number, method: 'cash' | 'online' = 'online') => {
     if (!user || !profile) return;
     try {
       // Check if there's already a pending payment for this month/year
@@ -2195,10 +2491,14 @@ export default function App() {
         p.status === 'pending'
       );
 
+      const mode = method === 'cash' ? 'Cash' : 'Online';
+
       if (existingPending) {
         await updateDoc(doc(db, 'loanPayments', existingPending.id!), {
           amount,
           interest,
+          paymentMethod: mode,
+          paymentMode: mode,
           timestamp: serverTimestamp()
         });
       } else {
@@ -2210,6 +2510,8 @@ export default function App() {
           year,
           amount,
           interest,
+          paymentMethod: mode,
+          paymentMode: mode,
           status: 'pending',
           timestamp: serverTimestamp()
         });
@@ -2222,187 +2524,255 @@ export default function App() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="flex flex-col items-center"
-        >
-          <div className="relative mb-12">
-            {/* Unnati Logo Image */}
-            <div className="w-48 h-48 bg-white rounded-[3rem] flex items-center justify-center shadow-2xl shadow-indigo-100 relative overflow-hidden border border-slate-100">
-              <img 
-                src="/logo.png" 
-                alt="Unnati Logo" 
-                className="w-full h-full object-contain p-2"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  // Fallback if logo.png is missing
-                  e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
-                }}
-              />
-            </div>
-          </div>
-          
-          <motion.h1 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="text-4xl font-black tracking-tighter text-indigo-600 mb-2"
-          >
-            UNNATI
-          </motion.h1>
-          
-          <motion.div 
-            initial={{ width: 0 }}
-            animate={{ width: 120 }}
-            transition={{ delay: 0.6, duration: 1 }}
-            className="h-1 bg-slate-100 rounded-full overflow-hidden"
-          >
-            <motion.div
-              animate={{ x: [-120, 120] }}
-              transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-              className="w-full h-full bg-indigo-600"
-            />
-          </motion.div>
-          
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.8 }}
-            className="mt-4 text-slate-400 font-medium text-sm tracking-widest uppercase"
-          >
-            Growing Together
-          </motion.p>
-        </motion.div>
-      </div>
-    );
-  }
+  const submitAdminManualRepayment = async () => {
+    if (profile?.role !== 'admin' || !adminManualRepayment.loan) return;
+    
+    try {
+      const { loan, month, year, amount, interest, method, paymentDate } = adminManualRepayment;
+      const timestamp = getTimestampFromDateString(paymentDate);
+      const mode = method === 'cash' ? 'Cash' : 'Online';
+      
+      // Check if there's already a payment for this month/year
+      const existingPayment = loanPayments.find(p => 
+        p.loanId === loan.id && 
+        p.month === month && 
+        p.year === year
+      );
 
-  if (error) return <ErrorBoundary error={error} />;
+      if (existingPayment) {
+        await updateDoc(doc(db, 'loanPayments', existingPayment.id!), {
+          amount,
+          interest,
+          paymentMethod: mode,
+          paymentMode: mode,
+          status: 'paid',
+          timestamp: timestamp,
+          approvedAt: timestamp
+        });
+      } else {
+        await addDoc(collection(db, 'loanPayments'), {
+          loanId: loan.id,
+          userId: loan.userId,
+          userEmail: loan.userEmail,
+          month,
+          year,
+          amount,
+          interest,
+          paymentMethod: mode,
+          paymentMode: mode,
+          status: 'paid',
+          timestamp: timestamp,
+          approvedAt: timestamp
+        });
+      }
 
-  if (!user && !isLocalAdmin) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100"
-        >
-          <div className="relative w-40 h-40 mx-auto mb-8">
-            <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
-              <img 
-                src="/logo.png" 
-                alt="Unnati Logo" 
-                className="w-full h-full object-contain p-2"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
-                }}
-              />
-            </div>
-          </div>
-          
-          <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tighter">UNNATI</h1>
-          <p className="text-slate-500 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
-          
-          <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
-            <button 
-              onClick={() => setLoginMethod('google')}
-              className={cn(
-                "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
-                loginMethod === 'google' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
-              )}
-            >
-              Google
-            </button>
-            <button 
-              onClick={() => setLoginMethod('password')}
-              className={cn(
-                "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
-                loginMethod === 'password' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
-              )}
-            >
-              Password
-            </button>
-          </div>
+      // Check if this was the last payment for the loan
+      // Note: Since we are using current loanPayments from state, we need to be careful.
+      // But typically state will update soon.
+      const currentPaidPayments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
+      const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0) + (existingPayment?.status === 'paid' ? 0 : amount);
+      
+      if (loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount) {
+        await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+        createNotification(loan.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount.toLocaleString()} is now fully paid.`, 'loan');
+      }
 
-          {loginMethod === 'google' ? (
-            <button 
-              onClick={handleLogin}
-              className="w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95"
-            >
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
-              Continue with Google
-            </button>
-          ) : (
-            <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Username</label>
-                <input 
-                  type="text"
-                  value={credentials.username}
-                  onChange={(e) => setCredentials({...credentials, username: e.target.value})}
-                  className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  placeholder="Enter username"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
-                <input 
-                  type="password"
-                  value={credentials.password}
-                  onChange={(e) => setCredentials({...credentials, password: e.target.value})}
-                  className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  placeholder="Enter password"
-                />
-              </div>
-              <button 
-                type="submit"
-                disabled={isLoggingIn}
-                className={cn(
-                  "w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2",
-                  isLoggingIn && "opacity-70 cursor-not-allowed"
-                )}
-              >
-                {isLoggingIn ? (
-                  <>
-                    <motion.div 
-                      animate={{ rotate: 360 }}
-                      transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                      className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
-                    />
-                    Logging in...
-                  </>
-                ) : 'Login'}
-              </button>
-
-              {showInitButton && (
-                <button 
-                  type="button"
-                  onClick={initializeAdminAccount}
-                  className="w-full py-3 bg-emerald-50 text-emerald-700 rounded-2xl font-bold hover:bg-emerald-100 transition-all border border-emerald-100 mt-2 text-sm"
-                >
-                  Initialize Admin Account
-                </button>
-              )}
-            </form>
-          )}
-          
-          <div className="mt-8 pt-8 border-t border-gray-100 text-sm text-gray-400">
-            Monthly contribution: ₹1,000 before 10th
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
+      createNotification(loan.userId, "Loan Payment Recorded", `Admin has recorded your loan payment for ${format(new Date(year, month - 1), 'MMMM yyyy')}.`, 'payment');
+      
+      notify('success', `Repayment recorded successfully for ${format(new Date(year, month - 1), "MMMM yyyy")}`);
+      setAdminManualRepayment(prev => ({ ...prev, isOpen: false }));
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, 'loanPayments/admin-manual');
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <>
+      <AnimatePresence mode="wait">
+        {loading ? (
+          <motion.div
+            key="loading-screen"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="min-h-screen bg-white flex flex-col items-center justify-center p-6"
+          >
+            <div className="flex flex-col items-center">
+              <div className="relative mb-12">
+                <div className="w-48 h-48 bg-white rounded-[3rem] flex items-center justify-center shadow-2xl shadow-indigo-100 relative overflow-hidden border border-slate-100">
+                  <img 
+                    src="/logo.png" 
+                    alt="Unnati Logo" 
+                    className="w-full h-full object-contain p-2"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
+                    }}
+                  />
+                </div>
+              </div>
+              
+              <motion.h1 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.4 }}
+                className="text-4xl font-black tracking-tighter text-indigo-600 mb-2"
+              >
+                UNNATI
+              </motion.h1>
+              
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: 120 }}
+                transition={{ delay: 0.6, duration: 1 }}
+                className="h-1 bg-slate-100 rounded-full overflow-hidden"
+              >
+                <motion.div
+                  animate={{ x: [-120, 120] }}
+                  transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                  className="w-full h-full bg-indigo-600"
+                />
+              </motion.div>
+              
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.8 }}
+                className="mt-4 text-slate-400 font-medium text-sm tracking-widest uppercase"
+              >
+                Growing Together
+              </motion.p>
+            </div>
+          </motion.div>
+        ) : error ? (
+          <ErrorBoundary key="error-boundary" error={error} />
+        ) : (!profile && !isLocalAdmin) ? (
+          <motion.div 
+            key="login-screen"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100"
+            >
+              <div className="relative w-40 h-40 mx-auto mb-8">
+                <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
+                  <img 
+                    src="/logo.png" 
+                    alt="Unnati Logo" 
+                    className="w-full h-full object-contain p-2"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
+                    }}
+                  />
+                </div>
+              </div>
+              
+              <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tighter">UNNATI</h1>
+              <p className="text-slate-500 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
+              
+              <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
+                <button 
+                  onClick={() => setLoginMethod('google')}
+                  className={cn(
+                    "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
+                    loginMethod === 'google' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+                  )}
+                >
+                  Google
+                </button>
+                <button 
+                  onClick={() => setLoginMethod('password')}
+                  className={cn(
+                    "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
+                    loginMethod === 'password' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+                  )}
+                >
+                  Password
+                </button>
+              </div>
+
+              {loginMethod === 'google' ? (
+                <button 
+                  onClick={handleLogin}
+                  className="w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95"
+                >
+                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
+                  Continue with Google
+                </button>
+              ) : (
+                <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Username</label>
+                    <input 
+                      type="text"
+                      value={credentials.username}
+                      onChange={(e) => setCredentials({...credentials, username: e.target.value})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="Enter username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
+                    <input 
+                      type="password"
+                      value={credentials.password}
+                      onChange={(e) => setCredentials({...credentials, password: e.target.value})}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      placeholder="Enter password"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    disabled={isLoggingIn}
+                    className={cn(
+                      "w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2",
+                      isLoggingIn && "opacity-70 cursor-not-allowed"
+                    )}
+                  >
+                    {isLoggingIn ? (
+                      <>
+                        <motion.div 
+                          animate={{ rotate: 360 }}
+                          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                          className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
+                        />
+                        Logging in...
+                      </>
+                    ) : 'Login'}
+                  </button>
+
+                  {showInitButton && (
+                    <button 
+                      type="button"
+                      onClick={initializeAdminAccount}
+                      className="w-full py-3 bg-emerald-50 text-emerald-700 rounded-2xl font-bold hover:bg-emerald-100 transition-all border border-emerald-100 mt-2 text-sm"
+                    >
+                      Initialize Admin Account
+                    </button>
+                  )}
+                </form>
+              )}
+              
+              <div className="mt-8 pt-8 border-t border-gray-100 text-sm text-gray-400">
+                Monthly contribution: ₹1,000 before 10th
+              </div>
+            </motion.div>
+          </motion.div>
+        ) : (
+          <motion.div 
+            key="main-app"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="min-h-screen bg-slate-50 text-slate-900 font-sans"
+          >
+            <div className="flex flex-col min-h-screen">
+              <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center shadow-md shadow-indigo-50 overflow-hidden border border-slate-100">
@@ -2478,8 +2848,9 @@ export default function App() {
           <p className="text-slate-500 font-medium mt-1">Here's what's happening with your Unnati savings.</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
           <motion.div 
+            key="dashboard-card-status"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
@@ -2512,9 +2883,51 @@ export default function App() {
             </div>
           </motion.div>
 
+          {!isAdmin ? (
+            <motion.div 
+              key="dashboard-card-your-savings"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-slate-50 rounded-2xl">
+                  <TrendingUp className="w-6 h-6 text-slate-600" />
+                </div>
+                <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Your Savings</span>
+              </div>
+              <h3 className="text-slate-500 text-sm font-medium">Your Contributions</h3>
+              <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
+                ₹{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString()}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="dashboard-card-active-members"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="p-3 bg-slate-50 rounded-2xl">
+                  <UserIcon className="w-6 h-6 text-slate-600" />
+                </div>
+                <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Group Size</span>
+              </div>
+              <h3 className="text-slate-500 text-sm font-medium">Active Members</h3>
+              <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
+                {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
+              </div>
+            </motion.div>
+          )}
+
           <motion.div 
+            key="dashboard-card-group-funds"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
             className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
           >
             <div className="flex items-center justify-between mb-4">
@@ -2522,57 +2935,52 @@ export default function App() {
                 <TrendingUp className="w-6 h-6 text-emerald-600" />
               </div>
               <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg uppercase">
-                {isAdmin ? 'Total Group Savings' : 'Your Total Savings'}
+                Total Group Savings
               </span>
             </div>
-            <h3 className="text-slate-500 text-sm font-medium">
-              {isAdmin ? 'Total Collected' : 'Your Contributions'}
-            </h3>
-            <div className="mt-2 text-3xl font-black text-slate-900">
-              ₹{(isAdmin 
-                ? financials.totalSavings
-                : myContributions.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0)
-              ).toLocaleString()}
+            <h3 className="text-slate-500 text-sm font-medium">Group Funds</h3>
+            <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
+              ₹{financials.totalSavings.toLocaleString()}
             </div>
           </motion.div>
 
-          {isAdmin && (
-            <>
-              <motion.div 
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-slate-50 rounded-2xl">
-                    <UserIcon className="w-6 h-6 text-slate-600" />
-                  </div>
-                  <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Group Size</span>
-                </div>
-                <h3 className="text-slate-500 text-sm font-medium">Active Members</h3>
-                <div className="mt-2 text-3xl font-black text-slate-900">
-                  {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
-                </div>
-              </motion.div>
+          <motion.div 
+            key="dashboard-card-outstanding-principal"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-indigo-50 rounded-2xl">
+                <CreditCard className="w-6 h-6 text-indigo-600" />
+              </div>
+              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase">Group Loans</span>
+            </div>
+            <h3 className="text-slate-500 text-sm font-medium">Outstanding Principal</h3>
+            <div className="mt-2 text-3xl font-black text-indigo-600 line-clamp-1">
+              ₹{financials.outstandingPrincipal.toLocaleString()}
+            </div>
+          </motion.div>
 
-              <motion.div 
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-indigo-50 rounded-2xl">
-                    <Wallet className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase">Available Funds</span>
-                </div>
-                <h3 className="text-slate-500 text-sm font-medium">Subscription Balance Available</h3>
-                <div className="mt-2 text-3xl font-black text-indigo-600">
-                  ₹{financials.availableBalance.toLocaleString()}
-                </div>
-              </motion.div>
-            </>
-          )}
+          <motion.div 
+            key="dashboard-card-available-balance"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="bg-slate-900 p-6 rounded-3xl shadow-xl border border-slate-800"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-3 bg-emerald-500/10 rounded-2xl">
+                <Wallet className="w-6 h-6 text-emerald-400" />
+              </div>
+              <span className="text-xs font-bold text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-lg uppercase">Available</span>
+            </div>
+            <h3 className="text-slate-400 text-sm font-medium">Subscription Balance</h3>
+            <div className="mt-2 text-3xl font-black text-white line-clamp-1">
+              ₹{financials.availableBalance.toLocaleString()}
+            </div>
+          </motion.div>
         </div>
 
         {isAdmin && (
@@ -2673,7 +3081,7 @@ export default function App() {
             <h2 className="text-2xl font-bold text-slate-900">
               {isAdmin 
                 ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : activeTab === 'loans' ? 'Loan Applications' : activeTab === 'graphs' ? 'Data Analytics' : 'Notice Board') 
-                : (activeTab === 'contributions' ? 'Your History' : activeTab === 'graphs' ? 'Group Insights' : 'Loan Dashboard')}
+                : (activeTab === 'contributions' ? 'Your History' : activeTab === 'graphs' ? 'Your Insights' : 'Loan Dashboard')}
             </h2>
             {isAdmin && activeTab === 'members' && !isSmtpConfigured && (
               <div className="mt-1 flex items-center gap-1.5 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-100 w-fit">
@@ -2684,24 +3092,28 @@ export default function App() {
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
             {isAdmin && (
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <form 
+                onSubmit={(e) => e.preventDefault()}
+                className="relative w-full sm:w-64"
+              >
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 <input 
                   type="text"
                   placeholder="Search..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
                 />
                 {searchQuery && (
                   <button 
+                    type="button"
                     onClick={() => setSearchQuery('')}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-full transition-all"
                   >
-                    <X className="w-3 h-3 text-slate-400" />
+                    <X className="w-3.5 h-3.5 text-slate-400" />
                   </button>
                 )}
-              </div>
+              </form>
             )}
             {isAdmin && activeTab === 'contributions' && (
               <button 
@@ -2769,18 +3181,35 @@ export default function App() {
               </div>
             )}
             {isAdmin && activeTab === 'members' && (
-              <button 
-                onClick={() => setShowReminderConfirm(true)}
-                disabled={isTriggeringReminders}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 disabled:opacity-50"
-              >
-                {isTriggeringReminders ? (
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Mail className="w-5 h-5" />
-                )}
-                {isTriggeringReminders ? 'Sending...' : 'Send Reminders'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button 
+                  onClick={() => setShowReminderConfirm(true)}
+                  disabled={isTriggeringReminders || isSendingReport}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 disabled:opacity-50"
+                  title="Send monthly reminders to members who haven't paid"
+                >
+                  {isTriggeringReminders ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Mail className="w-5 h-5" />
+                  )}
+                  {isTriggeringReminders ? 'Sending...' : 'Send Reminders'}
+                </button>
+                
+                <button 
+                  onClick={triggerFullBackupReport}
+                  disabled={isSendingReport || isTriggeringReminders}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50"
+                  title="Send full financial backup report to jpvenu2000@gmail.com"
+                >
+                  {isSendingReport ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <FileDown className="w-5 h-5" />
+                  )}
+                  {isSendingReport ? 'Generating Backup...' : 'Send Backup Now'}
+                </button>
+              </div>
             )}
             {activeTab === 'loans' && !isAdmin && (
               <button 
@@ -2794,19 +3223,21 @@ export default function App() {
                 <Plus className="w-5 h-5" /> {hasActiveLoan ? 'Loan Active' : 'Apply for Loan'}
               </button>
             )}
-            {activeTab === 'contributions' && !hasPaidCurrent && !hasPendingCurrent && (
+            {activeTab === 'contributions' && !isAdmin && (
               <button 
-                onClick={() => setIsAdding(true)}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                onClick={() => !hasPaidCurrent && !hasPendingCurrent && setIsAdding(true)}
+                disabled={hasPaidCurrent || hasPendingCurrent}
+                className={cn(
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                  (hasPaidCurrent || hasPendingCurrent) 
+                    ? "bg-slate-100 text-slate-400 shadow-none border border-slate-200" 
+                    : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
+                )}
               >
                 <Wallet className="w-5 h-5" /> Pay Now
               </button>
             )}
-            {hasPendingCurrent && (
-              <div className="px-4 py-2 bg-amber-50 text-amber-700 rounded-xl text-xs font-bold border border-amber-100 flex items-center gap-2">
-                <Clock className="w-4 h-4" /> Verification Pending
-              </div>
-            )}
+            {/* Remove the separate Pending div as it's now handled in the button */}
           </div>
         </div>
 
@@ -2913,18 +3344,22 @@ export default function App() {
                   <tbody className="divide-y divide-slate-100">
                     {sortedMembers.map((u, idx) => {
                       const userContribs = contributions.filter(c => 
-                        (u.uid && c.userId === u.uid) || 
-                        (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())
+                        ((u.uid && c.userId === u.uid) || 
+                        (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) &&
+                        c.year >= 2026
                       );
-                      const totalPaid = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
-                      const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
+                      const totalPaid = userContribs.reduce((acc, c) => acc + c.amount, 0);
+                      const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear);
+                      // Check if any month from Jan to current month is pending
+                      const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                        .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
                       
                       return (
                         <motion.tr 
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
-                          key={u.uid || u.email} 
+                          key={`desktop-member-${u.id || u.uid || u.email.toLowerCase() || 'mem'}-${idx}`} 
                           className="hover:bg-slate-50/50 transition-colors"
                         >
                           <td className="px-6 py-4">
@@ -2956,9 +3391,9 @@ export default function App() {
                           <td className="px-6 py-4">
                             <span className={cn(
                               "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
-                              paidThisMonth ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                              !hasPendingThisYear ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
                             )}>
-                              {paidThisMonth ? 'Active' : 'Pending'}
+                              {!hasPendingThisYear ? 'Active' : 'Pending'}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -2973,7 +3408,7 @@ export default function App() {
                               >
                                 <Shield className="w-4 h-4" />
                               </button>
-                              {!paidThisMonth && (
+                              {hasPendingThisYear && (
                                 <>
                                   <button 
                                     onClick={() => sendWhatsAppReminder(u)}
@@ -3002,7 +3437,10 @@ export default function App() {
                                 <IndianRupee className="w-4 h-4" />
                               </button>
                               <button 
-                                onClick={() => setEditingUser(u)}
+                                onClick={() => {
+                                  setEditingUser(u);
+                                  setOriginalEditingEmail(u.uid || u.email);
+                                }}
                                 className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                                 title="Edit"
                               >
@@ -3017,12 +3455,21 @@ export default function App() {
                               </button>
                               <button 
                                 onClick={() => {
-                                  setSelectedUserId(u.uid || u.email);
+                                  const userId = u.uid || u.email;
+                                  setSelectedUserId(userId);
+                                  const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                                    .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                                  if (firstMissing) setSelectedMonth(firstMissing);
+                                  setSelectedYear(currentYear);
                                   setIsAdding(true);
                                 }}
-                                className="ml-2 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg transition-all"
+                                disabled={!hasPendingThisYear}
+                                className={cn(
+                                  "ml-2 text-xs font-bold px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+                                  !hasPendingThisYear ? "bg-slate-100 text-slate-400" : "text-indigo-600 hover:text-indigo-700 bg-indigo-50"
+                                )}
                               >
-                                Record
+                                {!hasPendingThisYear ? 'Paid' : 'Record'}
                               </button>
                             </div>
                           </td>
@@ -3036,20 +3483,23 @@ export default function App() {
 
             {/* Mobile Card View */}
             <div className="lg:hidden grid grid-cols-1 gap-4">
-              {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, idx) => {
+              {sortedMembers.map((u, idx) => {
                 const userContribs = contributions.filter(c => 
-                  (u.uid && c.userId === u.uid) || 
-                  (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())
+                  ((u.uid && c.userId === u.uid) || 
+                  (u.email && c.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim())) &&
+                  c.year >= 2026
                 );
-                const totalPaid = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + c.amount, 0);
-                const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear && c.status === 'paid');
+                const totalPaid = userContribs.reduce((acc, c) => acc + c.amount, 0);
+                const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear);
+                const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                  .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
 
                 return (
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
-                    key={u.uid || u.email}
+                    key={`mobile-member-${u.id || u.uid || u.email.toLowerCase() || 'mob'}-${idx}`}
                     className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden"
                   >
                     <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
@@ -3067,9 +3517,9 @@ export default function App() {
                       </div>
                       <span className={cn(
                         "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider",
-                        paidThisMonth ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                        !hasPendingThisYear ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                       )}>
-                        {paidThisMonth ? 'Active' : 'Pending'}
+                        {!hasPendingThisYear ? 'Active' : 'Pending'}
                       </span>
                     </div>
 
@@ -3085,7 +3535,7 @@ export default function App() {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      {!paidThisMonth && (
+                      {hasPendingThisYear && (
                         <>
                           <button 
                             onClick={() => sendWhatsAppReminder(u)}
@@ -3112,7 +3562,10 @@ export default function App() {
                         <Shield className="w-4 h-4" /> {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
                       </button>
                       <button 
-                        onClick={() => setEditingUser(u)}
+                        onClick={() => {
+                          setEditingUser(u);
+                          setOriginalEditingEmail(u.uid || u.email);
+                        }}
                         className="p-2.5 bg-slate-50 text-slate-600 rounded-xl active:scale-95"
                       >
                         <Edit2 className="w-4 h-4" />
@@ -3134,12 +3587,21 @@ export default function App() {
                       </button>
                       <button 
                         onClick={() => {
-                          setSelectedUserId(u.uid || u.email);
+                          const userId = u.uid || u.email;
+                          setSelectedUserId(userId);
+                          const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                            .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                          if (firstMissing) setSelectedMonth(firstMissing);
+                          setSelectedYear(currentYear);
                           setIsAdding(true);
                         }}
-                        className="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-100 active:scale-95"
+                        disabled={!hasPendingThisYear}
+                        className={cn(
+                          "flex-1 py-2.5 rounded-xl text-xs font-bold shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                          !hasPendingThisYear ? "bg-slate-100 text-slate-400 shadow-none border border-slate-200" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
+                        )}
                       >
-                        Record Payment
+                        {!hasPendingThisYear ? 'Payment Recorded' : 'Record Payment'}
                       </button>
                     </div>
                   </motion.div>
@@ -3162,11 +3624,11 @@ export default function App() {
                               <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
                               <th 
                                 className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
-                                onClick={() => handleSortLoans('member')}
+                                onClick={() => handleSortLoans('name')}
                               >
                                 <div className="flex items-center gap-2">
                                   Member
-                                  {loanSortConfig.field === 'member' ? (
+                                  {loanSortConfig.field === 'name' ? (
                                     loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                   ) : (
                                     <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
@@ -3213,22 +3675,35 @@ export default function App() {
                                   )}
                                 </div>
                               </th>
+                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Payment Mode</th>
                               <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {sortedLoans.map((l, idx) => {
                               const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                              const isOldestPending = l.id === oldestPendingLoanId;
                               return (
                                 <motion.tr 
                                   initial={{ opacity: 0, y: 10 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   transition={{ delay: idx * 0.05 }}
-                                  key={l.id} 
-                                  className="hover:bg-slate-50/50 transition-colors"
+                                  key={`desktop-loan-${l.id || 'loan-d'}-${idx}`} 
+                                  className={cn(
+                                    "hover:bg-slate-50/50 transition-colors",
+                                    isOldestPending && "bg-indigo-50/40"
+                                  )}
                                 >
                                   <td className="px-6 py-4">
-                                    <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
+                                      {isOldestPending && (
+                                        <div className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-bold animate-pulse">
+                                          <Star className="w-2.5 h-2.5 fill-indigo-600" />
+                                          FCFS
+                                        </div>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="px-6 py-4">
                                     <div className="flex flex-col">
@@ -3258,6 +3733,14 @@ export default function App() {
                                 <td className="px-6 py-4">
                                   <span className="text-xs text-slate-500">
                                     {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className={cn(
+                                    "text-xs font-bold",
+                                    l.paymentMode === 'Online' ? "text-indigo-600" : l.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                                  )}>
+                                    {l.paymentMode || '-'}
                                   </span>
                                 </td>
                                 <td className="px-6 py-4 text-right">
@@ -3312,16 +3795,23 @@ export default function App() {
                     <div className="lg:hidden space-y-4">
                       {sortedLoans.map((l, idx) => {
                         const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                        const isOldestPending = l.id === oldestPendingLoanId;
                         return (
                           <motion.div 
-                            key={l.id}
+                            key={`mobile-loan-item-${l.id || idx}-${idx}`}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.05 }}
-                            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 relative overflow-hidden"
+                            className={cn(
+                              "bg-white p-6 rounded-3xl shadow-sm border transition-all duration-300 relative overflow-hidden",
+                              isOldestPending ? "border-indigo-300 ring-2 ring-indigo-50 shadow-md" : "border-slate-200"
+                            )}
                           >
-                            <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
-                              #{idx + 1}
+                            <div className={cn(
+                              "absolute top-0 right-0 px-3 py-1 text-[10px] font-bold rounded-bl-xl border-b border-l transition-colors",
+                              isOldestPending ? "bg-indigo-600 text-white border-indigo-700" : "bg-slate-100 text-slate-400 border-slate-200"
+                            )}>
+                              {isOldestPending ? 'FCFS PRIORITY' : `#${idx + 1}`}
                             </div>
                             <div className="flex items-center justify-between mb-4">
                               <div className="flex flex-col">
@@ -3347,11 +3837,21 @@ export default function App() {
                           </div>
 
                           {l.details && (
-                            <div className="mb-6 p-3 bg-slate-50 rounded-xl">
+                            <div className="mb-4 p-3 bg-slate-50 rounded-xl">
                               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Details</p>
                               <p className="text-xs text-slate-600 leading-relaxed">{l.details}</p>
                             </div>
                           )}
+
+                          <div className="mb-6 grid grid-cols-2 gap-4">
+                            <div>
+                               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Payment Mode</p>
+                               <p className={cn(
+                                 "text-xs font-bold",
+                                 l.paymentMode === 'Online' ? "text-indigo-600" : l.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                               )}>{l.paymentMode || 'Pending'}</p>
+                            </div>
+                          </div>
 
                           <div className="flex items-center gap-2">
                             {l.status === 'pending' && (
@@ -3400,8 +3900,12 @@ export default function App() {
                         <div className="space-y-3">
                           {filteredLoanPayments.filter(p => p.status === 'pending').map((p, idx) => {
                             const targetUser = allUsers.find(u => u.uid === p.userId);
+                            const uniqueKey = `pending-repayment-${p.id || 'repay'}-${p.userId || 'user'}-${idx}`;
                             return (
-                              <div key={p.id} className="bg-white p-4 rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                              <div key={uniqueKey} className="bg-white p-4 rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 px-2 py-0.5 bg-amber-50 text-[8px] font-bold text-amber-400 rounded-bl-lg border-b border-l border-amber-100 z-10">
+                                  #{idx + 1}
+                                </div>
                                 <div className="flex items-center gap-3">
                                   <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-xl flex items-center justify-center font-bold">
                                     {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
@@ -3441,46 +3945,73 @@ export default function App() {
                     )}
 
                     {/* Summary Section */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Active Loans</p>
                         <p className="text-2xl font-black text-slate-900">
                           {loans.filter(l => l.status === 'approved').length}
                         </p>
                       </div>
-                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Outstanding Principal</p>
+
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Loan Issued</p>
                         <p className="text-2xl font-black text-slate-900">
-                          ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
-                            const payments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
-                            const paidPrincipal = payments.reduce((pAcc, p) => pAcc + p.amount, 0);
-                            return acc + (l.approvedAmount! - paidPrincipal);
-                          }, 0).toLocaleString()}
+                          ₹{financials.totalLoanIssued.toLocaleString()}
                         </p>
                       </div>
-                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Outstanding</p>
+
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Loan Paid</p>
+                        <p className="text-2xl font-black text-emerald-600">
+                          ₹{financials.totalLoanPaid.toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Interest Paid</p>
+                        <p className="text-2xl font-black text-amber-600">
+                          ₹{financials.totalInterest.toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Outstanding Principal</p>
+                        <p className="text-2xl font-black text-slate-900">
+                          ₹{financials.outstandingPrincipal.toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 text-wrap">Total Outstanding with inclusive of interest</p>
                         <p className="text-2xl font-black text-indigo-600">
                           ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
                             const payments = loanPayments.filter(p => p.loanId === l.id);
                             return acc + calculateLoanRemainingTotal(l, payments);
                           }, 0).toLocaleString()}
                         </p>
-                        <p className="text-[10px] text-slate-400 font-medium">Incl. Interest</p>
                       </div>
-                      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Overdue Repayments</p>
-                        <p className="text-2xl font-black text-red-600">
-                          {sortedLoans.filter(l => l.status === 'approved').filter(l => {
-                            const isPaidThisMonth = loanPayments.some(p => p.loanId === l.id && p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'paid');
-                            const isPendingThisMonth = loanPayments.some(p => p.loanId === l.id && p.month === (new Date().getMonth() + 1) && p.year === new Date().getFullYear() && p.status === 'pending');
-                            const loanApprovedThisMonth = l.approvedAt?.toDate && 
-                              l.approvedAt.toDate().getMonth() === new Date().getMonth() && 
-                              l.approvedAt.toDate().getFullYear() === new Date().getFullYear();
-                            return !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanApprovedThisMonth;
-                          }).length}
-                        </p>
+                    </div>
+
+                    {/* Loan Sorting Bar */}
+                    <div className="hidden lg:grid grid-cols-[3rem_2fr_1fr_1fr_1fr_1fr_1fr_auto] gap-4 px-8 py-3 bg-slate-50 border border-slate-200 rounded-2xl mb-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <div className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => handleSortLoans('date')}>
+                        # {loanSortConfig.field === 'date' && (loanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />)}
                       </div>
+                      <div className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => handleSortLoans('name')}>
+                        Member {loanSortConfig.field === 'name' ? (loanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />) : <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />}
+                      </div>
+                      <div className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => handleSortLoans('amount')}>
+                        Loan Amount {loanSortConfig.field === 'amount' ? (loanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />) : <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />}
+                      </div>
+                      <div className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => handleSortLoans('remaining')}>
+                        Remaining {loanSortConfig.field === 'remaining' ? (loanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />) : <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />}
+                      </div>
+                      <div className="flex items-center gap-1">Progress</div>
+                      <div className="flex items-center gap-1">Monthly Status</div>
+                      <div className="flex items-center gap-1 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => handleSortLoans('status')}>
+                        Status {loanSortConfig.field === 'status' ? (loanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />) : <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />}
+                      </div>
+                      <div className="text-right">Actions</div>
                     </div>
 
                     {sortedLoans.filter(l => l.status === 'approved' || l.status === 'paid').map((l, idx) => {
@@ -3507,7 +4038,7 @@ export default function App() {
 
                       return (
                         <motion.div 
-                          key={l.id}
+                          key={`repayment-loan-card-${l.id || 'repay'}-${idx}`}
                           initial={{ opacity: 0, y: 20 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
@@ -3529,7 +4060,7 @@ export default function App() {
                               </div>
                             </div>
                             
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 flex-1">
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-8 flex-1">
                               <div>
                                 <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Loan</p>
                                 <p className="font-bold text-slate-900">₹{l.approvedAmount?.toLocaleString()}</p>
@@ -3545,21 +4076,31 @@ export default function App() {
                                 <p className="font-bold text-slate-900">{payments.filter(p => p.status === 'paid').length} / {l.installments} Paid</p>
                               </div>
                               <div>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Monthly Status</p>
                                 <span className={cn(
                                   "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold",
                                   isPaidThisMonth ? "bg-emerald-50 text-emerald-600" : 
                                   isPendingThisMonth ? "bg-amber-50 text-amber-600" :
                                   isLate ? "bg-red-50 text-red-600" : 
-                                  loanApprovedThisMonth ? "bg-blue-50 text-blue-600" : "bg-amber-50 text-amber-600"
+                                  l.status === 'paid' ? "bg-emerald-50 text-emerald-600" :
+                                  loanApprovedThisMonth ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"
                                 )}>
-                                  {isPaidThisMonth ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                  {isPaidThisMonth ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : l.status === 'paid' ? 'PAID' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status</p>
+                                <span className={cn(
+                                  "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold",
+                                  l.status === 'paid' ? "bg-indigo-600 text-white" : "bg-amber-50 text-amber-600"
+                                )}>
+                                  {l.status === 'paid' ? 'COMPLETED' : 'PENDING'}
                                 </span>
                               </div>
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {l.status !== 'paid' && !isPaidThisMonth && !isPendingThisMonth && targetUser && (
+                              {l.status !== 'paid' && targetUser && (
                                 <>
                                   <button 
                                     onClick={() => setSettlingLoanId(l.id!)}
@@ -3584,17 +4125,15 @@ export default function App() {
                                   </button>
                                 </>
                               )}
-                              {l.status !== 'paid' && (
-                                <button 
-                                  onClick={() => setSelectedLoan(selectedLoan?.id === l.id ? null : l)}
-                                  className={cn(
-                                    "px-4 py-2 rounded-xl text-xs font-bold transition-all",
-                                    selectedLoan?.id === l.id ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                                  )}
-                                >
-                                  {selectedLoan?.id === l.id ? 'Hide Details' : 'View Schedule'}
-                                </button>
-                              )}
+                              <button 
+                                onClick={() => setSelectedLoan(selectedLoan?.id === l.id ? null : l)}
+                                className={cn(
+                                  "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                                  selectedLoan?.id === l.id ? "bg-indigo-600 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                                )}
+                              >
+                                {selectedLoan?.id === l.id ? 'Hide Details' : 'View Schedule'}
+                              </button>
                             </div>
                           </div>
 
@@ -3605,37 +4144,66 @@ export default function App() {
                                   const approvedAmount = l.approvedAmount || 0;
                                   const installments = l.installments || 10;
                                   const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
-                                  
+
+                                  // Find settlement month for fully paid loans
+                                  const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+
                                   return Array.from({ length: installments }).map((_, i) => {
                                     const installmentNum = i + 1;
                                     const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
                                     const installmentMonth = installmentDate.getMonth() + 1;
                                     const installmentYear = installmentDate.getFullYear();
+
+                                    // Hide installments strictly following the settlement month
+                                    if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
+                                      return null;
+                                    }
+
                                     const payment = payments.find(p => p.month === installmentMonth && p.year === installmentYear);
-                                    const isPaid = payment?.status === 'paid';
-                                    const isPending = payment?.status === 'pending';
+                                    const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+                                    const displayPayment = payment || settlementPayment;
+                                    const isPaid = l.status === 'paid' || payment?.status === 'paid';
+                                    const isPending = !isPaid && payment?.status === 'pending';
                                     
                                     // Calculate interest based on planned reducing balance
                                     const scheduledPrincipal = approvedAmount / installments;
                                     const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
                                     const interest = Math.round(plannedRemainingPrincipal * 0.005);
-                                    const principalToDisplay = (isPaid || isPending) ? payment.amount : scheduledPrincipal;
-                                    const total = principalToDisplay + interest;
+                                    const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
+                                    const interestToDisplay = (isPaid || isPending) ? (payment?.interest ?? (isPaid ? interest : 0)) : interest;
+                                    const total = principalToDisplay + interestToDisplay;
 
                                     return (
-                                      <div key={i} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100">
+                                      <div key={`admin-loan-schedule-${l.id || 'loan'}-${idx}-${i}`} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100">
                                         <div className="flex items-center gap-3">
                                           <span className="text-xs font-bold text-slate-400 w-6">{installmentNum}.</span>
                                           <div>
                                             <p className="text-sm font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
-                                            <p className="text-[10px] text-slate-500">₹{principalToDisplay.toLocaleString()} + ₹{interest.toLocaleString()} Int.</p>
+                                            <p className="text-[10px] text-slate-500">₹{principalToDisplay.toLocaleString()} + ₹{interestToDisplay.toLocaleString()} Int.</p>
                                           </div>
                                         </div>
                                         <div className="flex items-center gap-4">
-                                          <span className="text-sm font-black text-slate-900">₹{total.toLocaleString()}</span>
-                                          {isPaid ? (
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">PAID</span>
+                                          <div className="w-16 px-1">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase">Mode</p>
+                                            <p className={cn(
+                                              "text-xs font-bold",
+                                              displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-300 italic"
+                                            )}>
+                                              {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                            </p>
+                                          </div>
+                                          <div className="w-20 px-1 text-center">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase">Paid On</p>
+                                            <p className="text-xs font-bold text-slate-600">
+                                              {isPaid ? (
+                                                displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yy') :
+                                                displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yy') : '-'
+                                              ) : '-'}
+                                            </p>
+                                          </div>
+                                          <span className="text-sm font-black text-slate-900 w-20 text-right">₹{total.toLocaleString()}</span>
+                                          <div className="flex items-center gap-2">
+                                            {isPaid && (
                                               <button 
                                                 onClick={() => setDeletingRepaymentId(payment.id!)}
                                                 className="p-1 text-slate-400 hover:text-red-600 transition-colors"
@@ -3643,12 +4211,26 @@ export default function App() {
                                               >
                                                 <Trash2 className="w-3.5 h-3.5" />
                                               </button>
-                                            </div>
-                                          ) : isPending ? (
-                                            <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">AWAITING APPROVAL</span>
-                                          ) : (
-                                            <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">PENDING</span>
-                                          )}
+                                            )}
+                                            {!isPaid && !isPending && isAdmin && (
+                                              <button 
+                                                onClick={() => setAdminManualRepayment({
+                                                  isOpen: true,
+                                                  loan: l,
+                                                  month: installmentMonth,
+                                                  year: installmentYear,
+                                                  amount: scheduledPrincipal,
+                                                  interest: interest,
+                                                  method: 'cash',
+                                                  paymentDate: format(new Date(), 'yyyy-MM-dd')
+                                                })}
+                                                className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all border border-indigo-100/50"
+                                                title="Record Payment Manually"
+                                              >
+                                                <PlusCircle className="w-4 h-4" />
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
                                     );
@@ -3675,7 +4257,7 @@ export default function App() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
                   {/* Active Loan Info */}
-                  {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).map(l => {
+                  {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).map((l, idx) => {
                     const payments = loanPayments.filter(p => p.loanId === l.id);
                     const paidPayments = payments.filter(p => p.status === 'paid');
                     const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
@@ -3684,7 +4266,7 @@ export default function App() {
                     
                     return (
                       <motion.div 
-                        key={l.id}
+                        key={`user-loan-card-${l.id || 'loan'}-${idx}`}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden"
@@ -3694,7 +4276,25 @@ export default function App() {
                             <div className="p-3 bg-white/10 rounded-2xl">
                               <Wallet className="w-8 h-8 text-white" />
                             </div>
-                            <span className="px-4 py-1.5 bg-white/20 rounded-full text-xs font-black uppercase tracking-widest">Active Loan</span>
+                            <div className="flex items-center gap-2">
+                              {l.status !== 'paid' && (
+                                <button
+                                  onClick={() => setSettlingLoanId(l.id!)}
+                                  className="flex items-center gap-2 px-4 py-1.5 bg-amber-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest border border-amber-400 shadow-sm hover:bg-amber-600 transition-all active:scale-95"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  Settle One-time
+                                </button>
+                              )}
+                              {l.status === 'paid' ? (
+                                <div className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 rounded-full text-xs font-black uppercase tracking-widest border border-emerald-400/50 shadow-sm animate-pulse-slow">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  Loan Completed
+                                </div>
+                              ) : (
+                                <span className="px-4 py-1.5 bg-white/20 rounded-full text-xs font-black uppercase tracking-widest">Active Loan</span>
+                              )}
+                            </div>
                           </div>
                           <h3 className="text-indigo-100 font-bold uppercase tracking-widest text-xs mb-1">Approved Amount</h3>
                           <div className="text-5xl font-black mb-6">₹{l.approvedAmount?.toLocaleString()}</div>
@@ -3717,7 +4317,7 @@ export default function App() {
                             <h4 className="text-lg font-bold text-slate-900">Repayment Schedule</h4>
                             <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-xs font-bold">
                               <CheckCircle2 className="w-4 h-4" />
-                              {payments.length} / {l.installments} Paid
+                              {payments.filter(p => p.status === 'paid').length} / {l.installments} Paid
                             </div>
                           </div>
 
@@ -3727,6 +4327,9 @@ export default function App() {
                               const installments = l.installments || 10;
                               const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
 
+                              // Find settlement month for fully paid loans
+                              const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+
                               return Array.from({ length: installments }).map((_, i) => {
                                 const installmentNum = i + 1;
                                 // Repayment starts from next month
@@ -3734,6 +4337,11 @@ export default function App() {
                                 const installmentMonth = installmentDate.getMonth() + 1;
                                 const installmentYear = installmentDate.getFullYear();
                                 
+                                // Hide installments strictly following the settlement month
+                                if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
+                                  return null;
+                                }
+
                                 // Find the most relevant payment for this installment
                                 const payment = payments
                                   .filter(p => p.month === installmentMonth && p.year === installmentYear)
@@ -3745,23 +4353,25 @@ export default function App() {
                                     return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
                                   })[0];
 
-                                const isPaid = payment?.status === 'paid';
-                                const isPending = payment?.status === 'pending';
+                                const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+                                const displayPayment = payment || settlementPayment;
+                                const isPaid = l.status === 'paid' || payment?.status === 'paid';
+                                const isPending = !isPaid && payment?.status === 'pending';
                                 
                                 // Calculate interest based on planned reducing balance
                                 const scheduledPrincipal = approvedAmount / installments;
                                 const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
-                                const interest = (isPaid || isPending) ? (payment.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
-                                const principalToDisplay = (isPaid || isPending) ? payment.amount : scheduledPrincipal;
+                                const interest = (isPaid || isPending) ? (displayPayment?.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
+                                const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
                                 const total = principalToDisplay + interest;
 
                                 const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
-                                const isFuture = installmentDate > new Date();
+                                const isFuture = installmentDate > new Date() && l.status !== 'paid';
                                 const isPast = installmentDate < new Date() && !isCurrentMonth;
 
                                 return (
                                   <div 
-                                    key={i}
+                                    key={`loan-schedule-${l.id || 'loan'}-${idx}-${i}`}
                                     className={cn(
                                       "flex items-center justify-between p-4 rounded-2xl border transition-all",
                                       isPaid ? "bg-slate-50 border-slate-100 opacity-60" : 
@@ -3789,7 +4399,25 @@ export default function App() {
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                      <span className="font-black text-slate-900">₹{total.toLocaleString()}</span>
+                                      <div className="w-16 px-1">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase">Mode</p>
+                                        <p className={cn(
+                                          "text-xs font-bold",
+                                          displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-300 italic"
+                                        )}>
+                                          {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                        </p>
+                                      </div>
+                                      <div className="w-20 px-1 text-center">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase text-center">Paid On</p>
+                                        <p className="text-xs font-bold text-slate-600">
+                                          {isPaid ? (
+                                            displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yy') :
+                                            displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yy') : '-'
+                                          ) : '-'}
+                                        </p>
+                                      </div>
+                                      <span className="font-black text-slate-900 w-20 text-right">₹{total.toLocaleString()}</span>
                                       {!isPaid && !isPending && (
                                         <button 
                                           onClick={() => {
@@ -3855,11 +4483,19 @@ export default function App() {
                         const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
                         const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
                         return dateB - dateA;
-                      }).map(l => (
-                        <div key={l.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                      }).map((l, idx) => (
+                        <div key={`loan-history-${l.id || 'loan-hist'}-${idx}`} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
-                            <span className={cn(
+                             <div className="flex flex-col">
+                               <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
+                               <span className={cn(
+                                 "text-[10px] font-bold",
+                                 l.paymentMode === 'Online' ? "text-indigo-600" : l.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                               )}>
+                                 {l.paymentMode || 'Mode: Pending'}
+                               </span>
+                             </div>
+                             <span className={cn(
                               "text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md",
                               l.status === 'approved' ? "bg-emerald-100 text-emerald-700" : 
                               l.status === 'pending' ? "bg-amber-100 text-amber-700" : 
@@ -3907,7 +4543,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {notices.map((notice, idx) => (
                 <motion.div 
-                  key={notice.id}
+                  key={`notices-tab-item-${notice.id || 'notice'}-${idx}`}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.05 }}
@@ -3972,7 +4608,7 @@ export default function App() {
                       className="w-full p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     >
                       {Array.from({ length: 12 }).map((_, i) => (
-                        <option key={i + 1} value={i + 1}>
+                        <option key={`filter-month-${i + 1}`} value={i + 1}>
                           {format(new Date(2024, i, 1), 'MMMM')}
                         </option>
                       ))}
@@ -3986,7 +4622,7 @@ export default function App() {
                       className="w-full p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     >
                       {[2024, 2025, 2026].map(y => (
-                        <option key={y} value={y}>{y}</option>
+                        <option key={`filter-year-${y}`} value={y}>{y}</option>
                       ))}
                     </select>
                   </div>
@@ -4116,7 +4752,7 @@ export default function App() {
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
-                          key={c.id} 
+                          key={`desktop-contrib-${idx}-${c.id || 'cont-d'}`} 
                           className="hover:bg-slate-50/50 transition-colors"
                         >
                           <td className="px-6 py-4">
@@ -4216,7 +4852,7 @@ export default function App() {
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
-                          key={c.id}
+                          key={`mobile-contrib-${idx}-${c.id || 'cont-m'}`}
                           className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 relative overflow-hidden"
                         >
                           <div className="absolute top-0 right-0 px-3 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
@@ -4298,10 +4934,10 @@ export default function App() {
         )}
       </main>
 
-      <AnimatePresence>
         {activeNoticeToast && (
-          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-full max-w-md px-4">
+          <div key="toast-notice-wrapper" className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-full max-w-md px-4">
             <motion.div 
+              key={`toast-notice-content-${activeNoticeToast.id}`}
               initial={{ opacity: 0, y: -50, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -50, scale: 0.9 }}
@@ -4358,8 +4994,9 @@ export default function App() {
         )}
 
         {activeNotificationToast && (
-          <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-full max-w-md px-4">
+          <div key="toast-notification-wrapper" className="fixed top-24 left-1/2 -translate-x-1/2 z-[200] w-full max-w-md px-4">
             <motion.div 
+              key={`toast-notif-content-${activeNotificationToast.id}`}
               initial={{ opacity: 0, y: -50, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -50, scale: 0.9 }}
@@ -4408,9 +5045,280 @@ export default function App() {
           </div>
         )}
 
+        {paymentModal.isOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              key="modal-payment-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPaymentModal(p => ({ ...p, isOpen: false }))}
+              className="absolute inset-0 bg-slate-900/80 backdrop-blur-xl"
+            />
+            <motion.div 
+              key="modal-payment-content"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-8 pb-4 text-center">
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <QrCode className="w-8 h-8" />
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Complete Payment</h3>
+                
+                {/* Payment Mode Selector */}
+                <div className="grid grid-cols-2 gap-3 mt-8 mb-4 px-6">
+                  <button 
+                    onClick={() => setPaymentModal(p => ({ ...p, mode: 'online' }))}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-3 p-5 rounded-[2rem] border-2 transition-all duration-300 relative overflow-hidden group",
+                      paymentModal.mode === 'online' 
+                        ? "bg-indigo-50 border-indigo-600 shadow-xl shadow-indigo-100/50" 
+                        : "bg-white border-slate-100 text-slate-400 hover:border-slate-200 hover:bg-slate-50"
+                    )}
+                  >
+                    {paymentModal.mode === 'online' && (
+                      <motion.div 
+                        layoutId="active-selection"
+                        className="absolute inset-0 bg-indigo-600 opacity-[0.03]"
+                      />
+                    )}
+                    <div className={cn(
+                      "p-3 rounded-2xl transition-colors",
+                      paymentModal.mode === 'online' ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200"
+                    )}>
+                      <Zap className={cn("w-6 h-6", paymentModal.mode === 'online' ? "fill-white" : "fill-none")} />
+                    </div>
+                    <span className={cn(
+                      "text-xs font-black uppercase tracking-[0.1em]",
+                      paymentModal.mode === 'online' ? "text-indigo-600" : "text-slate-400"
+                    )}>Online</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setPaymentModal(p => ({ ...p, mode: 'cash' }))}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-3 p-5 rounded-[2rem] border-2 transition-all duration-300 relative overflow-hidden group",
+                      paymentModal.mode === 'cash' 
+                        ? "bg-amber-50 border-amber-600 shadow-xl shadow-amber-100/50" 
+                        : "bg-white border-slate-100 text-slate-400 hover:border-slate-200 hover:bg-slate-50"
+                    )}
+                  >
+                    {paymentModal.mode === 'cash' && (
+                      <motion.div 
+                        layoutId="active-selection"
+                        className="absolute inset-0 bg-amber-600 opacity-[0.03]"
+                      />
+                    )}
+                    <div className={cn(
+                      "p-3 rounded-2xl transition-colors",
+                      paymentModal.mode === 'cash' ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200"
+                    )}>
+                      <Banknote className="w-6 h-6" />
+                    </div>
+                    <span className={cn(
+                      "text-xs font-black uppercase tracking-[0.1em]",
+                      paymentModal.mode === 'cash' ? "text-amber-600" : "text-slate-400"
+                    )}>Cash</span>
+                  </button>
+                </div>
+
+                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-2">
+                  {paymentModal.mode === 'online' ? 'Pay instantly via Scan or UPI Apps' : 'Handover cash to any group admin'}
+                </p>
+                
+                {/* Embedded Preview Warning */}
+                {paymentModal.mode === 'online' && (window.location.hostname.includes('ais-dev') || window.location.hostname.includes('ais-pre')) ? (
+                  <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-2xl">
+                    <p className="text-[10px] text-amber-700 font-bold leading-relaxed">
+                      💡 For "One-Click" payment, please open this app in a <strong className="text-amber-900">New Tab</strong> using the icon in the top right corner of the preview.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex-1 px-8 pb-8 flex flex-col items-center w-full">
+                {paymentModal.mode === 'online' ? (
+                  <div className="w-full flex-col flex items-center">
+                    <div className="p-6 bg-white rounded-3xl border-4 border-slate-50 shadow-inner mb-6">
+                  <QRCodeCanvas 
+                    value={`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${paymentModal.amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(paymentModal.note || GROUP_NAME)}&mc=${MERCHANT_CODE}&tr=UTQR${Date.now()}`}
+                    size={200}
+                    level="H"
+                    includeMargin={false}
+                  />
+                  <p className="text-center mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Scan to Pay Instantly</p>
+                </div>
+
+                <div className="w-full space-y-4">
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Amount</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString()}</p>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(paymentModal.amount.toString());
+                            notify('success', 'Amount copied');
+                          }}
+                          className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">UPI ID</p>
+                      <div className="flex items-center justify-end gap-2">
+                        <code className="text-xs font-mono font-bold text-indigo-600">{UPI_VPA}</code>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(UPI_VPA);
+                            notify('success', 'UPI ID copied');
+                          }}
+                          className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button 
+                        onClick={() => {
+                          const am = paymentModal.amount.toFixed(2);
+                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
+                          const tr = `UTGPay${Date.now()}`;
+                          window.location.href = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
+                        }}
+                        className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
+                      >
+                        GPay
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const am = paymentModal.amount.toFixed(2);
+                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
+                          const tr = `UTPPe${Date.now()}`;
+                          window.location.href = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
+                        }}
+                        className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
+                      >
+                        PhonePe
+                      </button>
+                      <button 
+                        onClick={() => {
+                          const am = paymentModal.amount.toFixed(2);
+                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
+                          const tr = `UTPTM${Date.now()}`;
+                          window.location.href = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
+                        }}
+                        className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
+                      >
+                        Paytm
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+                  <div className="w-full flex-1 flex flex-col items-center justify-center text-center space-y-6 py-8">
+                    <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center animate-pulse">
+                      <Banknote className="w-12 h-12 text-amber-600" />
+                    </div>
+                    <div className="space-y-3">
+                      <p className="text-xl font-black text-slate-900 tracking-tight">Cash Payment Mode</p>
+                      <div className="bg-amber-50 p-6 rounded-[2rem] border border-amber-100 mx-4">
+                        <p className="text-sm text-amber-900 font-bold leading-relaxed">
+                          Please handover <span className="text-lg font-black underline decoration-amber-300 underline-offset-4">₹{paymentModal.amount.toLocaleString()}</span> to any Group Admin in cash.
+                        </p>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest px-4">
+                        Admin will verify the receipt soon
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="w-full space-y-4 px-8 mt-auto pb-8">
+                  <div className="flex gap-3">
+                    <button 
+                      onClick={() => setPaymentModal(p => ({ ...p, isOpen: false }))}
+                      className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-sm hover:bg-slate-200 transition-all active:scale-95"
+                    >
+                      Cancel
+                    </button>
+                    
+                    <motion.button 
+                      layout
+                      onClick={async () => {
+                        // If online, also trigger intent if possible (optional but good UX)
+                        if (paymentModal.mode === 'online') {
+                          const am = paymentModal.amount.toFixed(2);
+                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
+                          const tr = `UTGEN${Date.now()}`;
+                          const upiUrl = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
+                          window.location.href = upiUrl;
+                        }
+
+                        // Mark as recorded
+                        if (paymentModal.type === 'contribution') {
+                           notify('success', `Payment noted as ${paymentModal.mode}. Admin will verify once received.`);
+                           const parts = paymentModal.note.split(' ');
+                           const yearStr = parts[parts.length - 1];
+                           const monthName = parts[parts.length - 2];
+                           const monthMap: any = { 'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12 };
+                           const month = monthMap[monthName] || (new Date().getMonth() + 1);
+                           const year = parseInt(yearStr) || new Date().getFullYear();
+                           await addContribution(month, year, undefined, 'pending', undefined, paymentModal.amount, paymentModal.mode);
+                        } else if (paymentModal.type === 'loan' && selectedLoanForPayment) {
+                           notify('success', `Installment noted as ${paymentModal.mode}. Admin will verify once received.`);
+                           await payLoanInstallment(
+                             selectedLoanForPayment.loan, 
+                             selectedLoanForPayment.month, 
+                             selectedLoanForPayment.year, 
+                             selectedLoanForPayment.principal, 
+                             selectedLoanForPayment.interest,
+                             paymentModal.mode
+                           );
+                        }
+                        setPaymentModal(p => ({ ...p, isOpen: false }));
+                      }}
+                      className={cn(
+                        "flex-[2] py-4 rounded-2xl font-black text-white shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 overflow-hidden",
+                        paymentModal.mode === 'online' 
+                          ? "bg-indigo-600 shadow-indigo-100" 
+                          : "bg-amber-600 shadow-amber-100"
+                      )}
+                    >
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={paymentModal.mode}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="flex items-center gap-2"
+                        >
+                          {paymentModal.mode === 'online' ? <Zap className="w-5 h-5 fill-white" /> : <Banknote className="w-5 h-5" />}
+                          {paymentModal.mode === 'online' ? 'Pay via UPI' : 'Pay'}
+                        </motion.div>
+                      </AnimatePresence>
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {showNoticeBoard && (
           <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-notice-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -4418,6 +5326,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
             />
             <motion.div 
+              key="modal-notice-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -4446,9 +5355,9 @@ export default function App() {
                 <section>
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-1">Announcements</h4>
                   <div className="space-y-4">
-                    {notices.map(notice => (
+                    {notices.map((notice, idx) => (
                       <div 
-                        key={notice.id}
+                        key={`modal-notice-${notice.id || 'modal-notice'}-${idx}`}
                         className={cn(
                           "bg-white p-6 rounded-3xl border shadow-sm relative overflow-hidden",
                           notice.priority === 'high' ? "border-red-100" : "border-slate-100"
@@ -4482,9 +5391,9 @@ export default function App() {
                 <section>
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-1">Your Notifications</h4>
                   <div className="space-y-3">
-                    {notifications.map(n => (
+                    {notifications.map((n, idx) => (
                       <div 
-                        key={n.id}
+                        key={`modal-notification-${n.id || 'modal-noti'}-${idx}`}
                         onClick={() => {
                           markNotificationAsRead(n.id!);
                           if (n.link) setActiveTab(n.link as any);
@@ -4528,6 +5437,7 @@ export default function App() {
         {isAddingNotice && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-add-notice-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -4535,6 +5445,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-add-notice-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -4695,7 +5606,19 @@ export default function App() {
           </div>
         )}
 
-        {notification && (
+        <footer className="max-w-6xl mx-auto px-4 sm:px-6 py-12 text-center">
+          <p className="text-sm text-slate-400">
+            Rules: ₹1,000 contribution due before the 10th of every month.
+          </p>
+          <p className="text-xs text-slate-300 mt-2">
+            &copy; {new Date().getFullYear()} Unnati Services. All rights reserved.
+          </p>
+        </footer>
+      </div>
+    </motion.div>
+  )}
+
+  {notification && (
           <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] w-full max-w-sm px-4">
             <motion.div 
               initial={{ opacity: 0, y: 50, scale: 0.9 }}
@@ -4750,9 +5673,7 @@ export default function App() {
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
 
-      <AnimatePresence>
         {/* Bulk Add Modal */}
         {isBulkAdding && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -4822,6 +5743,7 @@ export default function App() {
         {isAddingMember && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-add-member-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -4829,6 +5751,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-add-member-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -4898,13 +5821,18 @@ export default function App() {
         {editingUser && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-edit-member-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setEditingUser(null)}
+              onClick={() => {
+                setEditingUser(null);
+                setOriginalEditingEmail(null);
+              }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-edit-member-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -4952,7 +5880,10 @@ export default function App() {
 
                 <div className="flex gap-3 pt-4">
                   <button 
-                    onClick={() => setEditingUser(null)}
+                    onClick={() => {
+                      setEditingUser(null);
+                      setOriginalEditingEmail(null);
+                    }}
                     className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
                   >
                     Cancel
@@ -4997,6 +5928,7 @@ export default function App() {
         {isAddingLoan && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-record-loan-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -5004,6 +5936,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-record-loan-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -5019,8 +5952,8 @@ export default function App() {
                     className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                   >
                     <option value="">Select a member...</option>
-                    {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map(u => (
-                      <option key={u.uid || u.email} value={u.uid || u.email}>
+                    {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, uidx) => (
+                      <option key={`admin-loan-member-${u.id || u.uid || 'member'}-${uidx}`} value={u.uid || u.email}>
                         {u.displayName || u.email}
                       </option>
                     ))}
@@ -5032,7 +5965,7 @@ export default function App() {
                   <div className="grid grid-cols-3 gap-2">
                     {[10000, 25000, 50000].map(amt => (
                       <button
-                        key={amt}
+                        key={`admin-loan-quick-amt-${amt}`}
                         onClick={() => setAdminLoanAmount(amt)}
                         className={cn(
                           "py-3 rounded-xl text-sm font-bold transition-all border",
@@ -5130,6 +6063,7 @@ export default function App() {
         {editingContribution && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-edit-contrib-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -5137,6 +6071,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-edit-contrib-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -5221,6 +6156,7 @@ export default function App() {
         {isAdding && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-add-contrib-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -5231,6 +6167,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-add-contrib-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -5247,8 +6184,8 @@ export default function App() {
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
                       <option value="">Select a member...</option>
-                      {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map(u => (
-                        <option key={u.uid || u.email} value={u.uid || u.email}>
+                      {allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase()).map((u, uidx) => (
+                        <option key={`contrib-reg-opt-${u.email?.toLowerCase() || 'email'}-${uidx}`} value={u.uid || u.email}>
                           {u.displayName || u.email}
                         </option>
                       ))}
@@ -5265,7 +6202,7 @@ export default function App() {
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
                       {Array.from({ length: 12 }).map((_, i) => (
-                        <option key={i + 1} value={i + 1}>
+                        <option key={`contrib-reg-month-${i + 1}`} value={i + 1}>
                           {format(new Date(2024, i, 1), 'MMMM')}
                         </option>
                       ))}
@@ -5279,36 +6216,52 @@ export default function App() {
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
                       {[2024, 2025, 2026].map(y => (
-                        <option key={y} value={y}>{y}</option>
+                        <option key={`contrib-reg-year-${y}`} value={y}>{y}</option>
                       ))}
                     </select>
                   </div>
                 </div>
 
-                {isAdmin && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">Payment Date</label>
-                      <input 
-                        type="date"
-                        value={paymentDate}
-                        onChange={(e) => setPaymentDate(e.target.value)}
-                        className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-2">Method</label>
-                      <select 
-                        value={paymentMethod}
-                        onChange={(e) => setPaymentMethod(e.target.value as 'cash' | 'online')}
-                        className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Payment Date</label>
+                    <input 
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Payment Method</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setPaymentMethod('online')}
+                        className={cn(
+                          "py-4 rounded-2xl font-bold transition-all text-sm flex items-center justify-center gap-2 border-2",
+                          paymentMethod === 'online'
+                            ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-lg shadow-indigo-100/50"
+                            : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
+                        )}
                       >
-                        <option value="online">Online</option>
-                        <option value="cash">Cash</option>
-                      </select>
+                        <Zap className={cn("w-4 h-4", paymentMethod === 'online' ? "fill-indigo-600" : "fill-none")} />
+                        Online
+                      </button>
+                      <button
+                        onClick={() => setPaymentMethod('cash')}
+                        className={cn(
+                          "py-4 rounded-2xl font-bold transition-all text-sm flex items-center justify-center gap-2 border-2",
+                          paymentMethod === 'cash'
+                            ? "bg-amber-50 border-amber-600 text-amber-600 shadow-lg shadow-amber-100/50"
+                            : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
+                        )}
+                      >
+                        <Banknote className="w-4 h-4" />
+                        Cash
+                      </button>
                     </div>
                   </div>
-                )}
+                </div>
 
                 <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
                   <div className="flex justify-between items-center mb-2">
@@ -5338,19 +6291,26 @@ export default function App() {
                   >
                     Cancel
                   </button>
-                  {isAdmin ? (
+                  {paymentMethod === 'online' ? (
                     <button 
-                      onClick={() => addContribution(selectedMonth, selectedYear, selectedUserId || undefined, 'paid', paymentDate, customAmount, paymentMethod)}
-                      className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                      onClick={() => {
+                        if (isAdmin && selectedUserId) {
+                           // Admin recording online payment directly
+                           addContribution(selectedMonth, selectedYear, selectedUserId, 'paid', paymentDate, customAmount, 'online');
+                        } else {
+                           handleUPIPayment(selectedMonth, selectedYear);
+                        }
+                      }}
+                      className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
                     >
-                      Record Payment
+                      <Zap className="w-5 h-5 fill-white" /> Pay via UPI
                     </button>
                   ) : (
                     <button 
-                      onClick={() => handleUPIPayment(selectedMonth, selectedYear)}
-                      className="flex-2 py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 flex items-center justify-center gap-2"
+                      onClick={() => addContribution(selectedMonth, selectedYear, selectedUserId || undefined, isAdmin ? 'paid' : 'pending', paymentDate, customAmount, 'cash')}
+                      className="flex-2 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 active:scale-95 flex items-center justify-center gap-2"
                     >
-                      <IndianRupee className="w-5 h-5" /> Pay via UPI
+                      <Banknote className="w-5 h-5" /> Pay
                     </button>
                   )}
                 </div>
@@ -5359,7 +6319,6 @@ export default function App() {
           </div>
         )}
 
-        <AnimatePresence>
           {deletingLoanId && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
               <motion.div 
@@ -5471,11 +6430,11 @@ export default function App() {
               </motion.div>
             </div>
           )}
-        </AnimatePresence>
 
         {isApplyingLoan && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-apply-loan-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -5483,6 +6442,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-apply-loan-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -5505,7 +6465,7 @@ export default function App() {
                   <div className="mt-4 flex gap-2">
                     {[10000, 25000, 50000].map(amt => (
                       <button 
-                        key={amt}
+                        key={`apply-loan-quick-amt-${amt}`}
                         onClick={() => setLoanAmount(amt)}
                         className={cn(
                           "px-4 py-2 rounded-xl text-xs font-bold transition-all",
@@ -5646,21 +6606,12 @@ export default function App() {
                         Cancel
                       </button>
                       <button 
-                        onClick={async () => {
-                          const note = `Loan Payment - ${format(new Date(nextYear, nextMonth - 1), 'MMM yyyy')}`;
-                          const upiUrl = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(GROUP_NAME)}&am=${total.toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
-                          window.location.href = upiUrl;
-                          
-                          // Record as paid after a delay
-                          setTimeout(async () => {
-                            await payLoanInstallment(selectedLoan, nextMonth, nextYear, principal, interest);
-                            setIsPayingLoan(false);
-                            setSelectedLoan(null);
-                          }, 1000);
+                        onClick={() => {
+                          handlePayLoanInstallment(selectedLoan!, nextMonth, nextYear, principal, interest);
                         }}
-                        className="flex-2 py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 flex items-center justify-center gap-2"
+                        className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
                       >
-                        <IndianRupee className="w-5 h-5" /> Pay via UPI
+                        <Zap className="w-5 h-5 fill-white" /> Pay Now
                       </button>
                     </div>
                   </div>
@@ -5733,6 +6684,26 @@ export default function App() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Mode</label>
+                  <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
+                    {(['Online', 'Cash'] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setSettlePaymentMode(m)}
+                        className={cn(
+                          "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all",
+                          settlePaymentMode === m 
+                            ? "bg-white text-indigo-600 shadow-sm" 
+                            : "text-slate-500 hover:bg-white/50"
+                        )}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-700 uppercase">Total Settlement Amount</span>
@@ -5761,7 +6732,7 @@ export default function App() {
                   ) : (
                     <CheckCircle2 className="w-5 h-5" />
                   )}
-                  {isSettlingPending ? 'Settling...' : 'Settle Now'}
+                  {isSettlingPending ? 'Settling...' : isAdmin ? 'Settle Now' : 'Request Settlement'}
                 </button>
               </div>
             </motion.div>
@@ -5809,6 +6780,7 @@ export default function App() {
         {deletingId && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
+              key="modal-delete-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -5816,6 +6788,7 @@ export default function App() {
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
+              key="modal-delete-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -5846,6 +6819,110 @@ export default function App() {
             </motion.div>
           </div>
         )}
+
+        {adminManualRepayment.isOpen && adminManualRepayment.loan && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900">Record Loan Payment</h2>
+                  <p className="text-sm text-slate-500 font-medium">For {format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')}</p>
+                </div>
+                <button 
+                  onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Principal Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={adminManualRepayment.amount}
+                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Interest (₹)</label>
+                  <input
+                    type="number"
+                    value={adminManualRepayment.interest}
+                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, interest: Number(e.target.value) }))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-emerald-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Date</label>
+                  <input
+                    type="date"
+                    value={adminManualRepayment.paymentDate}
+                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, paymentDate: e.target.value }))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Mode</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {['cash', 'online'].map(m => (
+                      <button
+                        key={`manual-repayment-mode-${m}`}
+                        onClick={() => setAdminManualRepayment(prev => ({ ...prev, method: m as 'cash' | 'online' }))}
+                        className={cn(
+                          "py-3 rounded-2xl text-sm font-bold border-2 transition-all capitalize",
+                          adminManualRepayment.method === m 
+                            ? "bg-indigo-50 border-indigo-600 text-indigo-600" 
+                            : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                        )}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-700 uppercase">Total to Record</span>
+                  <span className="text-xl font-black text-indigo-900">₹{(adminManualRepayment.amount + adminManualRepayment.interest).toLocaleString()}</span>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={submitAdminManualRepayment}
+                    className="flex-[1.5] py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="w-5 h-5" /> Confirm Payment
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {showPhonePrompt && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div 
@@ -5908,16 +6985,85 @@ export default function App() {
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
 
-      <footer className="max-w-6xl mx-auto px-4 sm:px-6 py-12 text-center">
-        <p className="text-sm text-slate-400">
-          Rules: ₹1,000 contribution due before the 10th of every month.
-        </p>
-        <p className="text-xs text-slate-300 mt-2">
-          &copy; {new Date().getFullYear()} Unnati Services. All rights reserved.
-        </p>
-      </footer>
-    </div>
+        {/* Loan Approval / Disbursal Modal */}
+        {approvingLoanForPaymentMode && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setApprovingLoanForPaymentMode(null)}
+              className="absolute inset-0 bg-slate-900/80 backdrop-blur-xl"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-8"
+            >
+              <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle2 className="w-10 h-10" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 text-center mb-2">Loan Disbursal</h3>
+              <p className="text-slate-500 text-center mb-8">Please select the payment mode for this loan disbursal.</p>
+              
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <button 
+                  onClick={() => setSelectedDisbursalMode('Online')}
+                  className={cn(
+                    "flex flex-col items-center gap-3 p-6 rounded-[2rem] border-2 transition-all",
+                    selectedDisbursalMode === 'Online' 
+                      ? "bg-indigo-50 border-indigo-600 text-indigo-600" 
+                      : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                  )}
+                >
+                  <div className={cn(
+                    "p-3 rounded-2xl",
+                    selectedDisbursalMode === 'Online' ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400"
+                  )}>
+                    <Zap className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm font-bold">Online</span>
+                </button>
+
+                <button 
+                  onClick={() => setSelectedDisbursalMode('Cash')}
+                  className={cn(
+                    "flex flex-col items-center gap-3 p-6 rounded-[2rem] border-2 transition-all",
+                    selectedDisbursalMode === 'Cash' 
+                      ? "bg-amber-50 border-amber-600 text-amber-600" 
+                      : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                  )}
+                >
+                  <div className={cn(
+                    "p-3 rounded-2xl",
+                    selectedDisbursalMode === 'Cash' ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-400"
+                  )}>
+                    <Banknote className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm font-bold">Cash</span>
+                </button>
+              </div>
+              
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setApprovingLoanForPaymentMode(null)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={approveLoanWithMode}
+                  className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                >
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

@@ -16,16 +16,31 @@ const firebaseConfig = JSON.parse(readFileSync('./firebase-applet-config.json', 
 let firebaseAdminApp: admin.app.App;
 try {
   if (!admin.apps.length) {
-    const projectId = firebaseConfig.projectId;
-    console.log('Initializing Firebase Admin with Project ID:', projectId);
-    firebaseAdminApp = admin.initializeApp({
-      projectId: projectId,
-    });
+    // Determine the best project ID to use
+    const envProjectId = process.env.GOOGLE_CLOUD_PROJECT;
+    const configProjectId = firebaseConfig.projectId;
+    
+    console.log('[Firebase Admin] Initializing...');
+    console.log('[Firebase Admin] Env Project ID:', envProjectId);
+    console.log('[Firebase Admin] Config Project ID:', configProjectId);
+    
+    // First try: Default initialization (best for Cloud Run/App Engine)
+    try {
+      firebaseAdminApp = admin.initializeApp();
+      console.log('[Firebase Admin] Initialized with default settings.');
+      console.log('[Firebase Admin] Actual Project ID:', firebaseAdminApp.options.projectId || 'unknown');
+    } catch (e) {
+      console.warn('[Firebase Admin] Default initialization failed, trying with config projectId...');
+      firebaseAdminApp = admin.initializeApp({
+        projectId: configProjectId || envProjectId,
+      });
+      console.log('[Firebase Admin] Initialized with specific projectId.');
+    }
   } else {
     firebaseAdminApp = admin.app();
   }
 } catch (error) {
-  console.error('Failed to initialize Firebase Admin:', error);
+  console.error('CRITICAL: Failed to initialize Firebase Admin:', error);
 }
 
 // Initialize Client SDK as a fallback
@@ -38,53 +53,57 @@ async function getDb() {
   if (cachedDb) return cachedDb;
 
   const namedDbId = firebaseConfig.firestoreDatabaseId;
-  const defaultProjectId = firebaseConfig.projectId;
+  const configProjectId = firebaseConfig.projectId;
+  const envProjectId = process.env.GOOGLE_CLOUD_PROJECT;
   
-  console.log(`[getDb] Database Selection Start. Project: ${defaultProjectId}, Configured DB: ${namedDbId || '(default)'}`);
+  console.log(`[getDb] START. Config Project: ${configProjectId}, Env Project: ${envProjectId}, Target DB: ${namedDbId || '(default)'}`);
   
-  if (namedDbId && firebaseAdminApp) {
-    // 1. Try Admin SDK with Named Database
-    try {
-      const namedDb = getAdminFirestore(firebaseAdminApp, namedDbId);
-      
-      // Use a timeout for the health check to prevent hanging
-      const healthCheck = namedDb.collection('users').limit(1).get();
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore Admin SDK Timeout')), 8000));
-      
-      await Promise.race([healthCheck, timeoutPromise]);
-      
-      console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Admin SDK.`);
-      cachedDb = { type: 'admin', db: namedDb, dbId: namedDbId };
-      return cachedDb;
-    } catch (err: any) {
-      // If it's a permission issue or not found, try to use the client SDK as a fallback
-      if (err.code === 7 || err.code === 5 || (err.message && (err.message.includes('PERMISSION_DENIED') || err.message.includes('NOT_FOUND')))) {
-        // 2. Try Client SDK with Named Database (as fallback for permission issues)
-        try {
-          const q = query(collection(clientDb, 'users'), limit(1));
-          await getDocs(q);
-          console.log(`[getDb] SUCCESS: Connected to named database ${namedDbId} using Client SDK fallback.`);
-          cachedDb = { type: 'client', db: clientDb, dbId: namedDbId };
-          return cachedDb;
-        } catch (clientErr: any) {
-          console.warn(`[getDb] Admin SDK failed (${err.message}) and Client SDK fallback failed for ${namedDbId}. Code: ${clientErr.code}. Msg: ${clientErr.message}`);
+  if (firebaseAdminApp) {
+    // Strategies to try
+    const strategies = [];
+    
+    // Strategy 1: Named Database (from config)
+    if (namedDbId) {
+      strategies.push({
+        name: `Named DB "${namedDbId}"`,
+        fn: async () => {
+          const db = getAdminFirestore(firebaseAdminApp, namedDbId);
+          await db.collection('users').limit(1).get();
+          return { type: 'admin', db, dbId: namedDbId };
         }
-      } else {
-        console.warn(`[getDb] Admin SDK failed for named database ${namedDbId}. Code: ${err.code}. Msg: ${err.message}`);
+      });
+    }
+
+    // Strategy 2: Default Database
+    strategies.push({
+      name: 'Default DB',
+      fn: async () => {
+        const db = getAdminFirestore(firebaseAdminApp);
+        await db.collection('users').limit(1).get();
+        return { type: 'admin', db, dbId: '(default)' };
+      }
+    });
+
+    // Execute strategies in order
+    for (const strategy of strategies) {
+      try {
+        console.log(`[getDb] Trying strategy: ${strategy.name}...`);
+        const result = await strategy.fn();
+        console.log(`[getDb] SUCCESS: ${strategy.name} connected.`);
+        cachedDb = result;
+        return cachedDb;
+      } catch (err: any) {
+        console.warn(`[getDb] Strategy "${strategy.name}" failed: ${err.message}`);
+        // Log more if it's a permission error to help debugging
+        if (err.code === 7 || err.message.includes('PERMISSION_DENIED')) {
+          console.warn(`[getDb] Note: Permission Denied might indicate that the service account lacks access to this specific database/project.`);
+        }
       }
     }
   }
-  
-  // 3. Final Fallback: Admin SDK with Default Database
-  if (firebaseAdminApp) {
-    console.log(`[getDb] FALLBACK: Using Admin SDK with (default) database.`);
-    const defaultDb = getAdminFirestore(firebaseAdminApp);
-    cachedDb = { type: 'admin', db: defaultDb, dbId: '(default)' };
-    return cachedDb;
-  }
 
-  // 4. Last Resort: Client SDK with Named Database
-  console.log(`[getDb] LAST RESORT: Using Client SDK with named database ${namedDbId || '(default)'}.`);
+  // Fallback to Client SDK
+  console.log(`[getDb] FALLBACK: Using Client SDK. (Note: Automated tasks will fail due to no Auth)`);
   cachedDb = { type: 'client', db: clientDb, dbId: namedDbId || '(default)' };
   return cachedDb;
 }
@@ -255,110 +274,132 @@ cron.schedule('0 9 1 * *', () => {
   sendMonthlyReminders();
 });
 
+// Helper to generate Excel Buffer and Mail Options from Data
+async function generateBackupMail(data: {
+  users: any[],
+  contributions: any[],
+  loans: any[],
+  payments: any[],
+  notices: any[]
+}, source: string) {
+  const now = new Date();
+  const wb = XLSX.utils.book_new();
+
+  // Helper to format currency
+  const formatCurrency = (val: any) => typeof val === 'number' ? `₹${val.toLocaleString()}` : val;
+
+  // Calculate Summary Data
+  const totalCollected = data.contributions.filter(c => c.status === 'paid').reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+  const totalInterest = data.payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (Number(p.interest) || 0), 0);
+  
+  const summaryData = [
+    { Metric: 'Report Generation Date', Value: now.toLocaleString() },
+    { Metric: 'Data Source', Value: source },
+    { Metric: 'Total Registered Members', Value: data.users.length },
+    { Metric: 'Total Collected Savings (Paid)', Value: formatCurrency(totalCollected) },
+    { Metric: 'Total Interest Earned (Paid)', Value: formatCurrency(totalInterest) },
+    { Metric: 'Total Group Savings Pool', Value: formatCurrency(totalCollected + totalInterest) },
+    { Metric: 'Total Loan Applications', Value: data.loans.length },
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Financial_Summary");
+
+  // Transform data for better Excel readability
+  const formatData = (items: any[]) => items.map(item => {
+    const newItem = { ...item };
+    Object.keys(newItem).forEach(key => {
+      // Handle Firebase timestamps (objects with _seconds)
+      if (newItem[key] && typeof newItem[key] === 'object') {
+        if (newItem[key].toDate && typeof newItem[key].toDate === 'function') {
+          newItem[key] = newItem[key].toDate().toLocaleString();
+        } else if (newItem[key]._seconds !== undefined) {
+          newItem[key] = new Date(newItem[key]._seconds * 1000).toLocaleString();
+        } else if (newItem[key].seconds !== undefined) {
+          newItem[key] = new Date(newItem[key].seconds * 1000).toLocaleString();
+        }
+      }
+      
+      // Formatting for financial values
+      if (['amount', 'interest', 'approvedAmount', 'totalInterestPaid', 'balance'].includes(key)) {
+        newItem[key] = formatCurrency(newItem[key]);
+      }
+    });
+    return newItem;
+  });
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.users)), "Members");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.contributions)), "Contributions");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.loans)), "Loans");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.payments)), "Loan_Repayments");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.notices)), "Notices");
+
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const monthName = now.toLocaleString('default', { month: 'long' });
+  const year = now.getFullYear();
+
+  return {
+    from: `"Unnati Automated Backup" <${process.env.SMTP_USER}>`,
+    to: 'jpvenu2000@gmail.com',
+    subject: `Full Backup Report - Unnati - ${monthName} ${year}`,
+    html: `
+      <div style="font-family: sans-serif; padding: 20px; color: #333; border: 1px solid #e2e8f0; border-radius: 12px; max-width: 650px;">
+        <h2 style="color: #4f46e5; margin-bottom: 20px;">Backup Report</h2>
+        <p>This is a data backup for <b>Unnati Finance System</b> generated on <b>${now.toLocaleString()}</b>.</p>
+        <p><b>Data Source:</b> ${source}</p>
+        <p>The attached Excel document contains a complete snapshot of all system data.</p>
+        <div style="margin-top: 20px; padding: 12px; background-color: #fefce8; border-left: 4px solid #facc15; font-size: 14px;">
+          <b>Security Note:</b> This document contains sensitive financial information. Please ensure it is stored securely.
+        </div>
+        <p style="margin-top: 20px; font-size: 13px; color: #64748b;">
+          Recipient: jpvenu2000@gmail.com
+        </p>
+      </div>
+    `,
+    attachments: [
+      {
+        filename: `Unnati_Backup_${monthName}_${year}.xlsx`,
+        content: buffer
+      }
+    ]
+  };
+}
+
 async function sendMonthlyFullReport() {
   console.log('Generating monthly full report automation...');
-  const { type, db } = await getDb();
+  const { type, db, dbId } = await getDb();
   
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.error('[Automation] SMTP configuration missing for full report');
+    console.error('[Automation] SMTP configuration missing');
     return { success: false, message: 'SMTP configuration missing' };
   }
 
   try {
-    console.log(`[Automation] Fetching all data for report using ${type} SDK...`);
-    let usersData: any[] = [];
-    let contributionsData: any[] = [];
-    let loansData: any[] = [];
-    let paymentsData: any[] = [];
-
-    if (type === 'admin') {
-      const adminDb = db as admin.firestore.Firestore;
-      const [uSnap, cSnap, lSnap, pSnap] = await Promise.all([
-        adminDb.collection('users').get(),
-        adminDb.collection('contributions').get(),
-        adminDb.collection('loans').get(),
-        adminDb.collection('loanPayments').get()
-      ]);
-      usersData = uSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      contributionsData = cSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      loansData = lSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      paymentsData = pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } else {
-      const [uSnap, cSnap, lSnap, pSnap] = await Promise.all([
-        getDocs(collection(db as any, 'users')),
-        getDocs(collection(db as any, 'contributions')),
-        getDocs(collection(db as any, 'loans')),
-        getDocs(collection(db as any, 'loanPayments'))
-      ]);
-      usersData = uSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      contributionsData = cSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      loansData = lSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      paymentsData = pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    if (type === 'client') {
+       throw new Error('Automation failed: Server using Client SDK. Admin access required for automated backup.');
     }
 
-    console.log(`[Automation] Data fetched: ${usersData.length} members, ${contributionsData.length} contributions, ${loansData.length} loans, ${paymentsData.length} payments.`);
+    const adminDb = db as admin.firestore.Firestore;
+    const [uSnap, cSnap, lSnap, pSnap, nSnap] = await Promise.all([
+      adminDb.collection('users').get(),
+      adminDb.collection('contributions').get(),
+      adminDb.collection('loans').get(),
+      adminDb.collection('loanPayments').get(),
+      adminDb.collection('notices').get()
+    ]);
 
-    // Create Excel Workbook
-    const wb = XLSX.utils.book_new();
-
-    // Transform data for better Excel readability
-    const formatData = (data: any[]) => data.map(item => {
-      const newItem = { ...item };
-      // Convert timestamps to readable strings if they exist
-      Object.keys(newItem).forEach(key => {
-        if (newItem[key] && typeof newItem[key] === 'object' && newItem[key].toDate) {
-          newItem[key] = newItem[key].toDate().toLocaleString();
-        } else if (newItem[key] && typeof newItem[key] === 'object' && newItem[key]._seconds) {
-           newItem[key] = new Date(newItem[key]._seconds * 1000).toLocaleString();
-        }
-      });
-      return newItem;
-    });
-
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(usersData)), "Members");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(contributionsData)), "Contributions");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(loansData)), "Loans");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(paymentsData)), "Loan_Repayments");
-
-    // Generate buffer
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-    const now = new Date();
-    const monthName = now.toLocaleString('default', { month: 'long' });
-    const year = now.getFullYear();
-
-    const mailOptions = {
-      from: `"Unnati Automated Reports" <${process.env.SMTP_USER}>`,
-      to: 'unnati.finance2026@gmail.com',
-      subject: `Monthly Full Financial Report - Unnati - ${monthName} ${year}`,
-      html: `
-        <div style="font-family: sans-serif; padding: 20px; color: #333;">
-          <h2 style="color: #4f46e5;">Monthly Automated Report</h2>
-          <p>Please find attached the detailed Excel report for <b>${monthName} ${year}</b>.</p>
-          <p>This report includes:</p>
-          <ul>
-            <li>Member Profiles</li>
-            <li>Savings Contributions</li>
-            <li>Active & Past Loans</li>
-            <li>Loan Repayment History</li>
-          </ul>
-          <br/>
-          <p>Sent automatically by Unnati Finance System.</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: `Unnati_Full_Report_${monthName}_${year}.xlsx`,
-          content: buffer
-        }
-      ]
+    const data = {
+      users: uSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+      contributions: cSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+      loans: lSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+      payments: pSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })),
+      notices: nSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
     };
 
+    const mailOptions = await generateBackupMail(data, `Server Automation (DB: ${dbId})`);
     const info = await sendMailWithRetry(mailOptions);
-    console.log(`[Automation] Monthly full report sent: ${info.messageId}`);
-    return { success: true, message: 'Full report sent successfully' };
+    console.log(`[Automation] Monthly report sent: ${info.messageId}`);
+    return { success: true, message: 'Backup sent successfully' };
   } catch (err: any) {
-    console.error('[Automation] Failed to generate/send full report:', err);
+    console.error('[Automation] Failed:', err);
     return { success: false, message: err.message };
   }
 }
@@ -540,7 +581,7 @@ async function startServer() {
     }
   });
 
-  // Manual trigger for testing full report
+  // Manual trigger for testing full report (server-side fetch)
   app.post('/api/admin/trigger-full-report', async (req, res) => {
     try {
       const result = await sendMonthlyFullReport();
@@ -552,6 +593,26 @@ async function startServer() {
     } catch (err: any) {
       console.error('API Error in trigger-full-report:', err);
       res.status(500).json({ message: 'Internal server error: ' + err.message });
+    }
+  });
+
+  // New endpoint to receive data from client and send backup email
+  app.post('/api/admin/send-backup-report-data', async (req, res) => {
+    const data = req.body;
+    console.log(`[API] Received backup data from client to email...`);
+    
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      return res.status(400).json({ message: 'SMTP is not configured' });
+    }
+
+    try {
+      const mailOptions = await generateBackupMail(data, 'Admin Client (Authenticated)');
+      const info = await sendMailWithRetry(mailOptions);
+      console.log(`[SMTP] Backup email sent via client data: ${info.messageId}`);
+      res.json({ message: 'Full backup report sent to jpvenu2000@gmail.com successfully', messageId: info.messageId });
+    } catch (err: any) {
+      console.error('[SMTP] Failed to send backup report:', err);
+      res.status(500).json({ message: 'Failed to send report: ' + err.message });
     }
   });
 

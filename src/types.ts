@@ -1,6 +1,7 @@
 export type UserRole = 'admin' | 'user';
 
 export interface UserProfile {
+  id?: string;
   uid?: string; // Optional until they log in
   email: string;
   phoneNumber?: string;
@@ -34,6 +35,7 @@ export interface Loan {
   approvedAt?: any;
   installments?: number;
   declineReason?: string;
+  paymentMode?: 'Online' | 'Cash';
 }
 
 export interface LoanPayment {
@@ -47,8 +49,9 @@ export interface LoanPayment {
   status: 'paid' | 'pending';
   timestamp: any;
   approvedAt?: any;
-  paymentMethod?: 'cash' | 'online';
+  paymentMethod?: 'Cash' | 'Online';
   userEmail?: string;
+  paymentMode?: 'Cash' | 'Online';
 }
 
 export interface Notice {
