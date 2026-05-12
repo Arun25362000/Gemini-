@@ -5,11 +5,12 @@ const config: CapacitorConfig = {
   appName: 'Unnati',
   webDir: 'dist',
   server: {
-    androidScheme: 'http',
+    androidScheme: 'https',
     hostname: 'localhost',
     allowNavigation: [
-      'gen-lang-client-0691055733.firebaseapp.com',
-      'ais-pre-b3p2r2pdo3w65e5qjebwlf-552793991303.asia-southeast1.run.app'
+      '*.firebaseapp.com',
+      '*.googleapis.com',
+      '*.asia-southeast1.run.app'
     ]
   }
 };

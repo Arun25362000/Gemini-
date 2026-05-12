@@ -860,11 +860,14 @@ export default function App() {
         if (err.code === 'auth/unauthorized-domain') {
           console.warn("Unauthorized domain for redirect result - if in the app, please add 'localhost' to Firebase Authorized Domains.");
         } else if (err.code === 'auth/missing-initial-state' || err.message?.includes('missing initial state')) {
-          console.warn("Recoverable Auth Error: Missing initial state. This usually happens on Android. Trying to detect if user is already signed in...");
-          // If we reach here, onAuthStateChanged will usually pick up the user anyway if the session was created
+          console.warn("Recoverable Auth Error: Missing initial state. This usually happens on Android when the session is lost. Attempting to check if user is already signed in via state listener...");
+          // We don't notify error here because often the user is actually signed in 
+          // and onAuthStateChanged will handle it.
+        } else if (err.code === 'auth/popup-closed-by-user') {
+          // Ignore
         } else {
-          console.error("Redirect login error:", err);
-          notify('error', "Login error: " + err.message);
+          console.error("Redirect result error:", err);
+          // notify('error', "Login result error: " + err.message);
         }
       }
 
@@ -1134,12 +1137,22 @@ export default function App() {
       if (isCapacitor) {
         console.log('Detected Capacitor environment - using Redirect flow');
         try {
+          // If we previously had a "missing initial state" error, 
+          // Redirect might be stuck. We ensure a fresh start.
           await signInWithRedirect(auth, provider);
         } catch (redirErr: any) {
+          console.warn("Redirect error:", redirErr);
           if (redirErr.code === 'auth/unauthorized-domain') {
             notify('error', 'Login Domain Error: Please ensure you have added "localhost" (exactly as written, no "http://") to the "Authorized Domains" list in your Firebase Console (Authentication > Settings).');
           } else {
-            notify('error', "Redirect login failed: " + redirErr.message);
+            // Fallback to popup if redirect fails, even if unreliable, it's better than nothing
+            // or if it fails with missing-initial-state we might want to tell user to try again
+            notify('info', "Login redirect issue. Attempting popup fallback...");
+            try {
+              await signInWithPopup(auth, provider);
+            } catch (pErr: any) {
+              notify('error', "Login failed: " + pErr.message);
+            }
           }
         }
       } else {
