@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   onAuthStateChanged, 
   signOut, 
@@ -847,6 +849,20 @@ export default function App() {
     };
 
     const testConnection = async () => {
+      // Handle redirect result first (for Capacitor/Mobile support)
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          console.log("Redirect login successful:", result.user.email);
+        }
+      } catch (err: any) {
+        if (err.code === 'auth/unauthorized-domain') {
+          console.warn("Unauthorized domain for redirect result - this is expected if using capacitor://localhost");
+        } else {
+          console.error("Redirect login error:", err);
+        }
+      }
+
       try {
         // Mandatory Firestore connection test - but handle offline gracefully
         // Using a shorter timeout for this specific test
@@ -1102,10 +1118,34 @@ export default function App() {
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      
+      // On Capacitor/Android, popups can be problematic. 
+      // Detecting if we are likely in a Capacitor environment
+      const isCapacitor = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor');
+      
+      if (isCapacitor) {
+        // In Capacitor, we might need to use signInWithRedirect or a native plugin.
+        // For now, we'll try popup but provide better error handling for unauthorized-domain
+        try {
+          await signInWithPopup(auth, provider);
+        } catch (popupErr: any) {
+          if (popupErr.code === 'auth/unauthorized-domain') {
+            notify('error', 'Login Domain Error: Please ensure "localhost" and "https://localhost" are added to "Authorized Domains" in your Firebase console under Authentication > Settings.');
+          } else {
+            console.warn('Popup failed, trying redirect...', popupErr);
+            await signInWithRedirect(auth, provider);
+          }
+        }
+      } else {
+        await signInWithPopup(auth, provider);
+      }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-by-user') {
-        notify('error', err.message || "Failed to sign in. Please try again.");
+        if (err.code === 'auth/unauthorized-domain') {
+          notify('error', 'Login Domain Error: Please add "localhost", "https://localhost", and "capacitor://localhost" to your Authorized Domains in the Firebase Console (Authentication > Settings > Authorized Domains).');
+        } else {
+          notify('error', err.message || "Failed to sign in. Please try again.");
+        }
       }
     }
   };

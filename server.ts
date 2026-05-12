@@ -77,14 +77,20 @@ async function getDb() {
       try {
         console.log(`[getDb] Trying Strategy 1: Admin SDK + Named DB (${namedDbId})...`);
         const db = getAdminFirestore(firebaseAdminApp, namedDbId);
-        // Test query
+        // Test query - using a limit(1) to check connectivity
         await db.collection('users').limit(1).get();
         console.log(`[getDb] SUCCESS: Admin SDK connected to ${namedDbId}.`);
         cachedDb = { type: 'admin', db, dbId: namedDbId };
         return cachedDb;
       } catch (err: any) {
-        if (err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Cloud Firestore API')) {
-          console.warn(`[getDb] Strategy 1 failed (expected project mismatch). Falling back...`);
+        // If it's a project mismatch or API not enabled, we expect this in some AI Studio scenarios
+        const isExpectedEnvError = err.message?.includes('PERMISSION_DENIED') || 
+                                   err.message?.includes('Cloud Firestore API') ||
+                                   err.message?.includes('project ID') ||
+                                   err.code === 7;
+        
+        if (isExpectedEnvError) {
+          console.log(`[getDb] Strategy 1 unavailable due to environment constraints. Falling back...`);
         } else {
           console.warn(`[getDb] Strategy 1 failed: ${err.message}`);
         }
@@ -100,11 +106,16 @@ async function getDb() {
       cachedDb = { type: 'admin', db, dbId: '(default)' };
       return cachedDb;
     } catch (err: any) {
-       console.warn(`[getDb] Strategy 2 failed: ${err.message}`);
+       // Only log as warning if it's not a common "Not Found" or "Permission Denied" in this setup
+       if (err.code === 5 || err.code === 7 || err.message?.includes('NOT_FOUND') || err.message?.includes('PERMISSION_DENIED')) {
+         console.log(`[getDb] Strategy 2 unavailable. Falling back to Client SDK...`);
+       } else {
+         console.warn(`[getDb] Strategy 2 failed: ${err.message}`);
+       }
     }
   }
 
-  // Strategy 3: Client SDK (Should use API Key and work regardless of project identiy)
+  // Strategy 3: Client SDK (Should use API Key and work regardless of project identity)
   console.log(`[getDb] FALLBACK: Strategy 3: Using Client SDK. (Project: ${firebaseConfig.projectId})`);
   cachedDb = { type: 'client', db: clientDb, dbId: namedDbId || '(default)' };
   return cachedDb;
