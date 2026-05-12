@@ -857,7 +857,7 @@ export default function App() {
         }
       } catch (err: any) {
         if (err.code === 'auth/unauthorized-domain') {
-          console.warn("Unauthorized domain for redirect result - this is expected if using capacitor://localhost");
+          console.warn("Unauthorized domain for redirect result - if in the app, please add 'localhost' to Firebase Authorized Domains.");
         } else {
           console.error("Redirect login error:", err);
         }
@@ -1119,33 +1119,41 @@ export default function App() {
     try {
       const provider = new GoogleAuthProvider();
       
-      // On Capacitor/Android, popups can be problematic. 
-      // Detecting if we are likely in a Capacitor environment
-      const isCapacitor = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor');
+      // On Capacitor/Android, popups are extremely unreliable and often lead to blank screens.
+      // We force Redirect for a much smoother experience in the mobile app.
+      const isCapacitor = typeof window !== 'undefined' && 
+        (window.location.origin.includes('localhost') || 
+         window.location.origin.includes('capacitor') || 
+         window.location.protocol === 'file:');
       
       if (isCapacitor) {
-        // In Capacitor, we might need to use signInWithRedirect or a native plugin.
-        // For now, we'll try popup but provide better error handling for unauthorized-domain
+        console.log('Detected Capacitor environment - using Redirect flow');
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch (redirErr: any) {
+          if (redirErr.code === 'auth/unauthorized-domain') {
+            notify('error', 'Login Domain Error: Please ensure you have added "localhost" to the "Authorized Domains" list in your Firebase Console (Authentication > Settings). Do NOT include "https://" or "capacitor://", just add the word "localhost".');
+          } else {
+            notify('error', "Redirect login failed: " + redirErr.message);
+          }
+        }
+      } else {
+        // Desktop/Web flow
         try {
           await signInWithPopup(auth, provider);
         } catch (popupErr: any) {
           if (popupErr.code === 'auth/unauthorized-domain') {
-            notify('error', 'Login Domain Error: Please ensure "localhost" and "https://localhost" are added to "Authorized Domains" in your Firebase console under Authentication > Settings.');
+            notify('error', 'Login Domain Error: Please add this domain to your Firebase Authorized Domains whitelist.');
           } else {
-            console.warn('Popup failed, trying redirect...', popupErr);
+            // Fallback to redirect if popup is blocked
+            console.warn('Popup failed or was blocked, trying redirect...', popupErr);
             await signInWithRedirect(auth, provider);
           }
         }
-      } else {
-        await signInWithPopup(auth, provider);
       }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-by-user') {
-        if (err.code === 'auth/unauthorized-domain') {
-          notify('error', 'Login Domain Error: Please add "localhost", "https://localhost", and "capacitor://localhost" to your Authorized Domains in the Firebase Console (Authentication > Settings > Authorized Domains).');
-        } else {
-          notify('error', err.message || "Failed to sign in. Please try again.");
-        }
+        notify('error', err.message || "Failed to sign in. Please try again.");
       }
     }
   };
