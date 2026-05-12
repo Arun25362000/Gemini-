@@ -2,10 +2,40 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Emergency cache clear if app is stuck - check this FIRST
+      if (window.location.search.includes('reset=true')) {
+        console.log('Resetting application...');
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(registrations => {
+            for (const registration of registrations) registration.unregister();
+          });
+        }
+        if ('caches' in window) {
+          caches.keys().then(names => {
+            for (let name of names) caches.delete(name);
+          });
+        }
+        localStorage.clear();
+        sessionStorage.clear();
+        // Clear cookies
+        document.cookie.split(";").forEach(function(c) { 
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+        });
+        window.location.href = window.location.origin;
+      }
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Unnati" />
+    <link rel="manifest" href="/manifest.json?v=4" crossorigin="use-credentials" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
     <title>Unnati</title>
-    <script type="module" crossorigin src="/assets/index-CAINZ24A.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-xA1-ih47.css">
+    <script type="module" crossorigin src="/assets/index-H5Jg8W_w.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BviZ3OET.css">
   </head>
   <body>
     <div id="root"></div>
