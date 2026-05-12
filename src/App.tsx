@@ -86,6 +86,11 @@ const MONTHLY_AMOUNT = 1000;
 const LATE_FEE = 0;
 const DUE_DAY = 10;
 
+// API Base URL for Capacitor/Android support
+const API_BASE_URL = (typeof window !== 'undefined' && (window.location.origin.includes('localhost') || window.location.origin.includes('capacitor')))
+  ? 'https://ais-pre-b3p2r2pdo3w65e5qjebwlf-552793991303.asia-southeast1.run.app'
+  : '';
+
 const getContributionAmount = (month: number, year: number) => {
   return MONTHLY_AMOUNT;
 };
@@ -867,7 +872,7 @@ export default function App() {
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
         // Check server health/SMTP
-        const healthRes = await fetch('/api/health', { signal: controller.signal });
+        const healthRes = await fetch(`${API_BASE_URL}/api/health`, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (healthRes.ok) {
@@ -1199,7 +1204,7 @@ export default function App() {
     setIsTriggeringReminders(true);
     setShowReminderConfirm(false);
     try {
-      const response = await fetch('/api/admin/trigger-reminders', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/trigger-reminders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1246,7 +1251,7 @@ export default function App() {
 
       notify('info', "Sending backup to server...");
 
-      const response = await fetch('/api/admin/send-backup-report-data', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/send-backup-report-data`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -1433,7 +1438,7 @@ export default function App() {
       
       // Send Welcome Email
       try {
-        const emailRes = await fetch('/api/admin/send-welcome-email', {
+        const emailRes = await fetch(`${API_BASE_URL}/api/admin/send-welcome-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: newMember.email, name: newMember.name })
@@ -1524,7 +1529,7 @@ export default function App() {
           
           const emailPromises = addedUsers.map(async (u) => {
             try {
-              const res = await fetch('/api/admin/send-welcome-email', {
+              const res = await fetch(`${API_BASE_URL}/api/admin/send-welcome-email`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: u.email, name: u.name })
@@ -2306,7 +2311,7 @@ export default function App() {
         
         // Send Email via API
         if (targetUser?.email) {
-          fetch('/api/admin/send-loan-closure-email', {
+          fetch(`${API_BASE_URL}/api/admin/send-loan-closure-email`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

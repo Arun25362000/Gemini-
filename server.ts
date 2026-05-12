@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 import admin from 'firebase-admin';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { initializeApp as initializeClientApp } from 'firebase/app';
-import { getFirestore as getClientFirestore, collection, getDocs, query, where, limit, doc, updateDoc } from 'firebase/firestore';
+import { initializeFirestore, collection, getDocs, query, where, limit, doc, updateDoc } from 'firebase/firestore';
 import { readFileSync } from 'fs';
 import * as XLSX from 'xlsx';
 const firebaseConfig = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf-8'));
@@ -21,21 +21,33 @@ try {
     const configProjectId = firebaseConfig.projectId;
     
     console.log('[Firebase Admin] Initializing...');
-    console.log('[Firebase Admin] Env Project ID:', envProjectId);
     console.log('[Firebase Admin] Config Project ID:', configProjectId);
+    console.log('[Firebase Admin] Env Project ID:', envProjectId);
     
-    // First try: Default initialization (best for Cloud Run/App Engine)
-    try {
+    // Prioritize configProjectId if available to ensure we connect to the provisioned Firebase project
+    if (configProjectId) {
+      try {
+        firebaseAdminApp = admin.initializeApp({
+          projectId: configProjectId,
+        });
+        console.log('[Firebase Admin] Initialized with config projectId:', configProjectId);
+      } catch (e: any) {
+        if (e.code === 'app/duplicate-app') {
+          firebaseAdminApp = admin.app();
+        } else {
+          console.warn('[Firebase Admin] Initialization with config projectId failed, trying default:', e.message);
+          try {
+            firebaseAdminApp = admin.initializeApp();
+          } catch (e2) {
+            console.error('[Firebase Admin] Final fallback failed');
+          }
+        }
+      }
+    } else {
       firebaseAdminApp = admin.initializeApp();
       console.log('[Firebase Admin] Initialized with default settings.');
-      console.log('[Firebase Admin] Actual Project ID:', firebaseAdminApp.options.projectId || 'unknown');
-    } catch (e) {
-      console.warn('[Firebase Admin] Default initialization failed, trying with config projectId...');
-      firebaseAdminApp = admin.initializeApp({
-        projectId: configProjectId || envProjectId,
-      });
-      console.log('[Firebase Admin] Initialized with specific projectId.');
     }
+    console.log('[Firebase Admin] Actual Project ID:', firebaseAdminApp.options.projectId || 'unknown');
   } else {
     firebaseAdminApp = admin.app();
   }
@@ -44,66 +56,56 @@ try {
 }
 
 // Initialize Client SDK as a fallback
+// For Node.js environments, we sometimes need to force long polling to avoid GRPC/WebSocket issues in restricted environments
 const clientApp = initializeClientApp(firebaseConfig);
-const clientDb = getClientFirestore(clientApp, firebaseConfig.firestoreDatabaseId);
+const clientDb = initializeFirestore(clientApp, {
+  // Use long polling in the server environment to avoid potential GRPC/WebSocket issues in proxy environments
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId || '(default)');
 
-// Helper to get a Firestore instance, trying the named one first then falling back to default
+// Strategy helper for DB access
 let cachedDb: any = null;
 async function getDb() {
   if (cachedDb) return cachedDb;
 
   const namedDbId = firebaseConfig.firestoreDatabaseId;
   const configProjectId = firebaseConfig.projectId;
-  const envProjectId = process.env.GOOGLE_CLOUD_PROJECT;
-  
-  console.log(`[getDb] START. Config Project: ${configProjectId}, Env Project: ${envProjectId}, Target DB: ${namedDbId || '(default)'}`);
   
   if (firebaseAdminApp) {
-    // Strategies to try
-    const strategies = [];
-    
-    // Strategy 1: Named Database (from config)
+    // Strategy 1: Named Database (Admin SDK)
     if (namedDbId) {
-      strategies.push({
-        name: `Named DB "${namedDbId}"`,
-        fn: async () => {
-          const db = getAdminFirestore(firebaseAdminApp, namedDbId);
-          await db.collection('users').limit(1).get();
-          return { type: 'admin', db, dbId: namedDbId };
-        }
-      });
-    }
-
-    // Strategy 2: Default Database
-    strategies.push({
-      name: 'Default DB',
-      fn: async () => {
-        const db = getAdminFirestore(firebaseAdminApp);
-        await db.collection('users').limit(1).get();
-        return { type: 'admin', db, dbId: '(default)' };
-      }
-    });
-
-    // Execute strategies in order
-    for (const strategy of strategies) {
       try {
-        console.log(`[getDb] Trying strategy: ${strategy.name}...`);
-        const result = await strategy.fn();
-        console.log(`[getDb] SUCCESS: ${strategy.name} connected.`);
-        cachedDb = result;
+        console.log(`[getDb] Trying Strategy 1: Admin SDK + Named DB (${namedDbId})...`);
+        const db = getAdminFirestore(firebaseAdminApp, namedDbId);
+        // Test query
+        await db.collection('users').limit(1).get();
+        console.log(`[getDb] SUCCESS: Admin SDK connected to ${namedDbId}.`);
+        cachedDb = { type: 'admin', db, dbId: namedDbId };
         return cachedDb;
       } catch (err: any) {
-        console.warn(`[getDb] Strategy "${strategy.name}" failed: ${err.message}`);
-        // Log more if it's a permission error to help debugging
-        if (err.code === 7 || err.message.includes('PERMISSION_DENIED')) {
-          console.warn(`[getDb] Note: Permission Denied might indicate that the service account lacks access to this specific database/project.`);
+        if (err.message?.includes('PERMISSION_DENIED') || err.message?.includes('Cloud Firestore API')) {
+          console.warn(`[getDb] Strategy 1 failed (expected project mismatch). Falling back...`);
+        } else {
+          console.warn(`[getDb] Strategy 1 failed: ${err.message}`);
         }
       }
+    }
+
+    // Strategy 2: Default Database (Admin SDK)
+    try {
+      console.log(`[getDb] Trying Strategy 2: Admin SDK + Default DB...`);
+      const db = getAdminFirestore(firebaseAdminApp);
+      await db.collection('users').limit(1).get();
+      console.log(`[getDb] SUCCESS: Admin SDK connected to default DB.`);
+      cachedDb = { type: 'admin', db, dbId: '(default)' };
+      return cachedDb;
+    } catch (err: any) {
+       console.warn(`[getDb] Strategy 2 failed: ${err.message}`);
     }
   }
 
-  // Fallback to Client SDK
-  console.log(`[getDb] FALLBACK: Using Client SDK. (Note: Automated tasks will fail due to no Auth)`);
+  // Strategy 3: Client SDK (Should use API Key and work regardless of project identiy)
+  console.log(`[getDb] FALLBACK: Strategy 3: Using Client SDK. (Project: ${firebaseConfig.projectId})`);
   cachedDb = { type: 'client', db: clientDb, dbId: namedDbId || '(default)' };
   return cachedDb;
 }
