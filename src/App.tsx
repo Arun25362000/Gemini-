@@ -1126,20 +1126,23 @@ export default function App() {
     try {
       const provider = new GoogleAuthProvider();
       
-      // Better strategy for Capacitor:
-      // Try popup first. If it fails with unauthorized domain or blocked, try redirect.
-      // Now that we have a whitelisted hostname in capacitor.config.ts, 
-      // these should work much better.
-      try {
-        console.log('Login attempt. Hostname:', window.location.hostname);
-        await signInWithPopup(auth, provider);
-      } catch (popupErr: any) {
-        console.error('Popup login blocked or failed:', popupErr.code);
-        if (popupErr.code === 'auth/unauthorized-domain' || popupErr.code === 'auth/popup-blocked') {
-          console.log('Switching to redirect flow...');
+      // Most robust strategy for Capacitor/Mobile:
+      // Popups are often blocked in WebViews, so we use Redirect.
+      // We detect Capacitor environments to optimize the flow.
+      const isCapacitor = window.location.origin.includes('localhost') || 
+                          window.location.origin.includes('capacitor') || 
+                          window.location.hostname.includes('asia-southeast1.run.app');
+
+      if (isCapacitor) {
+        console.log('Mobile App Environment detected - using Redirect');
+        await signInWithRedirect(auth, provider);
+      } else {
+        try {
+          console.log('Desktop/Standard Web detected - using Popup');
+          await signInWithPopup(auth, provider);
+        } catch (popupErr: any) {
+          console.warn('Popup failed, falling back to Redirect:', popupErr.code);
           await signInWithRedirect(auth, provider);
-        } else if (popupErr.code !== 'auth/popup-closed-by-user') {
-          notify('error', "Login failed: " + popupErr.message);
         }
       }
     } catch (err: any) {

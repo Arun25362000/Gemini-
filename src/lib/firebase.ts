@@ -9,10 +9,10 @@ export const auth = getAuth(app);
 
 // Initialize persistence as early as possible
 if (typeof window !== 'undefined') {
-  // Use browserLocalPersistence as primary - it is generally more compatible with 
-  // Redirect flows than indexedDB in some WebView environments.
-  setPersistence(auth, browserLocalPersistence)
-    .catch(() => setPersistence(auth, indexedDBLocalPersistence))
+  // Use indexedDBLocalPersistence as primary - it is much more reliable at preserving 
+  // auth state through the redirect cycle in mobile WebView/Capacitor environments.
+  setPersistence(auth, indexedDBLocalPersistence)
+    .catch(() => setPersistence(auth, browserLocalPersistence))
     .catch(err => console.error("Could not set auth persistence:", err));
 
   enableIndexedDbPersistence(db).catch((err) => {
