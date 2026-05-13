@@ -28,7 +28,15 @@ const MONTH_NAMES = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
+const isMobileApp = typeof window !== 'undefined' && 
+  (window.location.hostname === 'localhost' || 
+   window.location.protocol === 'file:' || 
+   /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) &&
+  !window.location.hostname.includes('asia-southeast1.run.app');
+
 const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPayments, financials, userEmail, isAdmin }) => {
+  const isAndroid = isMobileApp;
+
   // Personal savings calculation (2026 onwards)
   const personalSavings = contributions
     .filter(c => c.userEmail?.toLowerCase() === userEmail.toLowerCase() && c.year >= 2026)
@@ -121,13 +129,14 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
   ];
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className={cn("space-y-8 pb-12", isAndroid && "space-y-4 pb-8 px-1")}>
       {/* Overview Cards */}
       {isAdmin && (
         <div className={cn(
-          "grid grid-cols-1 sm:grid-cols-2 gap-6 lg:grid-cols-3"
+          "grid grid-cols-1 sm:grid-cols-2 gap-6 lg:grid-cols-3",
+          isAndroid && "gap-3"
         )}>
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm", isAndroid && "p-4")}>
             <p className="text-sm font-medium text-slate-500 mb-1">
               Total Group Savings
             </p>
@@ -135,7 +144,7 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
               ₹{financials.totalSavings.toLocaleString()}
             </p>
           </div>
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm", isAndroid && "p-4")}>
             <p className="text-sm font-medium text-slate-500 mb-1">
               Total Group Loans Issued
             </p>
@@ -143,7 +152,7 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
               ₹{financials.outstandingPrincipal.toLocaleString()}
             </p>
           </div>
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm", isAndroid && "p-4")}>
             <p className="text-sm font-medium text-slate-500 mb-1">Available Funds</p>
             <p className="text-2xl font-bold text-emerald-600 line-clamp-1">
               ₹{financials.availableBalance.toLocaleString()}
@@ -152,40 +161,40 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className={cn("grid grid-cols-1 lg:grid-cols-2 gap-8", isAndroid && "gap-4")}>
         {/* Members vs Contributions or Personal Contributions */}
         <div className={cn(
           "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm",
-          !isAdmin && "lg:col-span-2"
+          !isAdmin && "lg:col-span-2",
+          isAndroid && "p-4 overflow-hidden"
         )}>
           <h3 className="text-lg font-bold text-slate-900 mb-6">
-            {isAdmin ? 'Top 10 Members by Contributions' : 'Your Contribution History'}
+            {isAdmin ? 'Top 10 Members' : 'Your Contribution History'}
           </h3>
-          <div className="h-[350px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={memberContributionsData} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
+          <div className={cn("h-[350px] w-full", isAndroid && "h-[280px]")}>
+            <ResponsiveContainer width="99%" height="100%">
+              <BarChart data={memberContributionsData} margin={isAndroid ? { top: 10, right: 10, left: 0, bottom: 60 } : { top: 20, right: 30, left: 20, bottom: 80 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis 
                   dataKey="uniqueId" 
                   angle={-45} 
                   textAnchor="end" 
                   interval={0} 
-                  height={80}
-                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  height={isAndroid ? 60 : 80}
+                  tick={{ fontSize: isAndroid ? 9 : 10, fill: '#64748b' }}
                   tickFormatter={(id) => {
                     const item = memberContributionsData.find(d => d.uniqueId === id);
                     let val = item?.name || 'Unknown';
-                    // Strip anything after '(' or '@' to keep labels clean
                     val = val.split(/[@(]/)[0].trim();
-                    // Shorter truncation for mobile readability
-                    return val.length > 12 ? val.substring(0, 10) + "..." : val;
+                    const limit = isAndroid ? 8 : 12;
+                    return val.length > limit ? val.substring(0, limit - 2) + ".." : val;
                   }}
                 />
-                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} />
                 <Tooltip 
                   contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                   labelFormatter={(id) => memberContributionsData.find(d => d.uniqueId === id)?.name || 'Unknown'}
-                  formatter={(value: any) => [`₹${value.toLocaleString()}`, isAdmin ? 'Total Contributed' : 'Contribution Amount']}
+                  formatter={(value: any) => [`₹${value.toLocaleString()}`, isAdmin ? 'Total' : 'Amount']}
                 />
                 <Bar dataKey="amount" fill="#6366f1" radius={[6, 6, 0, 0]} />
               </BarChart>
@@ -195,17 +204,17 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
 
         {/* Total Group Savings vs Total Loan Issued (Pie) */}
         {isAdmin && (
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm", isAndroid && "p-4 overflow-hidden")}>
             <h3 className="text-lg font-bold text-slate-900 mb-6">Savings vs Loans Distribution</h3>
-            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className={cn("h-[350px] w-full", isAndroid && "h-[300px]")}>
+              <ResponsiveContainer width="99%" height="100%">
                 <PieChart>
                   <Pie
                     data={groupOverview}
                     cx="50%"
-                    cy="50%"
-                    innerRadius={80}
-                    outerRadius={120}
+                    cy="45%"
+                    innerRadius={isAndroid ? 60 : 80}
+                    outerRadius={isAndroid ? 90 : 120}
                     paddingAngle={5}
                     dataKey="value"
                   >
@@ -217,7 +226,7 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                     formatter={(value: any) => `₹${value.toLocaleString()}`}
                   />
-                  <Legend verticalAlign="bottom" height={36}/>
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined}/>
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -226,37 +235,36 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
 
         {/* Member vs Loan Received vs Paid */}
         {(isAdmin || (memberLoans.length > 0 && memberLoans[0].borrowed > 0)) && (
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2">
-            <h3 className="text-lg font-bold text-slate-900 mb-6">Member Loans: Borrowed vs Repaid</h3>
-            <div className="h-[400px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={memberLoans} margin={{ top: 20, right: 30, left: 20, bottom: 80 }}>
+          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2", isAndroid && "p-4 overflow-hidden")}>
+            <h3 className="text-lg font-bold text-slate-900 mb-6">Borrowed vs Repaid</h3>
+            <div className={cn("h-[400px] w-full", isAndroid && "h-[300px]")}>
+              <ResponsiveContainer width="99%" height="100%">
+                <BarChart data={memberLoans} margin={isAndroid ? { top: 10, right: 10, left: 0, bottom: 60 } : { top: 20, right: 30, left: 20, bottom: 80 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis 
                     dataKey="uniqueId" 
                     angle={-45} 
                     textAnchor="end" 
                     interval={0} 
-                    height={80}
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    height={isAndroid ? 60 : 80}
+                    tick={{ fontSize: isAndroid ? 9 : 10, fill: '#64748b' }}
                     tickFormatter={(id) => {
                       const item = memberLoans.find(d => d.uniqueId === id);
                       let val = item?.name || 'Unknown';
-                      // Strip anything after '(' or '@' to keep labels clean
                       val = val.split(/[@(]/)[0].trim();
-                      // Shorter truncation for mobile readability
-                      return val.length > 12 ? val.substring(0, 10) + "..." : val;
+                      const limit = isAndroid ? 8 : 12;
+                      return val.length > limit ? val.substring(0, limit - 2) + ".." : val;
                     }}
                   />
-                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} />
                   <Tooltip 
                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                     labelFormatter={(id) => memberLoans.find(d => d.uniqueId === id)?.name || 'Unknown'}
                     formatter={(value: any) => `₹${value.toLocaleString()}`}
                   />
-                  <Legend />
-                  <Bar dataKey="borrowed" name="Total Borrowed" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="repaid" name="Total Repaid" fill="#10b981" radius={[6, 6, 0, 0]} />
+                  <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
+                  <Bar dataKey="borrowed" name="Borrowed" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="repaid" name="Repaid" fill="#10b981" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -265,22 +273,22 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
 
         {/* Group Financial Health (Area Chart) */}
         {isAdmin && (
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2">
-            <h3 className="text-lg font-bold text-slate-900 mb-6">Group Financial Health Overview</h3>
-            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={savingsVsLoans} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2", isAndroid && "p-4 overflow-hidden")}>
+            <h3 className="text-lg font-bold text-slate-900 mb-6">Financial Health Overview</h3>
+            <div className={cn("h-[350px] w-full", isAndroid && "h-[280px]")}>
+              <ResponsiveContainer width="99%" height="100%">
+                <BarChart data={savingsVsLoans} margin={isAndroid ? { top: 10, right: 10, left: 0, bottom: 20 } : { top: 20, right: 30, left: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" hide />
-                  <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} />
                   <Tooltip 
                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                     formatter={(value: any) => `₹${value.toLocaleString()}`}
                   />
-                  <Legend />
-                  <Bar dataKey="savings" name="Total Savings" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="loans" name="Outstanding Loans" fill="#f59e0b" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="available" name="Available Funds" fill="#10b981" radius={[6, 6, 0, 0]} />
+                  <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
+                  <Bar dataKey="savings" name="Savings" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="loans" name="Loans" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="available" name="Available" fill="#10b981" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

@@ -222,7 +222,14 @@ function ErrorBoundary({ error }: { error: string }) {
 }
 
 export default function App() {
-  console.log("App component rendering...");
+  const isMobileApp = useMemo(() => {
+    return (window.location.hostname === 'localhost' || 
+            window.location.protocol === 'file:' || 
+            /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) &&
+           !window.location.hostname.includes('asia-southeast1.run.app');
+  }, []);
+
+  console.log("App component rendering...", { isMobileApp });
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [contributions, setContributions] = useState<Contribution[]>([]);
@@ -2861,7 +2868,7 @@ export default function App() {
           >
             <div className="flex flex-col min-h-screen">
               <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
+        <div className={cn("max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between", isMobileApp && "px-2.5")}>
           <div className="flex items-center gap-3">
             <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center shadow-md shadow-indigo-50 overflow-hidden border border-slate-100">
               <img 
@@ -2928,7 +2935,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <main className={cn("max-w-6xl mx-auto px-4 sm:px-6 py-8", isMobileApp && "px-2 py-4")}>
         <div className="mb-8">
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">
             Welcome back, {profile?.displayName?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User'}!
@@ -3072,11 +3079,15 @@ export default function App() {
         </div>
 
         {isAdmin && (
-          <div className="flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit">
+          <div className={cn(
+            "flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit",
+            isMobileApp && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
+          )}>
             <button 
               onClick={() => setActiveTab('contributions')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3088,7 +3099,8 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('members')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'members' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3097,7 +3109,8 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('loans')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3109,7 +3122,8 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('notices')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'notices' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3118,7 +3132,8 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('graphs')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3129,11 +3144,15 @@ export default function App() {
         )}
 
         {!isAdmin && (
-          <div className="flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit">
+          <div className={cn(
+            "flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit",
+            isMobileApp && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
+          )}>
             <button 
               onClick={() => setActiveTab('contributions')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3142,11 +3161,12 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('loans')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
-              Loan Dashboard
+              Loans
               {loans.some(l => l.userId === user?.uid && l.status === 'approved') && (
                 <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
               )}
@@ -3154,7 +3174,8 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('graphs')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2",
+                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileApp && "px-4",
                 activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
