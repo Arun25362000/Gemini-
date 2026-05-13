@@ -1,10 +1,27 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, setPersistence, indexedDBLocalPersistence, browserLocalPersistence } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence, doc, getDocFromServer } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  enableIndexedDbPersistence, 
+  doc, 
+  getDocFromServer,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Initialize Firestore with settings optimized for mobile WebViews
+// Using experimentalForceLongPolling avoids websocket issues in some Android environments
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+}, firebaseConfig.firestoreDatabaseId);
+
 export const auth = getAuth(app);
 
 // Initialize persistence as early as possible
@@ -15,15 +32,8 @@ if (typeof window !== 'undefined') {
     .catch(() => setPersistence(auth, browserLocalPersistence))
     .catch(err => console.error("Could not set auth persistence:", err));
 
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      // Multiple tabs open, persistence can only be enabled in one tab at a a time.
-      console.warn('Firestore persistence failed: Multiple tabs open');
-    } else if (err.code === 'unimplemented') {
-      // The current browser doesn't support all of the features required to enable persistence
-      console.warn('Firestore persistence failed: Browser not supported');
-    }
-  });
+  // No longer need explicit enableIndexedDbPersistence(db) 
+  // as it is handled by initializeFirestore with persistentLocalCache
 }
 
 // CRITICAL CONSTRAINT: Test connection to Firestore on boot

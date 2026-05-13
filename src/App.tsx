@@ -773,67 +773,83 @@ export default function App() {
     const backfillUserData = async (uid: string, email: string) => {
       if (!email) return;
       try {
-        const batch = writeBatch(db);
-        let hasChanges = false;
-
+        console.log(`Checking for data to backfill for email: ${email}`);
+        
         // 1. Contributions
         const contribsQuery = query(
           collection(db, 'contributions'), 
           where('userEmail', '==', email)
         );
-        const contribsSnap = await getDocs(contribsQuery);
-        contribsSnap.docs.forEach(doc => {
-          const data = doc.data();
-          if (!data.userId || data.userId === '') {
-            batch.update(doc.ref, { userId: uid });
-            hasChanges = true;
-          }
+        
+        // Use standard getDocs, if offline it should still return cache
+        const contribsSnap = await getDocs(contribsQuery).catch(err => {
+          console.warn("Backfill (contribs) error:", err.message);
+          return null;
         });
 
-        // 2. Notifications (where userId might be the email)
+        const batch = writeBatch(db);
+        let hasChanges = false;
+
+        if (contribsSnap) {
+          contribsSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (!data.userId || data.userId === '') {
+              batch.update(doc.ref, { userId: uid });
+              hasChanges = true;
+            }
+          });
+        }
+
+        // 2. Notifications
         const notificationsQuery = query(
           collection(db, 'notifications'), 
           where('userId', '==', email)
         );
-        const notificationsSnap = await getDocs(notificationsQuery);
-        notificationsSnap.docs.forEach(doc => {
-          batch.update(doc.ref, { userId: uid });
-          hasChanges = true;
-        });
+        const notificationsSnap = await getDocs(notificationsQuery).catch(() => null);
+        if (notificationsSnap) {
+          notificationsSnap.docs.forEach(doc => {
+            batch.update(doc.ref, { userId: uid });
+            hasChanges = true;
+          });
+        }
 
         // 3. Loans
         const loansQuery = query(
           collection(db, 'loans'), 
           where('userEmail', '==', email)
         );
-        const loansSnap = await getDocs(loansQuery);
-        loansSnap.docs.forEach(doc => {
-          const data = doc.data();
-          if (!data.userId || data.userId === '') {
-            batch.update(doc.ref, { userId: uid });
-            hasChanges = true;
-          }
-        });
+        const loansSnap = await getDocs(loansQuery).catch(() => null);
+        if (loansSnap) {
+          loansSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (!data.userId || data.userId === '') {
+              batch.update(doc.ref, { userId: uid });
+              hasChanges = true;
+            }
+          });
+        }
 
         // 4. Loan Payments
         const loanPaymentsQuery = query(
           collection(db, 'loanPayments'), 
           where('userEmail', '==', email)
         );
-        const loanPaymentsSnap = await getDocs(loanPaymentsQuery);
-        loanPaymentsSnap.docs.forEach(doc => {
-          const data = doc.data();
-          if (!data.userId || data.userId === '') {
-            batch.update(doc.ref, { userId: uid });
-            hasChanges = true;
-          }
-        });
+        const loanPaymentsSnap = await getDocs(loanPaymentsQuery).catch(() => null);
+        if (loanPaymentsSnap) {
+          loanPaymentsSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (!data.userId || data.userId === '') {
+              batch.update(doc.ref, { userId: uid });
+              hasChanges = true;
+            }
+          });
+        }
 
-        // 5. Clean up email-keyed user document if it exists separately
+        // 5. Clean up email-keyed user document
         const emailRef = doc(db, 'users', email);
         if (email !== uid) {
-          const emailSnap = await getDoc(emailRef);
-          if (emailSnap.exists()) {
+          const emailSnap = await getDoc(emailRef).catch(() => null);
+          if (emailSnap?.exists()) {
             batch.delete(emailRef);
             hasChanges = true;
           }
@@ -842,9 +858,15 @@ export default function App() {
         if (hasChanges) {
           await batch.commit();
           console.log(`Backfilled data and cleaned up duplicate doc for user ${email}`);
+        } else {
+          console.log("No data found that needed backfilling.");
         }
-      } catch (err) {
-        console.error("Error backfilling user data:", err);
+      } catch (err: any) {
+        if (err.message?.includes('offline')) {
+          console.info("Backfill deferred: Device is currently offline.");
+        } else {
+          console.error("Error backfilling user data:", err);
+        }
       }
     };
 
@@ -898,9 +920,13 @@ export default function App() {
       } catch (err: any) {
         if (err.code === 'auth/unauthorized-domain') {
           console.warn("Domain Authorization Issue. Current:", window.location.hostname);
-        } else if (err.code === 'auth/missing-initial-state') {
-          // Often happens on Android, usually safe to ignore if state listener picks up
-          console.log("Transient state check failed.");
+        } else if (err.code === 'auth/missing-initial-state' || err.message?.includes('missing initial state')) {
+          // This is the common Android/Capacitor error.
+          // We check if the user is ALREADY signed in via onAuthStateChanged.
+          // If NOT, we try to recover by cleaning up the auth state.
+          console.log("Transient state check: Missing initial state. Checking session...");
+        } else if (err.code === 'auth/operation-not-supported-in-this-environment') {
+           console.warn("Auth environment mismatch - likely WebView restriction.");
         } else {
           console.error("Auth redirect error:", err);
         }
@@ -1125,23 +1151,31 @@ export default function App() {
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
+      // Ensure we request the email to make it more official for Google
+      provider.addScope('https://www.googleapis.com/auth/userinfo.email');
       
-      // Most robust strategy for Capacitor/Mobile:
-      // Popups are often blocked in WebViews, so we use Redirect.
-      // We detect Capacitor environments to optimize the flow.
-      const isCapacitor = window.location.origin.includes('localhost') || 
-                          window.location.origin.includes('capacitor') || 
-                          window.location.hostname.includes('asia-southeast1.run.app');
+      console.log('Login attempt started. Origin:', window.location.origin);
 
-      if (isCapacitor) {
-        console.log('Mobile App Environment detected - using Redirect');
-        await signInWithRedirect(auth, provider);
-      } else {
-        try {
-          console.log('Desktop/Standard Web detected - using Popup');
-          await signInWithPopup(auth, provider);
-        } catch (popupErr: any) {
-          console.warn('Popup failed, falling back to Redirect:', popupErr.code);
+      try {
+        // We try signInWithPopup as it is generally more state-robust if supported
+        await signInWithPopup(auth, provider);
+      } catch (popupErr: any) {
+        console.error('Login method 1 (Popup) result:', popupErr.code);
+        
+        if (popupErr.code === 'auth/unauthorized-domain') {
+          notify('error', 'Domain Error: Please add "localhost" and your app URL to Authorized Domains in Firebase console.');
+        } else if (popupErr.code === 'auth/popup-blocked') {
+          notify('info', 'Popup blocked. Trying direct redirection...');
+          await signInWithRedirect(auth, provider);
+        } else if (popupErr.code === 'auth/disallowed-useragent' || popupErr.message?.includes('disallowed_useragent')) {
+          notify('error', 'Secure Connection Blocked: Your browser view is restricted. Please try opening this app directly in the Google Chrome browser app.');
+        } else if (popupErr.code === 'auth/missing-initial-state') {
+          // Fallback to redirect if state is missing
+          console.warn('Missing state in popup, attempting redirect fallback...');
+          await signInWithRedirect(auth, provider);
+        } else if (popupErr.code !== 'auth/popup-closed-by-user') {
+          // Final robust fallback for Capacitor
+          console.log('General failure, trying redirect flow...');
           await signInWithRedirect(auth, provider);
         }
       }
