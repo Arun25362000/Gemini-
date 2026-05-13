@@ -75,7 +75,6 @@ async function getDb() {
     // Strategy 1: Named Database (Admin SDK)
     if (namedDbId) {
       try {
-        console.log(`[getDb] Trying Strategy 1: Admin SDK + Named DB (${namedDbId})...`);
         const db = getAdminFirestore(firebaseAdminApp, namedDbId);
         // Test query - using a limit(1) to check connectivity
         await db.collection('users').limit(1).get();
@@ -89,9 +88,7 @@ async function getDb() {
                                    err.message?.includes('project ID') ||
                                    err.code === 7;
         
-        if (isExpectedEnvError) {
-          console.log(`[getDb] Strategy 1 unavailable due to environment constraints. Falling back...`);
-        } else {
+        if (!isExpectedEnvError) {
           console.warn(`[getDb] Strategy 1 failed: ${err.message}`);
         }
       }
@@ -99,7 +96,6 @@ async function getDb() {
 
     // Strategy 2: Default Database (Admin SDK)
     try {
-      console.log(`[getDb] Trying Strategy 2: Admin SDK + Default DB...`);
       const db = getAdminFirestore(firebaseAdminApp);
       await db.collection('users').limit(1).get();
       console.log(`[getDb] SUCCESS: Admin SDK connected to default DB.`);
@@ -107,9 +103,7 @@ async function getDb() {
       return cachedDb;
     } catch (err: any) {
        // Only log as warning if it's not a common "Not Found" or "Permission Denied" in this setup
-       if (err.code === 5 || err.code === 7 || err.message?.includes('NOT_FOUND') || err.message?.includes('PERMISSION_DENIED')) {
-         console.log(`[getDb] Strategy 2 unavailable. Falling back to Client SDK...`);
-       } else {
+       if (err.code !== 5 && err.code !== 7 && !err.message?.includes('NOT_FOUND') && !err.message?.includes('PERMISSION_DENIED')) {
          console.warn(`[getDb] Strategy 2 failed: ${err.message}`);
        }
     }

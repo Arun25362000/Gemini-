@@ -1105,12 +1105,17 @@ export default function App() {
       
       // Defaulting to signInWithPopup as requested for better state consistency in Android/Capacitor
       try {
+        console.log('Attempting login from domain:', window.location.hostname);
         await signInWithPopup(auth, provider);
       } catch (popupErr: any) {
+        console.error('Login error details:', popupErr);
         if (popupErr.code === 'auth/unauthorized-domain') {
-          notify('error', 'Login Domain Error: Please ensure "localhost" is added to "Authorized Domains" in your Firebase console under Authentication > Settings.');
+          const currentHostname = window.location.hostname || 'localhost';
+          notify('error', `Domain Not Whitelisted: Please add "${currentHostname}" to the "Authorized Domains" list in your Firebase Console (Authentication > Settings).`);
         } else if (popupErr.code === 'auth/popup-blocked') {
           notify('error', 'Login popup was blocked by your browser. Please allow popups for this site.');
+        } else if (popupErr.code === 'auth/operation-not-allowed') {
+          notify('error', 'Google Login is not enabled. Please go to your Firebase Console > Authentication > Sign-in method and enable the "Google" provider.');
         } else {
           notify('error', popupErr.message || "Failed to sign in. Please try again.");
         }
