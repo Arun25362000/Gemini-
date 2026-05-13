@@ -1157,25 +1157,30 @@ export default function App() {
       console.log('Login attempt started. Origin:', window.location.origin);
 
       try {
-        // We try signInWithPopup as it is generally more state-robust if supported
-        await signInWithPopup(auth, provider);
+        // Detecting if we are in a mobile/WebView context
+        const isWebView = window.location.protocol === 'file:' || 
+                          window.location.hostname === 'localhost' || 
+                          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+        if (isWebView && !window.location.hostname.includes('asia-southeast1.run.app')) {
+          console.log('Mobile/WebView environment detected - using Redirect for security');
+          await signInWithRedirect(auth, provider);
+        } else {
+          console.log('Standard environment detected - using Popup');
+          await signInWithPopup(auth, provider);
+        }
       } catch (popupErr: any) {
-        console.error('Login method 1 (Popup) result:', popupErr.code);
+        console.error('Login attempt result:', popupErr.code);
         
         if (popupErr.code === 'auth/unauthorized-domain') {
           notify('error', 'Domain Error: Please add "localhost" and your app URL to Authorized Domains in Firebase console.');
-        } else if (popupErr.code === 'auth/popup-blocked') {
-          notify('info', 'Popup blocked. Trying direct redirection...');
+        } else if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/operation-not-supported-in-this-environment') {
+          notify('info', 'Switching to secure redirection...');
           await signInWithRedirect(auth, provider);
         } else if (popupErr.code === 'auth/disallowed-useragent' || popupErr.message?.includes('disallowed_useragent')) {
-          notify('error', 'Secure Connection Blocked: Your browser view is restricted. Please try opening this app directly in the Google Chrome browser app.');
-        } else if (popupErr.code === 'auth/missing-initial-state') {
-          // Fallback to redirect if state is missing
-          console.warn('Missing state in popup, attempting redirect fallback...');
-          await signInWithRedirect(auth, provider);
+          notify('error', 'Browser Restriction: Google does not allow login in this simplified view. Please try opening the app in the Chrome browser.');
         } else if (popupErr.code !== 'auth/popup-closed-by-user') {
-          // Final robust fallback for Capacitor
-          console.log('General failure, trying redirect flow...');
+          console.log('Attempting Redirect fallback...');
           await signInWithRedirect(auth, provider);
         }
       }
