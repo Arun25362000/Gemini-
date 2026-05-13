@@ -1153,6 +1153,8 @@ export default function App() {
       const provider = new GoogleAuthProvider();
       // Ensure we request the email to make it more official for Google
       provider.addScope('https://www.googleapis.com/auth/userinfo.email');
+      // Force Account Selection UI
+      provider.setCustomParameters({ prompt: 'select_account' });
       
       console.log('Login attempt started. Origin:', window.location.origin);
 
