@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     androidScheme: 'https',
-    hostname: 'localhost',
+    hostname: 'ais-mob-b3p2r2pdo3w65e5qjebwlf-552793991303.asia-southeast1.run.app',
     allowNavigation: [
       '*.firebaseapp.com',
       '*.googleapis.com',

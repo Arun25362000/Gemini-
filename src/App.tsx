@@ -1,6 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   onAuthStateChanged, 
   signOut, 
@@ -884,6 +886,27 @@ export default function App() {
       }
     };
     testConnection();
+    
+    // Handle redirect result for Capacitor support with whitelisted domain
+    const handleRedirectResultFlow = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          console.log("Redirect result success:", result.user.email);
+          notify('success', `Welcome back, ${result.user.displayName || 'Member'}!`);
+        }
+      } catch (err: any) {
+        if (err.code === 'auth/unauthorized-domain') {
+          console.warn("Domain Authorization Issue. Current:", window.location.hostname);
+        } else if (err.code === 'auth/missing-initial-state') {
+          // Often happens on Android, usually safe to ignore if state listener picks up
+          console.log("Transient state check failed.");
+        } else {
+          console.error("Auth redirect error:", err);
+        }
+      }
+    };
+    handleRedirectResultFlow();
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -1103,26 +1126,25 @@ export default function App() {
     try {
       const provider = new GoogleAuthProvider();
       
-      // Defaulting to signInWithPopup as requested for better state consistency in Android/Capacitor
+      // Better strategy for Capacitor:
+      // Try popup first. If it fails with unauthorized domain or blocked, try redirect.
+      // Now that we have a whitelisted hostname in capacitor.config.ts, 
+      // these should work much better.
       try {
-        console.log('Attempting login from domain:', window.location.hostname);
+        console.log('Login attempt. Hostname:', window.location.hostname);
         await signInWithPopup(auth, provider);
       } catch (popupErr: any) {
-        console.error('Login error details:', popupErr);
-        if (popupErr.code === 'auth/unauthorized-domain') {
-          const currentHostname = window.location.hostname || 'localhost';
-          notify('error', `Domain Not Whitelisted: Please add "${currentHostname}" to the "Authorized Domains" list in your Firebase Console (Authentication > Settings).`);
-        } else if (popupErr.code === 'auth/popup-blocked') {
-          notify('error', 'Login popup was blocked by your browser. Please allow popups for this site.');
-        } else if (popupErr.code === 'auth/operation-not-allowed') {
-          notify('error', 'Google Login is not enabled. Please go to your Firebase Console > Authentication > Sign-in method and enable the "Google" provider.');
-        } else {
-          notify('error', popupErr.message || "Failed to sign in. Please try again.");
+        console.error('Popup login blocked or failed:', popupErr.code);
+        if (popupErr.code === 'auth/unauthorized-domain' || popupErr.code === 'auth/popup-blocked') {
+          console.log('Switching to redirect flow...');
+          await signInWithRedirect(auth, provider);
+        } else if (popupErr.code !== 'auth/popup-closed-by-user') {
+          notify('error', "Login failed: " + popupErr.message);
         }
       }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-by-user') {
-        notify('error', err.message || "An unexpected error occurred during login.");
+        notify('error', err.message || "An unexpected error occurred.");
       }
     }
   };
