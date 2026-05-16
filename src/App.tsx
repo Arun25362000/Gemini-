@@ -103,10 +103,29 @@ const getContributionAmount = (month: number, year: number) => {
 const ADMIN_EMAILS = ['arun2102000@gmail.com', 'unnati.finance2026@gmail.com', 'arun.cse.rymec@gmail.com'];
 const SYSTEM_ADMIN_EMAIL = 'unnati.finance2026@gmail.com';
 const DEV_USER_NAMES = ['System Admin', 'Arun J', 'Anusha JM', 'shwetha JV'];
-const UPI_VPA = "9535173734@okbizaxis"; // Payee UPI ID
-const PI_NAME = "Unnati Trust"; // Registered name for this UPI ID
+const getUPIConfig = () => {
+  const isMobileApp = typeof window !== 'undefined' && 
+    (window.location.hostname === 'localhost' || 
+     window.location.protocol === 'file:' || 
+     /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) &&
+    !window.location.hostname.includes('asia-southeast1.run.app');
+
+  if (isMobileApp && /Android/i.test(navigator.userAgent)) {
+    return {
+      vpa: "arun2102000@oksbi",
+      name: "Arun J",
+      mcc: "0000"
+    };
+  }
+  return {
+    vpa: "9535173734@okbizaxis",
+    name: "Unnati Trust",
+    mcc: "6012"
+  };
+};
+
+const { vpa: UPI_VPA, name: PI_NAME, mcc: MERCHANT_CODE } = getUPIConfig();
 const MERCHANT_ID = "BCR2DN5TQ322VPIY"; // Merchant ID for Google Pay
-const MERCHANT_CODE = "6012"; // Merchant Category Code (Financial Services)
 const GROUP_NAME = "Unnati Savings Group";
 
 // --- Types ---
