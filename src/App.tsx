@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
+import { AppLauncher } from '@capacitor/app-launcher';
 import { 
   signInWithPopup, 
   signInWithRedirect,
@@ -239,14 +240,31 @@ export default function App() {
     
     if (isNative) {
       try {
-        await Browser.open({ url });
+        // AppLauncher is the most direct way to trigger an intent
+        await AppLauncher.openUrl({ url });
       } catch (err) {
-        console.error("Browser open failed:", err);
-        // Fallback
-        window.open(url, '_system');
+        console.error("AppLauncher primary failed:", err);
+        
+        // Fallback: try to format for Android Intent specifically if it's Android
+        if (Capacitor.getPlatform() === 'android') {
+           try {
+             // Convert upi://pay?... to intent://pay?...#Intent;scheme=upi;end
+             const intentUrl = url.replace('upi://', 'intent://') + '#Intent;scheme=upi;end';
+             await AppLauncher.openUrl({ url: intentUrl });
+           } catch (intentErr) {
+             console.error("Intent fallback failed:", intentErr);
+           }
+        }
+
+        // Final fallbacks
+        try {
+          await Browser.open({ url });
+        } catch (innerErr) {
+          window.open(url, '_system');
+        }
       }
     } else {
-      // For standard browser or if detection fails, location.href is usually fine
+      // For standard browser
       window.location.href = url;
     }
   }, []);
