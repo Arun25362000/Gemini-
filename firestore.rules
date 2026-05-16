@@ -36,12 +36,16 @@ service cloud.firestore {
       return isAuthenticated() && (request.auth.uid == userId || request.auth.token.email == userId);
     }
 
+    function isDocOwner(data) {
+      return isAuthenticated() && (data.userId == request.auth.uid || data.userEmail == request.auth.token.email || data.userId == request.auth.token.email);
+    }
+
     // Rules
     match /users/{userId} {
       allow read: if true;
       allow create: if isAuthenticated();
       allow update: if isSuperAdmin() || isOwner(userId) || (isAdmin() && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'displayName', 'phoneNumber', 'joinDate', 'email', 'uid'])));
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isOwner(userId);
     }
 
     match /notices/{noticeId} {
@@ -50,28 +54,30 @@ service cloud.firestore {
     }
 
     match /notifications/{notificationId} {
-      allow read: if isAdmin() || (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email));
+      allow read: if isAdmin() || isDocOwner(resource.data);
       allow create: if isAuthenticated();
-      allow update, delete: if isAdmin() || (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.userId == request.auth.token.email));
+      allow update, delete: if isAdmin() || isDocOwner(resource.data);
     }
 
     match /contributions/{contributionId} {
       allow read: if true;
       allow create: if isAuthenticated();
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || isDocOwner(resource.data);
+      allow delete: if isAdmin();
     }
 
     match /loans/{loanId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
-      allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || isDocOwner(resource.data);
       allow delete: if isAdmin();
     }
 
     match /loanPayments/{paymentId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || isDocOwner(resource.data);
+      allow delete: if isAdmin();
     }
     
     match /admins/{adminId} {

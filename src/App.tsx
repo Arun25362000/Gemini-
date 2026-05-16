@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { 
   signInWithPopup, 
   signInWithRedirect,
@@ -230,6 +230,17 @@ export default function App() {
   }, []);
 
   console.log("App component rendering...", { isMobileApp });
+  const openUPI = useCallback((url: string) => {
+    console.log("Opening UPI URL:", url);
+    if (isMobileApp) {
+      // For Capacitor/WebView, use _system to trigger the external app picker
+      window.open(url, '_system');
+    } else {
+      // For standard browser, location.href is usually fine
+      window.location.href = url;
+    }
+  }, [isMobileApp]);
+
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [contributions, setContributions] = useState<Contribution[]>([]);
@@ -5305,7 +5316,7 @@ export default function App() {
                           const am = paymentModal.amount.toFixed(2);
                           const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
                           const tr = `UTGPay${Date.now()}`;
-                          window.location.href = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
+                          openUPI(`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`);
                         }}
                         className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
                       >
@@ -5316,7 +5327,7 @@ export default function App() {
                           const am = paymentModal.amount.toFixed(2);
                           const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
                           const tr = `UTPPe${Date.now()}`;
-                          window.location.href = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
+                          openUPI(`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`);
                         }}
                         className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
                       >
@@ -5327,7 +5338,7 @@ export default function App() {
                           const am = paymentModal.amount.toFixed(2);
                           const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
                           const tr = `UTPTM${Date.now()}`;
-                          window.location.href = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
+                          openUPI(`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`);
                         }}
                         className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
                       >
@@ -5374,7 +5385,7 @@ export default function App() {
                           const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
                           const tr = `UTGEN${Date.now()}`;
                           const upiUrl = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
-                          window.location.href = upiUrl;
+                          openUPI(upiUrl);
                         }
 
                         // Mark as recorded
