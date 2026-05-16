@@ -1,4 +1,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import { 
   signInWithPopup, 
   signInWithRedirect,
@@ -230,16 +233,23 @@ export default function App() {
   }, []);
 
   console.log("App component rendering...", { isMobileApp });
-  const openUPI = useCallback((url: string) => {
+  const openUPI = useCallback(async (url: string) => {
     console.log("Opening UPI URL:", url);
-    if (isMobileApp) {
-      // For Capacitor/WebView, use _system to trigger the external app picker
-      window.open(url, '_system');
+    const isNative = Capacitor.isNativePlatform();
+    
+    if (isNative) {
+      try {
+        await Browser.open({ url });
+      } catch (err) {
+        console.error("Browser open failed:", err);
+        // Fallback
+        window.open(url, '_system');
+      }
     } else {
-      // For standard browser, location.href is usually fine
+      // For standard browser or if detection fails, location.href is usually fine
       window.location.href = url;
     }
-  }, [isMobileApp]);
+  }, []);
 
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
