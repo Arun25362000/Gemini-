@@ -2752,9 +2752,12 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100"
+              className={cn(
+                "max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100",
+                isMobileApp && "p-6 rounded-[2rem]"
+              )}
             >
-              <div className="relative w-40 h-40 mx-auto mb-8">
+              <div className={cn("relative w-40 h-40 mx-auto mb-8", isMobileApp && "w-32 h-32 mb-6")}>
                 <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
                   <img 
                     src="/logo.png" 
@@ -2768,7 +2771,7 @@ export default function App() {
                 </div>
               </div>
               
-              <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tighter">UNNATI</h1>
+              <h1 className={cn("text-4xl font-black text-gray-900 mb-2 tracking-tighter", isMobileApp && "text-3xl")}>UNNATI</h1>
               <p className="text-slate-500 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
               
               <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
@@ -2864,7 +2867,7 @@ export default function App() {
             key="main-app"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="min-h-screen bg-slate-50 text-slate-900 font-sans"
+            className="min-h-screen bg-slate-50 text-slate-900 font-sans overflow-x-hidden"
           >
             <div className="flex flex-col min-h-screen">
               <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
@@ -2936,19 +2939,19 @@ export default function App() {
       </header>
 
       <main className={cn("max-w-6xl mx-auto px-4 sm:px-6 py-8", isMobileApp && "px-2 py-4")}>
-        <div className="mb-8">
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+        <div className={cn("mb-8", isMobileApp && "mb-6")}>
+          <h1 className={cn("text-3xl font-black text-slate-900 tracking-tight", isMobileApp && "text-2xl")}>
             Welcome back, {profile?.displayName?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User'}!
           </h1>
-          <p className="text-slate-500 font-medium mt-1">Here's what's happening with your Unnati savings.</p>
+          <p className={cn("text-slate-500 font-medium mt-1", isMobileApp && "text-sm")}>Here's what's happening with your Unnati savings.</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+        <div className={cn("grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8", isMobileApp && "gap-4 mb-6")}>
           <motion.div 
             key="dashboard-card-status"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+            className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileApp && "p-4 rounded-2xl")}
           >
             <div className="flex items-center justify-between mb-4">
               <div className="p-3 bg-indigo-50 rounded-2xl">
@@ -2984,16 +2987,16 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+              className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileApp && "p-4 rounded-2xl")}
             >
               <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-slate-50 rounded-2xl">
-                  <TrendingUp className="w-6 h-6 text-slate-600" />
+                <div className={cn("p-3 bg-slate-50 rounded-2xl", isMobileApp && "p-2")}>
+                  <TrendingUp className={cn("w-6 h-6 text-slate-600", isMobileApp && "w-5 h-5")} />
                 </div>
                 <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Your Savings</span>
               </div>
               <h3 className="text-slate-500 text-sm font-medium">Your Contributions</h3>
-              <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
+              <div className={cn("mt-2 text-3xl font-black text-slate-900 line-clamp-1", isMobileApp && "text-2xl")}>
                 ₹{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString()}
               </div>
             </motion.div>
@@ -3087,7 +3090,7 @@ export default function App() {
               onClick={() => setActiveTab('contributions')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3100,7 +3103,7 @@ export default function App() {
               onClick={() => setActiveTab('members')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'members' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3110,7 +3113,7 @@ export default function App() {
               onClick={() => setActiveTab('loans')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3123,7 +3126,7 @@ export default function App() {
               onClick={() => setActiveTab('notices')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'notices' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3133,7 +3136,7 @@ export default function App() {
               onClick={() => setActiveTab('graphs')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3152,7 +3155,7 @@ export default function App() {
               onClick={() => setActiveTab('contributions')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3162,7 +3165,7 @@ export default function App() {
               onClick={() => setActiveTab('loans')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3175,7 +3178,7 @@ export default function App() {
               onClick={() => setActiveTab('graphs')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-4",
+                isMobileApp && "px-3 py-2 text-xs",
                 activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
