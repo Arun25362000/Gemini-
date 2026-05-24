@@ -89,22 +89,43 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Notice, AppNotification } from './types';
 
-// --- Helper for Capacitor Mobile File Saving/Sharing ---
-const shareFileMobile = async (fileName: string, base64Data: string) => {
+// --- Helper for Capacitor Mobile File Saving/Downloading ---
+const downloadFileMobile = async (fileName: string, base64Data: string) => {
   try {
     const result = await Filesystem.writeFile({
       path: fileName,
       data: base64Data,
-      directory: Directory.Cache
+      directory: Directory.Documents,
+      recursive: true
     });
-    await Share.share({
-      title: `Unnati - ${fileName}`,
-      url: result.uri
-    });
-    return true;
+    console.log("Capacitor download success:", result.uri);
+    return { success: true, uri: result.uri };
   } catch (error: any) {
-    console.error("Capacitor file share failed", error);
-    return false;
+    console.error("Capacitor file download to Documents failed, trying External...", error);
+    try {
+      const result = await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.External,
+        recursive: true
+      });
+      console.log("Capacitor download to External success:", result.uri);
+      return { success: true, uri: result.uri };
+    } catch (extError: any) {
+      console.error("Capacitor download fallback to Cache...", extError);
+      try {
+        const result = await Filesystem.writeFile({
+          path: fileName,
+          data: base64Data,
+          directory: Directory.Cache
+        });
+        console.log("Capacitor fallback download to Cache success:", result.uri);
+        return { success: true, uri: result.uri, warning: true };
+      } catch (cacheError: any) {
+        console.error("Capacitor download fallback failed", cacheError);
+        return { success: false, error: cacheError };
+      }
+    }
   }
 };
 
@@ -2157,16 +2178,16 @@ export default function App() {
     if (isMobileApp) {
       try {
         const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-        const success = await shareFileMobile(fileName, base64Data);
-        if (success) {
-          notify('success', "Comprehensive report shared successfully!");
+        const res = await downloadFileMobile(fileName, base64Data);
+        if (res.success) {
+          notify('success', `Report downloaded successfully as: ${fileName}`);
         } else {
-          notify('error', "Could not share file directly. Attempting browser download...");
+          notify('error', "Could not download file directly. Attempting browser download...");
           XLSX.writeFile(wb, fileName);
         }
       } catch (err: any) {
         console.error("Export all mobile failed:", err);
-        notify('error', `Failed to share report: ${err.message || 'Unknown error'}`);
+        notify('error', `Failed to download report: ${err.message || 'Unknown error'}`);
       }
     } else {
       XLSX.writeFile(wb, fileName);
@@ -2196,16 +2217,16 @@ export default function App() {
     if (isMobileApp) {
       try {
         const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-        const success = await shareFileMobile(fileName, base64Data);
-        if (success) {
-          notify('success', "Statement shared successfully!");
+        const res = await downloadFileMobile(fileName, base64Data);
+        if (res.success) {
+          notify('success', `Statement downloaded successfully as: ${fileName}`);
         } else {
-          notify('error', "Could not share file directly. Attempting browser download...");
+          notify('error', "Could not download file directly. Attempting browser download...");
           XLSX.writeFile(wb, fileName);
         }
       } catch (err: any) {
         console.error("Export user mobile failed:", err);
-        notify('error', `Failed to share statement: ${err.message || 'Unknown error'}`);
+        notify('error', `Failed to download statement: ${err.message || 'Unknown error'}`);
       }
     } else {
       XLSX.writeFile(wb, fileName);
@@ -2483,16 +2504,16 @@ export default function App() {
       if (isMobileApp) {
         try {
           const base64Data = doc.output('datauristring').split(',')[1];
-          const success = await shareFileMobile(fileName, base64Data);
-          if (success) {
-            notify('success', "Statement shared successfully!");
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `PDF Statement downloaded successfully as: ${fileName}`);
           } else {
-            notify('error', "Could not share file directly. Attempting browser download...");
+            notify('error', "Could not download file directly. Attempting browser download...");
             doc.save(fileName);
           }
         } catch (err: any) {
-          console.error("PDF Mobile share failed:", err);
-          notify('error', `Failed to share PDF: ${err.message || 'Unknown error'}`);
+          console.error("PDF Mobile download failed:", err);
+          notify('error', `Failed to download PDF: ${err.message || 'Unknown error'}`);
         }
       } else {
         doc.save(fileName);
@@ -2843,7 +2864,7 @@ export default function App() {
               <div className="relative mb-12">
                 <div className="w-48 h-48 bg-white rounded-[3rem] flex items-center justify-center shadow-2xl shadow-indigo-100 relative overflow-hidden border border-slate-100">
                   <img 
-                    src="/logo.png" 
+                    src="/logo.png?v=5" 
                     alt="Unnati Logo" 
                     className="w-full h-full object-contain p-2"
                     referrerPolicy="no-referrer"
@@ -2907,7 +2928,7 @@ export default function App() {
               <div className={cn("relative w-40 h-40 mx-auto mb-8", isMobileApp && "w-32 h-32 mb-6")}>
                 <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
                   <img 
-                    src="/logo.png" 
+                    src="/logo.png?v=5" 
                     alt="Unnati Logo" 
                     className="w-full h-full object-contain p-2"
                     referrerPolicy="no-referrer"
@@ -3022,7 +3043,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center shadow-md shadow-indigo-50 overflow-hidden border border-slate-100">
               <img 
-                src="/logo.png" 
+                src="/logo.png?v=5" 
                 alt="Unnati Logo" 
                 className="w-full h-full object-contain p-1"
                 referrerPolicy="no-referrer"
@@ -4522,7 +4543,6 @@ export default function App() {
                     const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
                     const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
                     const remainingTotal = calculateLoanRemainingTotal(l, payments);
-                    
                     return (
                       <motion.div 
                         key={`user-loan-card-${l.id || 'loan'}-${idx}`}
@@ -4530,182 +4550,201 @@ export default function App() {
                         animate={{ opacity: 1, y: 0 }}
                         className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden"
                       >
-                        <div className="p-8 bg-indigo-600 text-white">
+                        <div className="p-5 sm:p-8 bg-indigo-600 text-white">
                           <div className="flex items-center justify-between mb-6">
-                            <div className="p-3 bg-white/10 rounded-2xl">
-                              <Wallet className="w-8 h-8 text-white" />
+                            <div className="p-2.5 sm:p-3 bg-white/10 rounded-2xl">
+                              <Wallet className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
                             </div>
                             <div className="flex items-center gap-2">
                               {l.status !== 'paid' && (
                                 <button
                                   onClick={() => setSettlingLoanId(l.id!)}
-                                  className="flex items-center gap-2 px-4 py-1.5 bg-amber-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest border border-amber-400 shadow-sm hover:bg-amber-600 transition-all active:scale-95"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border border-amber-400 shadow-sm hover:bg-amber-600 transition-all active:scale-95"
                                 >
                                   <CheckCircle2 className="w-3 h-3" />
                                   Settle One-time
                                 </button>
                               )}
                               {l.status === 'paid' ? (
-                                <div className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 rounded-full text-xs font-black uppercase tracking-widest border border-emerald-400/50 shadow-sm animate-pulse-slow">
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest border border-emerald-400/50 shadow-sm animate-pulse-slow">
                                   <CheckCircle2 className="w-3.5 h-3.5" />
-                                  Loan Completed
+                                  Completed
                                 </div>
                               ) : (
-                                <span className="px-4 py-1.5 bg-white/20 rounded-full text-xs font-black uppercase tracking-widest">Active Loan</span>
+                                <span className="px-3 py-1.5 bg-white/20 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest">Active</span>
                               )}
                             </div>
                           </div>
-                          <h3 className="text-indigo-100 font-bold uppercase tracking-widest text-xs mb-1">Approved Amount</h3>
-                          <div className="text-5xl font-black mb-6">₹{l.approvedAmount?.toLocaleString()}</div>
+                          <h3 className="text-indigo-100 font-bold uppercase tracking-widest text-[10px] sm:text-xs mb-1">Approved Amount</h3>
+                          <div className="text-3xl sm:text-5xl font-black mb-6">₹{l.approvedAmount?.toLocaleString()}</div>
                           
-                          <div className="grid grid-cols-2 gap-8 pt-6 border-t border-white/10">
+                          <div className="grid grid-cols-2 gap-4 sm:gap-8 pt-5 sm:pt-6 border-t border-white/10">
                             <div>
                               <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Monthly Interest</p>
-                              <p className="text-xl font-bold">0.5%</p>
+                              <p className="text-lg sm:text-xl font-bold">0.5%</p>
                             </div>
                             <div>
                               <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Remaining Due</p>
-                              <p className="text-xl font-bold">₹{remainingTotal.toLocaleString()}</p>
+                              <p className="text-lg sm:text-xl font-bold">₹{remainingTotal.toLocaleString()}</p>
                               <p className="text-[10px] text-indigo-200 font-bold">₹{remainingPrincipal.toLocaleString()} Principal</p>
                             </div>
                           </div>
                         </div>
 
-                        <div className="p-8">
-                          <div className="flex items-center justify-between mb-6">
+                        <div className="p-5 sm:p-8">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                             <h4 className="text-lg font-bold text-slate-900">Repayment Schedule</h4>
-                            <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg text-xs font-bold">
-                              <CheckCircle2 className="w-4 h-4" />
+                            <div className="self-start sm:self-auto flex items-center gap-2 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-100">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                               {payments.filter(p => p.status === 'paid').length} / {l.installments} Paid
                             </div>
                           </div>
 
                           <div className="space-y-3">
                             {(() => {
-                              const approvedAmount = l.approvedAmount || 0;
-                              const installments = l.installments || 10;
-                              const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                               const approvedAmount = l.approvedAmount || 0;
+                               const installments = l.installments || 10;
+                               const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
 
-                              // Find settlement month for fully paid loans
-                              const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+                               // Find settlement month for fully paid loans
+                               const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
 
-                              return Array.from({ length: installments }).map((_, i) => {
-                                const installmentNum = i + 1;
-                                // Repayment starts from next month
-                                const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-                                const installmentMonth = installmentDate.getMonth() + 1;
-                                const installmentYear = installmentDate.getFullYear();
-                                
-                                // Hide installments strictly following the settlement month
-                                if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
-                                  return null;
-                                }
+                               return Array.from({ length: installments }).map((_, i) => {
+                                 const installmentNum = i + 1;
+                                 // Repayment starts from next month
+                                 const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
+                                 const installmentMonth = installmentDate.getMonth() + 1;
+                                 const installmentYear = installmentDate.getFullYear();
+                                 
+                                 // Hide installments strictly following the settlement month
+                                 if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
+                                   return null;
+                                 }
 
-                                // Find the most relevant payment for this installment
-                                const payment = payments
-                                  .filter(p => p.month === installmentMonth && p.year === installmentYear)
-                                  .sort((a, b) => {
-                                    const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
-                                    const orderA = statusOrder[a.status] ?? 3;
-                                    const orderB = statusOrder[b.status] ?? 3;
-                                    if (orderA !== orderB) return orderA - orderB;
-                                    return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
-                                  })[0];
+                                 // Find the most relevant payment for this installment
+                                 const payment = payments
+                                   .filter(p => p.month === installmentMonth && p.year === installmentYear)
+                                   .sort((a, b) => {
+                                     const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
+                                     const orderA = statusOrder[a.status] ?? 3;
+                                     const orderB = statusOrder[b.status] ?? 3;
+                                     if (orderA !== orderB) return orderA - orderB;
+                                     return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
+                                   })[0];
 
-                                const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
-                                const displayPayment = payment || settlementPayment;
-                                const isPaid = l.status === 'paid' || payment?.status === 'paid';
-                                const isPending = !isPaid && payment?.status === 'pending';
-                                
-                                // Calculate interest based on planned reducing balance
-                                const scheduledPrincipal = approvedAmount / installments;
-                                const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
-                                const interest = (isPaid || isPending) ? (displayPayment?.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
-                                const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
-                                const total = principalToDisplay + interest;
+                                 const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+                                 const displayPayment = payment || settlementPayment;
+                                 const isPaid = l.status === 'paid' || payment?.status === 'paid';
+                                 const isPending = !isPaid && payment?.status === 'pending';
+                                 
+                                 // Calculate interest based on planned reducing balance
+                                 const scheduledPrincipal = approvedAmount / installments;
+                                 const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
+                                 const interest = (isPaid || isPending) ? (displayPayment?.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
+                                 const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
+                                 const total = principalToDisplay + interest;
 
-                                const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
-                                const isFuture = installmentDate > new Date() && l.status !== 'paid';
-                                const isPast = installmentDate < new Date() && !isCurrentMonth;
+                                 const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
+                                 const isFuture = installmentDate > new Date() && l.status !== 'paid';
+                                 const isPast = installmentDate < new Date() && !isCurrentMonth;
 
-                                return (
-                                  <div 
-                                    key={`loan-schedule-${l.id || 'loan'}-${idx}-${i}`}
-                                    className={cn(
-                                      "flex items-center justify-between p-4 rounded-2xl border transition-all",
-                                      isPaid ? "bg-slate-50 border-slate-100 opacity-60" : 
-                                      isPending ? "bg-amber-50 border-amber-100 shadow-sm" :
-                                      isCurrentMonth ? "bg-white border-indigo-200 ring-2 ring-indigo-50 shadow-md" :
-                                      isFuture ? "bg-white border-slate-100 opacity-40 blur-[0.5px]" : "bg-white border-slate-200"
-                                    )}
-                                  >
-                                    <div className="flex items-center gap-4">
-                                      <div className={cn(
-                                        "w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm",
-                                        isPaid ? "bg-emerald-100 text-emerald-600" : 
-                                        isPending ? "bg-amber-100 text-amber-600" :
-                                        isCurrentMonth ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
-                                      )}>
-                                        {installmentNum}
-                                      </div>
-                                      <div>
-                                        <p className="font-bold text-slate-900 text-sm">
-                                          {format(installmentDate, 'MMMM yyyy')}
-                                        </p>
-                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                          ₹{principalToDisplay.toLocaleString()} + ₹{interest.toLocaleString()} Interest
-                                        </p>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-16 px-1">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase">Mode</p>
-                                        <p className={cn(
-                                          "text-xs font-bold",
-                                          displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-300 italic"
-                                        )}>
-                                          {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
-                                        </p>
-                                      </div>
-                                      <div className="w-20 px-1 text-center">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase text-center">Paid On</p>
-                                        <p className="text-xs font-bold text-slate-600">
-                                          {isPaid ? (
-                                            displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yy') :
-                                            displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yy') : '-'
-                                          ) : '-'}
-                                        </p>
-                                      </div>
-                                      <span className="font-black text-slate-900 w-20 text-right">₹{total.toLocaleString()}</span>
-                                      {!isPaid && !isPending && (
-                                        <button 
-                                          onClick={() => {
-                                            setSelectedLoan(l);
-                                            setIsPayingLoan(true);
-                                            setCustomPrincipal(l.approvedAmount! / (l.installments || 10));
-                                          }}
-                                          disabled={!isCurrentMonth}
-                                          className={cn(
-                                            "p-2 rounded-lg transition-all",
-                                            isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-100 text-slate-300 cursor-not-allowed"
-                                          )}
-                                        >
-                                          <Plus className="w-4 h-4" />
-                                        </button>
-                                      )}
-                                      {isPending && (
-                                        <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-md">AWAITING APPROVAL</span>
-                                      )}
-                                      {isPaid && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
-                                    </div>
-                                  </div>
-                                );
-                              });
-                            })()}
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
+                                 return (
+                                   <div 
+                                     key={`loan-schedule-${l.id || 'loan'}-${idx}-${i}`}
+                                     className={cn(
+                                       "p-4 rounded-2xl border transition-all flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
+                                       isPaid ? "bg-slate-50 border-slate-100 opacity-70" : 
+                                       isPending ? "bg-amber-50/70 border-amber-100 shadow-sm" :
+                                       isCurrentMonth ? "bg-white border-indigo-200 ring-2 ring-indigo-50 shadow-md" :
+                                       isFuture ? "bg-white border-slate-100 opacity-45 blur-[0.2px]" : "bg-white border-slate-200"
+                                     )}
+                                   >
+                                     <div className="flex items-center justify-between sm:justify-start gap-4 flex-1">
+                                       <div className="flex items-center gap-3">
+                                         <div className={cn(
+                                           "w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0",
+                                           isPaid ? "bg-emerald-100 text-emerald-600" : 
+                                           isPending ? "bg-amber-100 text-amber-600" :
+                                           isCurrentMonth ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+                                         )}>
+                                           {installmentNum}
+                                         </div>
+                                         <div>
+                                           <p className="font-bold text-slate-900 text-sm">
+                                             {format(installmentDate, 'MMMM yyyy')}
+                                           </p>
+                                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                             ₹{principalToDisplay.toLocaleString()} + ₹{interest.toLocaleString()} Int.
+                                           </p>
+                                         </div>
+                                       </div>
+                                       
+                                       <div className="sm:hidden text-right">
+                                         <p className="text-[9px] font-bold text-slate-400 uppercase">Amount</p>
+                                         <p className="font-black text-slate-950 text-sm">₹{total.toLocaleString()}</p>
+                                       </div>
+                                     </div>
+                                     
+                                     <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-6 border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100">
+                                       <div className="flex items-center gap-4 sm:gap-6">
+                                         {(isPaid || isPending) && (
+                                           <div className="w-16">
+                                             <p className="text-[9px] font-bold text-slate-400 uppercase">Mode</p>
+                                             <p className={cn(
+                                               "text-xs font-bold truncate",
+                                               displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-500"
+                                             )}>
+                                               {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                             </p>
+                                           </div>
+                                         )}
+                                         {isPaid && (
+                                           <div className="w-20">
+                                             <p className="text-[9px] font-bold text-slate-400 uppercase">Paid On</p>
+                                             <p className="text-xs font-bold text-slate-600 whitespace-nowrap">
+                                               {displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yy') :
+                                               displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yy') : '-'}
+                                             </p>
+                                           </div>
+                                         )}
+                                       </div>
+                                       
+                                       <div className="flex items-center gap-3 ml-auto sm:ml-0">
+                                         <span className="hidden sm:inline font-black text-slate-900 w-20 text-right">₹{total.toLocaleString()}</span>
+                                         {!isPaid && !isPending && (
+                                           <button 
+                                             onClick={() => {
+                                               setSelectedLoan(l);
+                                               setIsPayingLoan(true);
+                                               setCustomPrincipal(l.approvedAmount! / (l.installments || 10));
+                                             }}
+                                             disabled={!isCurrentMonth}
+                                             className={cn(
+                                               "p-2 rounded-lg transition-all",
+                                               isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm" : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                                             )}
+                                           >
+                                             <Plus className="w-4 h-4" />
+                                           </button>
+                                         )}
+                                         {isPending && (
+                                           <span className="text-[9px] font-black tracking-wider text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-200 uppercase">AWAITING</span>
+                                         )}
+                                         {isPaid && (
+                                           <div className="p-0.5 bg-emerald-50 rounded-full border border-emerald-100">
+                                             <CheckCircle2 className="w-5 h-5 text-emerald-500 fill-emerald-50" />
+                                           </div>
+                                         )}
+                                       </div>
+                                     </div>
+                                   </div>
+                                 );
+                               });
+                             })()}
+                           </div>
+                         </div>
+                       </motion.div>
+                     );
                   })}
 
                   {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).length === 0 && (

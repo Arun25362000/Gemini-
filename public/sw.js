@@ -1,10 +1,10 @@
-// Service Worker Version: 4.0.0
-const CACHE_NAME = 'unnati-v4';
+// Service Worker Version: 5.0.0
+const CACHE_NAME = 'unnati-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json',
-  '/logo.png'
+  '/manifest.json?v=5',
+  '/logo.png?v=5'
 ];
 
 self.addEventListener('install', (event) => {
@@ -31,12 +31,35 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  
   // For navigation requests, try network first, then cache
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => {
         return caches.match('/');
       })
+    );
+    return;
+  }
+
+  // Network-First for logo.png and manifest.json to ensure immediate updates of assets
+  if (url.pathname.includes('logo.png') || url.pathname.includes('manifest.json')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          // Cache the fresh version
+          if (response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
+          }
+          return response;
+        })
+        .catch(() => {
+          return caches.match(event.request);
+        })
     );
     return;
   }
