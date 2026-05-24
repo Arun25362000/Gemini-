@@ -85,7 +85,28 @@ import { cn } from './lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { Notice, AppNotification } from './types';
+
+// --- Helper for Capacitor Mobile File Saving/Sharing ---
+const shareFileMobile = async (fileName: string, base64Data: string) => {
+  try {
+    const result = await Filesystem.writeFile({
+      path: fileName,
+      data: base64Data,
+      directory: Directory.Cache
+    });
+    await Share.share({
+      title: `Unnati - ${fileName}`,
+      url: result.uri
+    });
+    return true;
+  } catch (error: any) {
+    console.error("Capacitor file share failed", error);
+    return false;
+  }
+};
 
 // --- Constants ---
 const MONTHLY_AMOUNT = 1000;
@@ -2064,7 +2085,7 @@ export default function App() {
     }
   };
 
-  const exportAllDataToExcel = () => {
+  const exportAllDataToExcel = async () => {
     if (profile?.role !== 'admin') return;
 
     const wb = XLSX.utils.book_new();
@@ -2132,11 +2153,28 @@ export default function App() {
     }));
     XLSX.utils.book_append_sheet(wb, contribsWS, "All Contributions");
 
-    XLSX.writeFile(wb, `Unnati_Admin_Master_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
-    notify('success', "Comprehensive report exported");
+    const fileName = `Unnati_Admin_Master_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    if (isMobileApp) {
+      try {
+        const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+        const success = await shareFileMobile(fileName, base64Data);
+        if (success) {
+          notify('success', "Comprehensive report shared successfully!");
+        } else {
+          notify('error', "Could not share file directly. Attempting browser download...");
+          XLSX.writeFile(wb, fileName);
+        }
+      } catch (err: any) {
+        console.error("Export all mobile failed:", err);
+        notify('error', `Failed to share report: ${err.message || 'Unknown error'}`);
+      }
+    } else {
+      XLSX.writeFile(wb, fileName);
+      notify('success', "Comprehensive report exported");
+    }
   };
 
-  const exportUserStatementToExcel = () => {
+  const exportUserStatementToExcel = async () => {
     if (!user) return;
     const wb = XLSX.utils.book_new();
     const userContribs = contributions.filter(c => 
@@ -2153,8 +2191,26 @@ export default function App() {
 
     const ws = XLSX.utils.json_to_sheet(statementData);
     XLSX.utils.book_append_sheet(wb, ws, "My Statement");
-    XLSX.writeFile(wb, `My_Unnati_Statement_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
-    notify('success', "Statement exported to Excel");
+
+    const fileName = `My_Unnati_Statement_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    if (isMobileApp) {
+      try {
+        const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+        const success = await shareFileMobile(fileName, base64Data);
+        if (success) {
+          notify('success', "Statement shared successfully!");
+        } else {
+          notify('error', "Could not share file directly. Attempting browser download...");
+          XLSX.writeFile(wb, fileName);
+        }
+      } catch (err: any) {
+        console.error("Export user mobile failed:", err);
+        notify('error', `Failed to share statement: ${err.message || 'Unknown error'}`);
+      }
+    } else {
+      XLSX.writeFile(wb, fileName);
+      notify('success', "Statement exported to Excel");
+    }
   };
 
   const sortedLoans = useMemo(() => {
@@ -2246,7 +2302,7 @@ export default function App() {
     return items;
   }, [loanPayments, isAdmin, searchQuery, allUsers]);
 
-  const generateMemberStatement = (targetUserId: string) => {
+  const generateMemberStatement = async (targetUserId: string) => {
     try {
       console.log("Generating statement for user:", targetUserId);
       // Find user by UID or by email if UID is not yet set in the profile
@@ -2424,8 +2480,24 @@ export default function App() {
       }
 
       const fileName = `Unnati_Statement_${(targetUser.displayName || targetUser.email || 'Member').replace(/\s+/g, '_')}.pdf`;
-      doc.save(fileName);
-      notify('success', "Statement generated successfully!");
+      if (isMobileApp) {
+        try {
+          const base64Data = doc.output('datauristring').split(',')[1];
+          const success = await shareFileMobile(fileName, base64Data);
+          if (success) {
+            notify('success', "Statement shared successfully!");
+          } else {
+            notify('error', "Could not share file directly. Attempting browser download...");
+            doc.save(fileName);
+          }
+        } catch (err: any) {
+          console.error("PDF Mobile share failed:", err);
+          notify('error', `Failed to share PDF: ${err.message || 'Unknown error'}`);
+        }
+      } else {
+        doc.save(fileName);
+        notify('success', "Statement generated successfully!");
+      }
     } catch (err: any) {
       console.error("Failed to generate PDF statement:", err);
       notify('error', `Failed to generate PDF: ${err.message || 'Unknown error'}`);
