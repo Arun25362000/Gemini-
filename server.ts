@@ -76,8 +76,11 @@ async function getDb() {
     if (namedDbId) {
       try {
         const db = getAdminFirestore(firebaseAdminApp, namedDbId);
-        // Test query - using a limit(1) to check connectivity
-        await db.collection('users').limit(1).get();
+        // Test query - using a limit(1) with 2-second timeout to avoid long connection checks
+        const testPromise = db.collection('users').limit(1).get();
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000));
+        await Promise.race([testPromise, timeoutPromise]);
+        
         console.log(`[getDb] SUCCESS: Admin SDK connected to ${namedDbId}.`);
         cachedDb = { type: 'admin', db, dbId: namedDbId };
         return cachedDb;
@@ -86,7 +89,8 @@ async function getDb() {
         const isExpectedEnvError = err.message?.includes('PERMISSION_DENIED') || 
                                    err.message?.includes('Cloud Firestore API') ||
                                    err.message?.includes('project ID') ||
-                                   err.code === 7;
+                                   err.code === 7 ||
+                                   err.message === 'Timeout';
         
         if (!isExpectedEnvError) {
           console.warn(`[getDb] Strategy 1 failed: ${err.message}`);
@@ -97,13 +101,17 @@ async function getDb() {
     // Strategy 2: Default Database (Admin SDK)
     try {
       const db = getAdminFirestore(firebaseAdminApp);
-      await db.collection('users').limit(1).get();
+      // Test query - using a limit(1) with 2-second timeout
+      const testPromise = db.collection('users').limit(1).get();
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 2000));
+      await Promise.race([testPromise, timeoutPromise]);
+      
       console.log(`[getDb] SUCCESS: Admin SDK connected to default DB.`);
       cachedDb = { type: 'admin', db, dbId: '(default)' };
       return cachedDb;
     } catch (err: any) {
        // Only log as warning if it's not a common "Not Found" or "Permission Denied" in this setup
-       if (err.code !== 5 && err.code !== 7 && !err.message?.includes('NOT_FOUND') && !err.message?.includes('PERMISSION_DENIED')) {
+       if (err.code !== 5 && err.code !== 7 && err.message !== 'Timeout' && !err.message?.includes('NOT_FOUND') && !err.message?.includes('PERMISSION_DENIED')) {
          console.warn(`[getDb] Strategy 2 failed: ${err.message}`);
        }
     }
@@ -646,6 +654,26 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    
+    // Warm up database strategy cache and trigger initial handshake/connection asynchronously
+    console.log('[Startup] Warming up database connection and cached strategy...');
+    getDb()
+      .then(async (dbInfo) => {
+        console.log(`[Startup] DB warmed up. Selected Strategy: ${dbInfo.type}, DB ID/Path: ${dbInfo.dbId}`);
+        // If it's the client SDK strategy, invoke a warm-up query to force the connection handshake
+        if (dbInfo.type === 'client') {
+          console.log('[Startup] Conducting professional Client SDK query warm-up/handshake...');
+          try {
+            await getDocs(query(collection(dbInfo.db, 'users'), limit(1)));
+            console.log('[Startup] Firestore Client SDK handshake completed successfully!');
+          } catch (walkErr: any) {
+            console.warn('[Startup] Firestore Client SDK handshake warning:', walkErr.message);
+          }
+        }
+      })
+      .catch((err: any) => {
+        console.error('[Startup] DB warm up failed:', err?.message || err);
+      });
   });
 }
 
