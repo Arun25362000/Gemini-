@@ -114,17 +114,19 @@ const getUPIConfig = () => {
     return {
       vpa: "arun2102000@oksbi",
       name: "Arun J",
-      mcc: "0000"
+      mcc: "0000",
+      isPersonal: true
     };
   }
   return {
     vpa: "9535173734@okbizaxis",
     name: "Unnati Trust",
-    mcc: "6012"
+    mcc: "6012",
+    isPersonal: false
   };
 };
 
-const { vpa: UPI_VPA, name: PI_NAME, mcc: MERCHANT_CODE } = getUPIConfig();
+const { vpa: UPI_VPA, name: PI_NAME, mcc: MERCHANT_CODE, isPersonal: IS_PERSONAL_UPI } = getUPIConfig();
 const MERCHANT_ID = "BCR2DN5TQ322VPIY"; // Merchant ID for Google Pay
 const GROUP_NAME = "Unnati Savings Group";
 
@@ -253,6 +255,21 @@ export default function App() {
   }, []);
 
   console.log("App component rendering...", { isMobileApp });
+  const buildUPIUrl = useCallback((amount: number, note: string, prefix: string) => {
+    const am = amount.toFixed(2);
+    const tn = encodeURIComponent(note || GROUP_NAME);
+    const tr = `${prefix}${Date.now()}`;
+    
+    let url = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}`;
+    
+    // For personal accounts, skip mc and tr to avoid security flags/limits in apps
+    if (!IS_PERSONAL_UPI) {
+      url += `&mc=${MERCHANT_CODE}&tr=${tr}`;
+    }
+    
+    return url;
+  }, []);
+
   const openUPI = useCallback(async (url: string) => {
     console.log("Opening UPI URL:", url);
     const isNative = Capacitor.isNativePlatform();
@@ -5234,18 +5251,18 @@ export default function App() {
             >
               <div className="p-8 pb-4 text-center">
                 <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <QrCode className="w-8 h-8" />
+                  <Banknote className="w-8 h-8" />
                 </div>
-                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Complete Payment</h3>
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">Record Payment</h3>
                 
                 {/* Payment Mode Selector */}
-                <div className="grid grid-cols-2 gap-3 mt-8 mb-4 px-6">
+                <div className="grid grid-cols-2 gap-3 mt-6 mb-4 px-4">
                   <button 
                     onClick={() => setPaymentModal(p => ({ ...p, mode: 'online' }))}
                     className={cn(
-                      "flex flex-col items-center justify-center gap-3 p-5 rounded-[2rem] border-2 transition-all duration-300 relative overflow-hidden group",
+                      "flex flex-col items-center justify-center gap-2 p-4 rounded-[2rem] border-2 transition-all duration-300 relative overflow-hidden group",
                       paymentModal.mode === 'online' 
-                        ? "bg-indigo-50 border-indigo-600 shadow-xl shadow-indigo-100/50" 
+                        ? "bg-indigo-50 border-indigo-600 shadow-lg shadow-indigo-100/50" 
                         : "bg-white border-slate-100 text-slate-400 hover:border-slate-200 hover:bg-slate-50"
                     )}
                   >
@@ -5256,10 +5273,10 @@ export default function App() {
                       />
                     )}
                     <div className={cn(
-                      "p-3 rounded-2xl transition-colors",
+                      "p-2.5 rounded-xl transition-colors",
                       paymentModal.mode === 'online' ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200"
                     )}>
-                      <Zap className={cn("w-6 h-6", paymentModal.mode === 'online' ? "fill-white" : "fill-none")} />
+                      <Zap className={cn("w-5 h-5", paymentModal.mode === 'online' ? "fill-white" : "fill-none")} />
                     </div>
                     <span className={cn(
                       "text-xs font-black uppercase tracking-[0.1em]",
@@ -5270,9 +5287,9 @@ export default function App() {
                   <button 
                     onClick={() => setPaymentModal(p => ({ ...p, mode: 'cash' }))}
                     className={cn(
-                      "flex flex-col items-center justify-center gap-3 p-5 rounded-[2rem] border-2 transition-all duration-300 relative overflow-hidden group",
+                      "flex flex-col items-center justify-center gap-2 p-4 rounded-[2rem] border-2 transition-all duration-300 relative overflow-hidden group",
                       paymentModal.mode === 'cash' 
-                        ? "bg-amber-50 border-amber-600 shadow-xl shadow-amber-100/50" 
+                        ? "bg-amber-50 border-amber-600 shadow-lg shadow-amber-100/50" 
                         : "bg-white border-slate-100 text-slate-400 hover:border-slate-200 hover:bg-slate-50"
                     )}
                   >
@@ -5283,10 +5300,10 @@ export default function App() {
                       />
                     )}
                     <div className={cn(
-                      "p-3 rounded-2xl transition-colors",
+                      "p-2.5 rounded-xl transition-colors",
                       paymentModal.mode === 'cash' ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-slate-200"
                     )}>
-                      <Banknote className="w-6 h-6" />
+                      <Banknote className="w-5 h-5" />
                     </div>
                     <span className={cn(
                       "text-xs font-black uppercase tracking-[0.1em]",
@@ -5294,127 +5311,44 @@ export default function App() {
                     )}>Cash</span>
                   </button>
                 </div>
-
-                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-2">
-                  {paymentModal.mode === 'online' ? 'Pay instantly via Scan or UPI Apps' : 'Handover cash to any group admin'}
-                </p>
-                
-                {/* Embedded Preview Warning */}
-                {paymentModal.mode === 'online' && (window.location.hostname.includes('ais-dev') || window.location.hostname.includes('ais-pre')) ? (
-                  <div className="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-2xl">
-                    <p className="text-[10px] text-amber-700 font-bold leading-relaxed">
-                      💡 For "One-Click" payment, please open this app in a <strong className="text-amber-900">New Tab</strong> using the icon in the top right corner of the preview.
-                    </p>
-                  </div>
-                ) : null}
               </div>
 
               <div className="flex-1 px-8 pb-8 flex flex-col items-center w-full">
                 {paymentModal.mode === 'online' ? (
-                  <div className="w-full flex-col flex items-center">
-                    <div className="p-6 bg-white rounded-3xl border-4 border-slate-50 shadow-inner mb-6">
-                  <QRCodeCanvas 
-                    value={`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${paymentModal.amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(paymentModal.note || GROUP_NAME)}&mc=${MERCHANT_CODE}&tr=UTQR${Date.now()}`}
-                    size={200}
-                    level="H"
-                    includeMargin={false}
-                  />
-                  <p className="text-center mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Scan to Pay Instantly</p>
-                </div>
-
-                <div className="w-full space-y-4">
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Amount</p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString()}</p>
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(paymentModal.amount.toString());
-                            notify('success', 'Amount copied');
-                          }}
-                          className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      </div>
+                  <div className="w-full flex-col flex items-center space-y-4">
+                    <div className="w-full bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100/50 text-center">
+                      <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest mb-1">Amount to Transfer</p>
+                      <p className="text-3xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString()}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">UPI ID</p>
-                      <div className="flex items-center justify-end gap-2">
-                        <code className="text-xs font-mono font-bold text-indigo-600">{UPI_VPA}</code>
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(UPI_VPA);
-                            notify('success', 'UPI ID copied');
-                          }}
-                          className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      </div>
+                    
+                    <div className="w-full bg-slate-50 p-5 rounded-2xl border border-slate-100 text-center">
+                      <p className="text-xs text-slate-600 font-semibold leading-relaxed">
+                        Please proceed to make the bank transfer or UPI payment of <strong className="text-indigo-600 font-extrabold">₹{paymentModal.amount.toLocaleString()}</strong> using your preferred banking/UPI application.
+                      </p>
+                      <p className="text-[11px] text-slate-500 font-bold leading-relaxed mt-3">
+                        After transferring, tap "Confirm Paid" below to notify the admin for verification and approval.
+                      </p>
                     </div>
                   </div>
+                ) : (
+                  <div className="w-full flex-col flex items-center space-y-4">
+                    <div className="w-full bg-amber-50/50 p-6 rounded-3xl border border-amber-100/50 text-center">
+                      <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-1">Amount to Handover</p>
+                      <p className="text-3xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString()}</p>
+                    </div>
 
-                  <div className="flex flex-col gap-3">
-                    <div className="grid grid-cols-3 gap-2">
-                      <button 
-                        onClick={() => {
-                          const am = paymentModal.amount.toFixed(2);
-                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
-                          const tr = `UTGPay${Date.now()}`;
-                          openUPI(`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`);
-                        }}
-                        className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
-                      >
-                        GPay
-                      </button>
-                      <button 
-                        onClick={() => {
-                          const am = paymentModal.amount.toFixed(2);
-                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
-                          const tr = `UTPPe${Date.now()}`;
-                          openUPI(`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`);
-                        }}
-                        className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
-                      >
-                        PhonePe
-                      </button>
-                      <button 
-                        onClick={() => {
-                          const am = paymentModal.amount.toFixed(2);
-                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
-                          const tr = `UTPTM${Date.now()}`;
-                          openUPI(`upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`);
-                        }}
-                        className="py-3 bg-slate-50 text-[10px] font-bold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors flex flex-col items-center gap-1 shadow-sm active:scale-95"
-                      >
-                        Paytm
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-                  <div className="w-full flex-1 flex flex-col items-center justify-center text-center space-y-6 py-8">
-                    <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center animate-pulse">
-                      <Banknote className="w-12 h-12 text-amber-600" />
-                    </div>
-                    <div className="space-y-3">
-                      <p className="text-xl font-black text-slate-900 tracking-tight">Cash Payment Mode</p>
-                      <div className="bg-amber-50 p-6 rounded-[2rem] border border-amber-100 mx-4">
-                        <p className="text-sm text-amber-900 font-bold leading-relaxed">
-                          Please handover <span className="text-lg font-black underline decoration-amber-300 underline-offset-4">₹{paymentModal.amount.toLocaleString()}</span> to any Group Admin in cash.
-                        </p>
-                      </div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest px-4">
-                        Admin will verify the receipt soon
+                    <div className="w-full bg-slate-50 p-5 rounded-2xl border border-slate-100 text-center">
+                      <p className="text-xs text-slate-600 font-semibold leading-relaxed">
+                        Please handover cash of <strong className="text-amber-600 font-extrabold">₹{paymentModal.amount.toLocaleString()}</strong> to any Unnati Group Admin.
+                      </p>
+                      <p className="text-[11px] text-slate-500 font-bold leading-relaxed mt-3">
+                        After handing over, tap "Confirm Paid" below. The admin will review and verify your request.
                       </p>
                     </div>
                   </div>
                 )}
 
-                <div className="w-full space-y-4 px-8 mt-auto pb-8">
+                <div className="w-full space-y-4 mt-8 pb-2">
                   <div className="flex gap-3">
                     <button 
                       onClick={() => setPaymentModal(p => ({ ...p, isOpen: false }))}
@@ -5423,18 +5357,8 @@ export default function App() {
                       Cancel
                     </button>
                     
-                    <motion.button 
-                      layout
+                    <button 
                       onClick={async () => {
-                        // If online, also trigger intent if possible (optional but good UX)
-                        if (paymentModal.mode === 'online') {
-                          const am = paymentModal.amount.toFixed(2);
-                          const tn = encodeURIComponent(paymentModal.note || GROUP_NAME);
-                          const tr = `UTGEN${Date.now()}`;
-                          const upiUrl = `upi://pay?pa=${UPI_VPA}&pn=${encodeURIComponent(PI_NAME)}&am=${am}&cu=INR&tn=${tn}&mc=${MERCHANT_CODE}&tr=${tr}`;
-                          openUPI(upiUrl);
-                        }
-
                         // Mark as recorded
                         if (paymentModal.type === 'contribution') {
                            notify('success', `Payment noted as ${paymentModal.mode}. Admin will verify once received.`);
@@ -5461,23 +5385,12 @@ export default function App() {
                       className={cn(
                         "flex-[2] py-4 rounded-2xl font-black text-white shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2 overflow-hidden",
                         paymentModal.mode === 'online' 
-                          ? "bg-indigo-600 shadow-indigo-100" 
-                          : "bg-amber-600 shadow-amber-100"
+                          ? "bg-indigo-600 shadow-indigo-100/30" 
+                          : "bg-amber-600 shadow-amber-100/30"
                       )}
                     >
-                      <AnimatePresence mode="wait">
-                        <motion.div
-                          key={paymentModal.mode}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="flex items-center gap-2"
-                        >
-                          {paymentModal.mode === 'online' ? <Zap className="w-5 h-5 fill-white" /> : <Banknote className="w-5 h-5" />}
-                          {paymentModal.mode === 'online' ? 'Pay via UPI' : 'Pay'}
-                        </motion.div>
-                      </AnimatePresence>
-                    </motion.button>
+                      Confirm Paid
+                    </button>
                   </div>
                 </div>
               </div>
