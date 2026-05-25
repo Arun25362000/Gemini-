@@ -3114,7 +3114,11 @@ export default function App() {
           <p className={cn("text-slate-500 font-medium mt-1", isMobileApp && "text-sm")}>Here's what's happening with your Unnati savings.</p>
         </div>
 
-        <div className={cn("grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8", isMobileApp && "gap-4 mb-6")}>
+        <div className={cn(
+          "grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8",
+          isAdmin ? "lg:grid-cols-5" : "lg:grid-cols-2 max-w-2xl",
+          isMobileApp && "gap-4 mb-6"
+        )}>
           <motion.div 
             key="dashboard-card-status"
             initial={{ opacity: 0, x: -20 }}
@@ -3189,64 +3193,68 @@ export default function App() {
             </motion.div>
           )}
 
-          <motion.div 
-            key="dashboard-card-group-funds"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-emerald-50 rounded-2xl">
-                <TrendingUp className="w-6 h-6 text-emerald-600" />
-              </div>
-              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg uppercase">
-                Total Group Savings
-              </span>
-            </div>
-            <h3 className="text-slate-500 text-sm font-medium">Group Funds</h3>
-            <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
-              ₹{financials.totalSavings.toLocaleString()}
-            </div>
-          </motion.div>
+          {isAdmin && (
+            <>
+              <motion.div 
+                key="dashboard-card-group-funds"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-emerald-50 rounded-2xl">
+                    <TrendingUp className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg uppercase">
+                    Total Group Savings
+                  </span>
+                </div>
+                <h3 className="text-slate-500 text-sm font-medium">Group Funds</h3>
+                <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
+                  ₹{financials.totalSavings.toLocaleString()}
+                </div>
+              </motion.div>
 
-          <motion.div 
-            key="dashboard-card-outstanding-principal"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-indigo-50 rounded-2xl">
-                <CreditCard className="w-6 h-6 text-indigo-600" />
-              </div>
-              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase">Group Loans</span>
-            </div>
-            <h3 className="text-slate-500 text-sm font-medium">Outstanding Principal</h3>
-            <div className="mt-2 text-3xl font-black text-indigo-600 line-clamp-1">
-              ₹{financials.outstandingPrincipal.toLocaleString()}
-            </div>
-          </motion.div>
+              <motion.div 
+                key="dashboard-card-outstanding-principal"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-indigo-50 rounded-2xl">
+                    <CreditCard className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase">Group Loans</span>
+                </div>
+                <h3 className="text-slate-500 text-sm font-medium">Outstanding Principal</h3>
+                <div className="mt-2 text-3xl font-black text-indigo-600 line-clamp-1">
+                  ₹{financials.outstandingPrincipal.toLocaleString()}
+                </div>
+              </motion.div>
 
-          <motion.div 
-            key="dashboard-card-available-balance"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="bg-slate-900 p-6 rounded-3xl shadow-xl border border-slate-800"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-emerald-500/10 rounded-2xl">
-                <Wallet className="w-6 h-6 text-emerald-400" />
-              </div>
-              <span className="text-xs font-bold text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-lg uppercase">Available</span>
-            </div>
-            <h3 className="text-slate-400 text-sm font-medium">Subscription Balance</h3>
-            <div className="mt-2 text-3xl font-black text-white line-clamp-1">
-              ₹{financials.availableBalance.toLocaleString()}
-            </div>
-          </motion.div>
+              <motion.div 
+                key="dashboard-card-available-balance"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="bg-slate-900 p-6 rounded-3xl shadow-xl border border-slate-800"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-3 bg-emerald-500/10 rounded-2xl">
+                    <Wallet className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <span className="text-xs font-bold text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-lg uppercase">Available</span>
+                </div>
+                <h3 className="text-slate-400 text-sm font-medium">Subscription Balance</h3>
+                <div className="mt-2 text-3xl font-black text-white line-clamp-1">
+                  ₹{financials.availableBalance.toLocaleString()}
+                </div>
+              </motion.div>
+            </>
+          )}
         </div>
 
         {isAdmin && (
