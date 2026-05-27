@@ -296,7 +296,19 @@ export default function App() {
            !window.location.hostname.includes('asia-southeast1.run.app');
   }, []);
 
-  console.log("App component rendering...", { isMobileApp });
+  const [isMobileScreen, setIsMobileScreen] = useState(false);
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileScreen(window.innerWidth < 1024);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobileVisual = isMobileApp || isMobileScreen;
+
+  console.log("App component rendering...", { isMobileApp, isMobileVisual });
   const buildUPIUrl = useCallback((amount: number, note: string, prefix: string) => {
     const am = amount.toFixed(2);
     const tn = encodeURIComponent(note || GROUP_NAME);
@@ -2922,10 +2934,10 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               className={cn(
                 "max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100",
-                isMobileApp && "p-6 rounded-[2rem]"
+                isMobileVisual && "p-6 rounded-[2rem]"
               )}
             >
-              <div className={cn("relative w-40 h-40 mx-auto mb-8", isMobileApp && "w-32 h-32 mb-6")}>
+              <div className={cn("relative w-40 h-40 mx-auto mb-8", isMobileVisual && "w-32 h-32 mb-6")}>
                 <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
                   <img 
                     src="/logo.png?v=5" 
@@ -2939,7 +2951,7 @@ export default function App() {
                 </div>
               </div>
               
-              <h1 className={cn("text-4xl font-black text-gray-900 mb-2 tracking-tighter", isMobileApp && "text-3xl")}>UNNATI</h1>
+              <h1 className={cn("text-4xl font-black text-gray-900 mb-2 tracking-tighter", isMobileVisual && "text-3xl")}>UNNATI</h1>
               <p className="text-slate-500 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
               
               <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
@@ -3039,7 +3051,7 @@ export default function App() {
           >
             <div className="flex flex-col min-h-screen">
               <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className={cn("max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between", isMobileApp && "px-2.5")}>
+        <div className={cn("max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between", isMobileVisual && "px-2.5")}>
           <div className="flex items-center gap-3">
             <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center shadow-md shadow-indigo-50 overflow-hidden border border-slate-100">
               <img 
@@ -3106,24 +3118,24 @@ export default function App() {
         </div>
       </header>
 
-      <main className={cn("max-w-6xl mx-auto px-4 sm:px-6 py-8", isMobileApp && "px-2 py-4")}>
-        <div className={cn("mb-8", isMobileApp && "mb-6")}>
-          <h1 className={cn("text-3xl font-black text-slate-900 tracking-tight", isMobileApp && "text-2xl")}>
+      <main className={cn("max-w-6xl mx-auto px-4 sm:px-6 py-8", isMobileVisual && "px-2 py-4")}>
+        <div className={cn("mb-8", isMobileVisual && "mb-6")}>
+          <h1 className={cn("text-3xl font-black text-slate-900 tracking-tight", isMobileVisual && "text-2xl")}>
             Welcome back, {profile?.displayName?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User'}!
           </h1>
-          <p className={cn("text-slate-500 font-medium mt-1", isMobileApp && "text-sm")}>Here's what's happening with your Unnati savings.</p>
+          <p className={cn("text-slate-500 font-medium mt-1", isMobileVisual && "text-sm")}>Here's what's happening with your Unnati savings.</p>
         </div>
 
         <div className={cn(
           "grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8",
           isAdmin ? "lg:grid-cols-5" : "lg:grid-cols-2 max-w-2xl",
-          isMobileApp && "gap-4 mb-6"
+          isMobileVisual && "gap-4 mb-6"
         )}>
           <motion.div 
             key="dashboard-card-status"
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileApp && "p-4 rounded-2xl")}
+            className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileVisual && "p-4 rounded-2xl")}
           >
             <div className="flex items-center justify-between mb-4">
               <div className="p-3 bg-indigo-50 rounded-2xl">
@@ -3159,16 +3171,16 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileApp && "p-4 rounded-2xl")}
+              className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileVisual && "p-4 rounded-2xl")}
             >
               <div className="flex items-center justify-between mb-4">
-                <div className={cn("p-3 bg-slate-50 rounded-2xl", isMobileApp && "p-2")}>
-                  <TrendingUp className={cn("w-6 h-6 text-slate-600", isMobileApp && "w-5 h-5")} />
+                <div className={cn("p-3 bg-slate-50 rounded-2xl", isMobileVisual && "p-2")}>
+                  <TrendingUp className={cn("w-6 h-6 text-slate-600", isMobileVisual && "w-5 h-5")} />
                 </div>
                 <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Your Savings</span>
               </div>
               <h3 className="text-slate-500 text-sm font-medium">Your Contributions</h3>
-              <div className={cn("mt-2 text-3xl font-black text-slate-900 line-clamp-1", isMobileApp && "text-2xl")}>
+              <div className={cn("mt-2 text-3xl font-black text-slate-900 line-clamp-1", isMobileVisual && "text-2xl")}>
                 ₹{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString()}
               </div>
             </motion.div>
@@ -3260,13 +3272,13 @@ export default function App() {
         {isAdmin && (
           <div className={cn(
             "flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit",
-            isMobileApp && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
+            isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
           )}>
             <button 
               onClick={() => setActiveTab('contributions')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3279,7 +3291,7 @@ export default function App() {
               onClick={() => setActiveTab('members')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'members' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3289,7 +3301,7 @@ export default function App() {
               onClick={() => setActiveTab('loans')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3302,7 +3314,7 @@ export default function App() {
               onClick={() => setActiveTab('notices')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'notices' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3312,7 +3324,7 @@ export default function App() {
               onClick={() => setActiveTab('graphs')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3325,13 +3337,13 @@ export default function App() {
         {!isAdmin && (
           <div className={cn(
             "flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit",
-            isMobileApp && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
+            isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
           )}>
             <button 
               onClick={() => setActiveTab('contributions')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3341,7 +3353,7 @@ export default function App() {
               onClick={() => setActiveTab('loans')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3354,7 +3366,7 @@ export default function App() {
               onClick={() => setActiveTab('graphs')}
               className={cn(
                 "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileApp && "px-3 py-2 text-xs",
+                isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
@@ -3555,14 +3567,14 @@ export default function App() {
         {isAdmin && activeTab === 'members' ? (
           <div className="space-y-4">
             {/* Desktop Table View */}
-            <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse whitespace-nowrap">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100">
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
+                      <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
                       <th 
-                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                         onClick={() => handleSortMembers('name')}
                       >
                         <div className="flex items-center gap-2">
@@ -3575,7 +3587,7 @@ export default function App() {
                         </div>
                       </th>
                       <th 
-                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                         onClick={() => handleSortMembers('contact')}
                       >
                         <div className="flex items-center gap-2">
@@ -3588,7 +3600,7 @@ export default function App() {
                         </div>
                       </th>
                       <th 
-                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                         onClick={() => handleSortMembers('joinDate')}
                       >
                         <div className="flex items-center gap-2">
@@ -3601,7 +3613,7 @@ export default function App() {
                         </div>
                       </th>
                       <th 
-                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                         onClick={() => handleSortMembers('totalPaid')}
                       >
                         <div className="flex items-center gap-2">
@@ -3614,7 +3626,7 @@ export default function App() {
                         </div>
                       </th>
                       <th 
-                        className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                        className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                         onClick={() => handleSortMembers('status')}
                       >
                         <div className="flex items-center gap-2">
@@ -3626,7 +3638,7 @@ export default function App() {
                           )}
                         </div>
                       </th>
-                      <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                      <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -3650,10 +3662,10 @@ export default function App() {
                           key={`desktop-member-${u.id || u.uid || u.email.toLowerCase() || 'mem'}-${idx}`} 
                           className="hover:bg-slate-50/50 transition-colors"
                         >
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center font-bold">
                                 {u.displayName ? u.displayName[0].toUpperCase() : '?'}
@@ -3664,19 +3676,19 @@ export default function App() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <div className="flex flex-col">
                               <span className="text-sm text-slate-600">{u.email}</span>
                               <span className="text-xs text-slate-400">{u.phoneNumber || 'No phone'}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className="text-sm text-slate-500">{u.joinDate}</span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className="text-sm font-bold text-slate-900">₹{totalPaid.toLocaleString()}</span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className={cn(
                               "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
                               !hasPendingThisYear ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
@@ -3684,7 +3696,7 @@ export default function App() {
                               {!hasPendingThisYear ? 'Active' : 'Pending'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <button 
                                 onClick={() => toggleAdminRole(u)}
@@ -3770,7 +3782,7 @@ export default function App() {
             </div>
 
             {/* Mobile Card View */}
-            <div className="lg:hidden grid grid-cols-1 gap-4">
+            <div className="hidden grid grid-cols-1 gap-4">
               {sortedMembers.map((u, idx) => {
                 const userContribs = contributions.filter(c => 
                   ((u.uid && c.userId === u.uid) || 
@@ -3904,14 +3916,14 @@ export default function App() {
                 {loanSubTab === 'applications' ? (
                   <div className="space-y-4">
                     {/* Desktop Table View */}
-                    <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
+                    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
+                      <div className="overflow-x-auto w-full">
+                        <table className="w-full text-left border-collapse whitespace-nowrap">
                           <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-100">
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
+                              <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
                               <th 
-                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                                 onClick={() => handleSortLoans('name')}
                               >
                                 <div className="flex items-center gap-2">
@@ -3924,7 +3936,7 @@ export default function App() {
                                 </div>
                               </th>
                               <th 
-                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                                 onClick={() => handleSortLoans('amount')}
                               >
                                 <div className="flex items-center gap-2">
@@ -3936,9 +3948,9 @@ export default function App() {
                                   )}
                                 </div>
                               </th>
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Details</th>
+                              <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Details</th>
                               <th 
-                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                                 onClick={() => handleSortLoans('status')}
                               >
                                 <div className="flex items-center gap-2">
@@ -3951,7 +3963,7 @@ export default function App() {
                                 </div>
                               </th>
                               <th 
-                                className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                                className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                                 onClick={() => handleSortLoans('date')}
                               >
                                 <div className="flex items-center gap-2">
@@ -3963,8 +3975,8 @@ export default function App() {
                                   )}
                                 </div>
                               </th>
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Payment Mode</th>
-                              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                              <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Payment Mode</th>
+                              <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -3982,7 +3994,7 @@ export default function App() {
                                     isOldestPending && "bg-indigo-50/40"
                                   )}
                                 >
-                                  <td className="px-6 py-4">
+                                  <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                     <div className="flex items-center gap-2">
                                       <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
                                       {isOldestPending && (
@@ -3993,21 +4005,21 @@ export default function App() {
                                       )}
                                     </div>
                                   </td>
-                                  <td className="px-6 py-4">
+                                  <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                     <div className="flex flex-col">
                                       <span className="text-sm font-semibold text-slate-900">{targetUser?.displayName || l.userEmail?.split('@')[0]}</span>
                                       <span className="text-xs text-slate-500">{l.userEmail}</span>
                                     </div>
                                   </td>
-                                <td className="px-6 py-4">
+                                <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                   <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                   <p className="text-xs text-slate-500 max-w-[200px] truncate" title={l.details}>
                                     {l.details || 'No details'}
                                   </p>
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                   <span className={cn(
                                     "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold",
                                     l.status === 'approved' ? "bg-emerald-50 text-emerald-600" : 
@@ -4018,12 +4030,12 @@ export default function App() {
                                     {l.status.toUpperCase()}
                                   </span>
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                   <span className="text-xs text-slate-500">
                                     {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
                                   </span>
                                 </td>
-                                <td className="px-6 py-4">
+                                <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                   <span className={cn(
                                     "text-xs font-bold",
                                     l.paymentMode === 'Online' ? "text-indigo-600" : l.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
@@ -4031,7 +4043,7 @@ export default function App() {
                                     {l.paymentMode || '-'}
                                   </span>
                                 </td>
-                                <td className="px-6 py-4 text-right">
+                                <td className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-right">
                                   <div className="flex items-center justify-end gap-2">
                                     {l.status === 'pending' && (
                                       <button 
@@ -4080,7 +4092,7 @@ export default function App() {
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="lg:hidden space-y-4">
+                    <div className="hidden space-y-4">
                       {sortedLoans.map((l, idx) => {
                         const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                         const isOldestPending = l.id === oldestPendingLoanId;
@@ -5000,15 +5012,15 @@ export default function App() {
             {appliedFilter ? (
               <>
                 {/* Desktop Table View */}
-                <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                <div className={cn(isAdmin ? "block" : "hidden lg:block", "bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden")}>
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full text-left border-collapse whitespace-nowrap">
                       <thead>
                         <tr className="bg-slate-50/50 border-b border-slate-100">
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
+                          <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-12">#</th>
                           {isAdmin && (
                             <th 
-                              className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                              className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                               onClick={() => handleSort('member')}
                             >
                               <div className="flex items-center gap-2">
@@ -5021,10 +5033,10 @@ export default function App() {
                               </div>
                             </th>
                           )}
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Month / Year</th>
-                          <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
+                          <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Month / Year</th>
+                          <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
                           <th 
-                            className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                            className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                             onClick={() => handleSort('status')}
                           >
                             <div className="flex items-center gap-2">
@@ -5037,7 +5049,7 @@ export default function App() {
                             </div>
                           </th>
                           <th 
-                            className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
+                            className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group"
                             onClick={() => handleSort('date')}
                           >
                             <div className="flex items-center gap-2">
@@ -5049,7 +5061,7 @@ export default function App() {
                               )}
                             </div>
                           </th>
-                          {isAdmin && <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>}
+                          {isAdmin && <th className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -5061,11 +5073,11 @@ export default function App() {
                           key={`desktop-contrib-${idx}-${c.id || 'cont-d'}`} 
                           className="hover:bg-slate-50/50 transition-colors"
                         >
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
                           </td>
                           {isAdmin && (
-                            <td className="px-6 py-4">
+                            <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                               <span className="text-sm font-semibold text-slate-900">
                                 {allUsers.find(u => 
                                   (c.userId && u.uid === c.userId) || 
@@ -5074,15 +5086,15 @@ export default function App() {
                               </span>
                             </td>
                           )}
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className="text-sm font-medium text-slate-700">
                               {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
                             </span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString()}</span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <div className="flex flex-col gap-1">
                               <span className={cn(
                                 "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold w-fit",
@@ -5098,13 +5110,13 @@ export default function App() {
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className="text-xs text-slate-500">
                               {c.timestamp?.toDate ? format(c.timestamp.toDate(), 'MMM dd, hh:mm a') : 'Just now'}
                             </span>
                           </td>
                           {isAdmin && (
-                            <td className="px-6 py-4 text-right">
+                            <td className="px-2.5 sm:px-6 py-3.5 sm:py-4 text-right">
                               <div className="flex items-center justify-end gap-2">
                                 {c.status === 'pending' && (
                                   <button 
@@ -5147,7 +5159,7 @@ export default function App() {
                 </div>
 
                 {/* Mobile Card View */}
-                <div className="lg:hidden space-y-4">
+                <div className={cn(isAdmin && "hidden", "lg:hidden space-y-4")}>
                   {sortedContributions.map((c, idx) => {
                       const member = allUsers.find(u => 
                         (c.userId && u.uid === c.userId) || 

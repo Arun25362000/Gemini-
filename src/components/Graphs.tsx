@@ -35,7 +35,17 @@ const isMobileApp = typeof window !== 'undefined' &&
   !window.location.hostname.includes('asia-southeast1.run.app');
 
 const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPayments, financials, userEmail, isAdmin }) => {
-  const isAndroid = isMobileApp;
+  const [isMobileScreen, setIsMobileScreen] = React.useState(false);
+  React.useEffect(() => {
+    const handleResize = () => {
+      setIsMobileScreen(window.innerWidth < 1024);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isAndroid = isMobileApp || isMobileScreen;
 
   // Personal savings calculation (2026 onwards)
   const personalSavings = contributions
