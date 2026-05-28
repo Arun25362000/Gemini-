@@ -3983,6 +3983,7 @@ export default function App() {
                             {sortedLoans.map((l, idx) => {
                               const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                               const isOldestPending = l.id === oldestPendingLoanId;
+                              const hasRepayments = loanPayments.some(p => p.loanId === l.id);
                               return (
                                 <motion.tr 
                                   initial={{ opacity: 0, y: 10 }}
@@ -4053,7 +4054,7 @@ export default function App() {
                                         Approve
                                       </button>
                                     )}
-                                    {(l.status === 'pending' || l.status === 'approved') && (
+                                    {(l.status === 'pending' || l.status === 'approved') && !hasRepayments && (
                                       <button 
                                         onClick={() => {
                                           setDecliningLoanId(l.id!);
@@ -4064,16 +4065,18 @@ export default function App() {
                                         Decline
                                       </button>
                                     )}
-                                    <button 
-                                      onClick={() => {
-                                        setDeletingLoanId(l.id!);
-                                        setLoanActionComment('');
-                                      }}
-                                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                      title="Delete Application"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    {!hasRepayments && (
+                                      <button 
+                                        onClick={() => {
+                                          setDeletingLoanId(l.id!);
+                                          setLoanActionComment('');
+                                        }}
+                                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                        title="Delete Application"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               </motion.tr>
@@ -4096,6 +4099,7 @@ export default function App() {
                       {sortedLoans.map((l, idx) => {
                         const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                         const isOldestPending = l.id === oldestPendingLoanId;
+                        const hasRepayments = loanPayments.some(p => p.loanId === l.id);
                         return (
                           <motion.div 
                             key={`mobile-loan-item-${l.id || idx}-${idx}`}
@@ -4162,7 +4166,7 @@ export default function App() {
                                 Approve
                               </button>
                             )}
-                            {(l.status === 'pending' || l.status === 'approved') && (
+                            {(l.status === 'pending' || l.status === 'approved') && !hasRepayments && (
                               <button 
                                 onClick={() => {
                                   setDecliningLoanId(l.id!);
@@ -4173,15 +4177,17 @@ export default function App() {
                                 Decline
                               </button>
                             )}
-                            <button 
-                              onClick={() => {
-                                setDeletingLoanId(l.id!);
-                                setLoanActionComment('');
-                              }}
-                              className="p-2.5 bg-red-50 text-red-600 rounded-xl transition-all"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {!hasRepayments && (
+                              <button 
+                                onClick={() => {
+                                  setDeletingLoanId(l.id!);
+                                  setLoanActionComment('');
+                                }}
+                                className="p-2.5 bg-red-50 text-red-600 rounded-xl transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </motion.div>
                       );
