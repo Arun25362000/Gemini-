@@ -472,6 +472,122 @@ export default function App() {
     paymentDate: format(new Date(), 'yyyy-MM-dd')
   });
 
+  // Handle hardware back button on Android/iOS natively via Capacitor
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const backButtonHandlerPromise = CapacitorApp.addListener('backButton', () => {
+      console.log('Hardware back button pressed');
+
+      // Check and dismiss open modals/dialogs in order of precedence:
+      if (paymentModal.isOpen) {
+        setPaymentModal(prev => ({ ...prev, isOpen: false }));
+        return;
+      }
+      if (adminManualRepayment.isOpen) {
+        setAdminManualRepayment(prev => ({ ...prev, isOpen: false }));
+        return;
+      }
+      if (isAdding) {
+        setIsAdding(false);
+        return;
+      }
+      if (isAddingMember) {
+        setIsAddingMember(false);
+        return;
+      }
+      if (editingUser) {
+        setEditingUser(null);
+        return;
+      }
+      if (editingContribution) {
+        setEditingContribution(null);
+        return;
+      }
+      if (isAddingNotice) {
+        setIsAddingNotice(false);
+        return;
+      }
+      if (isPayingLoan) {
+        setIsPayingLoan(false);
+        return;
+      }
+      if (isApplyingLoan) {
+        setIsApplyingLoan(false);
+        return;
+      }
+      if (isAddingLoan) {
+        setIsAddingLoan(false);
+        return;
+      }
+      if (selectedLoan) {
+        setSelectedLoan(null);
+        return;
+      }
+      if (deletingId) {
+        setDeletingId(null);
+        return;
+      }
+      if (deletingRepaymentId) {
+        setDeletingRepaymentId(null);
+        return;
+      }
+      if (settlingLoanId) {
+        setSettlingLoanId(null);
+        return;
+      }
+      if (approvingLoanForPaymentMode) {
+        setApprovingLoanForPaymentMode(null);
+        return;
+      }
+      if (showPhonePrompt) {
+        setShowPhonePrompt(false);
+        return;
+      }
+      if (showNotifications) {
+        setShowNotifications(false);
+        return;
+      }
+      if (showNoticeBoard) {
+        setShowNoticeBoard(false);
+        return;
+      }
+
+      // If no modal or custom sub-view is active, manage tab hierarchy:
+      if (activeTab !== 'contributions') {
+        setActiveTab('contributions');
+        return;
+      }
+
+      // If on the primary screen, minimize the app elegantly to prevent abrupt termination
+      CapacitorApp.minimizeApp();
+    });
+
+    return () => {
+      backButtonHandlerPromise.then(handle => handle.remove());
+    };
+  }, [
+    paymentModal,
+    adminManualRepayment,
+    isAdding,
+    isAddingMember,
+    editingUser,
+    editingContribution,
+    isAddingNotice,
+    isPayingLoan,
+    isApplyingLoan,
+    isAddingLoan,
+    selectedLoan,
+    deletingId,
+    deletingRepaymentId,
+    settlingLoanId,
+    approvingLoanForPaymentMode,
+    showPhonePrompt,
+    showNotifications,
+    showNoticeBoard,
+    activeTab
+  ]);
+
   useEffect(() => {
     if (settlingLoanId) {
       const loan = loans.find(l => l.id === settlingLoanId);
