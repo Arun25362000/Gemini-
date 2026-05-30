@@ -1,10 +1,10 @@
-// Service Worker Version: 5.0.0
-const CACHE_NAME = 'unnati-v5';
+// Service Worker Version: 6.0.0
+const CACHE_NAME = 'unnati-v6';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json?v=5',
-  '/logo.png?v=5'
+  '/manifest.json?v=6',
+  '/logo.png?v=6'
 ];
 
 self.addEventListener('install', (event) => {

@@ -2992,7 +2992,7 @@ export default function App() {
               <div className="relative mb-12">
                 <div className="w-48 h-48 bg-white rounded-[3rem] flex items-center justify-center shadow-2xl shadow-indigo-100 relative overflow-hidden border border-slate-100">
                   <img 
-                    src="/logo.png?v=5" 
+                    src="/logo.png?v=6" 
                     alt="Unnati Logo" 
                     className="w-full h-full object-contain p-2"
                     referrerPolicy="no-referrer"
@@ -3056,7 +3056,7 @@ export default function App() {
               <div className={cn("relative w-40 h-40 mx-auto mb-8", isMobileVisual && "w-32 h-32 mb-6")}>
                 <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
                   <img 
-                    src="/logo.png?v=5" 
+                    src="/logo.png?v=6" 
                     alt="Unnati Logo" 
                     className="w-full h-full object-contain p-2"
                     referrerPolicy="no-referrer"
@@ -3171,7 +3171,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center shadow-md shadow-indigo-50 overflow-hidden border border-slate-100">
               <img 
-                src="/logo.png?v=5" 
+                src="/logo.png?v=6" 
                 alt="Unnati Logo" 
                 className="w-full h-full object-contain p-1"
                 referrerPolicy="no-referrer"
