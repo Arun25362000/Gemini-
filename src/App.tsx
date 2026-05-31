@@ -92,39 +92,38 @@ import { Notice, AppNotification } from './types';
 // --- Helper for Capacitor Mobile File Saving/Downloading ---
 const downloadFileMobile = async (fileName: string, base64Data: string) => {
   try {
+    // Write to Cache directory - easier for Share plugin to access without extra permission dramas
     const result = await Filesystem.writeFile({
       path: fileName,
       data: base64Data,
-      directory: Directory.Documents,
-      recursive: true
+      directory: Directory.Cache
     });
-    console.log("Capacitor download success:", result.uri);
+    
+    console.log("Capacitor write success (Cache):", result.uri);
+    
+    // Share the file so user can save it or send it
+    await Share.share({
+      title: 'Unnati Statement',
+      text: `Your statement: ${fileName}`,
+      url: result.uri,
+      dialogTitle: 'Save or Share Statement',
+    });
+    
     return { success: true, uri: result.uri };
   } catch (error: any) {
-    console.error("Capacitor file download to Documents failed, trying External...", error);
+    console.error("Capacitor share/save failed, trying fallback write to Documents...", error);
     try {
       const result = await Filesystem.writeFile({
         path: fileName,
         data: base64Data,
-        directory: Directory.External,
+        directory: Directory.Documents,
         recursive: true
       });
-      console.log("Capacitor download to External success:", result.uri);
-      return { success: true, uri: result.uri };
-    } catch (extError: any) {
-      console.error("Capacitor download fallback to Cache...", extError);
-      try {
-        const result = await Filesystem.writeFile({
-          path: fileName,
-          data: base64Data,
-          directory: Directory.Cache
-        });
-        console.log("Capacitor fallback download to Cache success:", result.uri);
-        return { success: true, uri: result.uri, warning: true };
-      } catch (cacheError: any) {
-        console.error("Capacitor download fallback failed", cacheError);
-        return { success: false, error: cacheError };
-      }
+      console.log("Capacitor fallback write to Documents success:", result.uri);
+      return { success: true, uri: result.uri, fallback: true };
+    } catch (docError: any) {
+      console.error("Capacitor all mobile download methods failed", docError);
+      return { success: false, error: docError };
     }
   }
 };
@@ -292,10 +291,12 @@ const LOGO_SRC = "/brand-unnati-official.png?v=5000";
 
 export default function App() {
   const isMobileApp = useMemo(() => {
-    return (window.location.hostname === 'localhost' || 
-            window.location.protocol === 'file:' || 
-            /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) &&
-           !window.location.hostname.includes('asia-southeast1.run.app');
+    return Capacitor.isNativePlatform() || 
+           ((window.location.hostname === 'localhost' || 
+             window.location.protocol === 'file:' || 
+             window.location.protocol === 'capacitor:' ||
+             /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) &&
+            !window.location.hostname.includes('asia-southeast1.run.app'));
   }, []);
 
   const [isMobileScreen, setIsMobileScreen] = useState(false);
