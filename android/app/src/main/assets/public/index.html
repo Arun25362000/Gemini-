@@ -13,7 +13,14 @@
         }
         if ('caches' in window) {
           caches.keys().then(names => {
-            for (let name of names) caches.delete(name);
+            for (let name of names) {
+              caches.open(name).then(cache => {
+                cache.delete('/u-logo.png');
+                cache.delete('/logo.png');
+                cache.delete('/identity-unnati-final.png');
+              });
+              caches.delete(name);
+            }
           });
         }
         localStorage.clear();
@@ -42,16 +49,16 @@
       }, false);
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#4f46e5" />
+    <meta name="theme-color" content="#013125" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Unnati" />
-    <link rel="manifest" href="/manifest.json?v=6" crossorigin="use-credentials" />
-    <link rel="icon" type="image/png" href="/logo.png?v=6" />
-    <link rel="apple-touch-icon" href="/logo.png?v=6" />
+    <link rel="manifest" href="/manifest.json?v=3000" crossorigin="use-credentials" />
+    <link rel="icon" type="image/png" href="/brand-unnati-official.png?v=3000" />
+    <link rel="apple-touch-icon" href="/brand-unnati-official.png?v=3000" />
     <title>Unnati</title>
-    <script type="module" crossorigin src="/assets/index-9JcmnZD_.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CxAVqoE4.css">
+    <script type="module" crossorigin src="/assets/index-F_iB77kX.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Br0yi08H.css">
   </head>
   <body>
     <div id="root"></div>

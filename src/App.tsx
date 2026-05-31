@@ -288,6 +288,8 @@ function ErrorBoundary({ error }: { error: string }) {
   );
 }
 
+const LOGO_SRC = "/brand-unnati-official.png?v=3000";
+
 export default function App() {
   const isMobileApp = useMemo(() => {
     return (window.location.hostname === 'localhost' || 
@@ -2990,11 +2992,11 @@ export default function App() {
           >
             <div className="flex flex-col items-center">
               <div className="relative mb-12">
-                <div className="w-48 h-48 bg-white rounded-[3rem] flex items-center justify-center shadow-2xl shadow-indigo-100 relative overflow-hidden border border-slate-100">
+                <div className="w-48 h-48 flex items-center justify-center relative overflow-hidden">
                   <img 
-                    src="/logo.png?v=6" 
+                    src={LOGO_SRC} 
                     alt="Unnati Logo" 
-                    className="w-full h-full object-contain p-2"
+                    className="w-full h-full object-contain"
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
@@ -3007,7 +3009,7 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.4 }}
-                className="text-4xl font-black tracking-tighter text-indigo-600 mb-2"
+                className="text-4xl font-black tracking-tighter text-[#013125] mb-2"
               >
                 UNNATI
               </motion.h1>
@@ -3021,7 +3023,7 @@ export default function App() {
                 <motion.div
                   animate={{ x: [-120, 120] }}
                   transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
-                  className="w-full h-full bg-indigo-600"
+                  className="w-full h-full bg-[#013125]"
                 />
               </motion.div>
               
@@ -3054,11 +3056,11 @@ export default function App() {
               )}
             >
               <div className={cn("relative w-40 h-40 mx-auto mb-8", isMobileVisual && "w-32 h-32 mb-6")}>
-                <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center shadow-xl shadow-indigo-50 relative z-10 overflow-hidden border border-slate-50">
+                <div className="w-full h-full flex items-center justify-center relative z-10 overflow-hidden">
                   <img 
-                    src="/logo.png?v=6" 
+                    src={LOGO_SRC} 
                     alt="Unnati Logo" 
-                    className="w-full h-full object-contain p-2"
+                    className="w-full h-full object-contain"
                     referrerPolicy="no-referrer"
                     onError={(e) => {
                       e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
@@ -3169,11 +3171,11 @@ export default function App() {
               <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className={cn("max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between", isMobileVisual && "px-2.5")}>
           <div className="flex items-center gap-3">
-            <div className="w-16 h-16 bg-white rounded-xl flex items-center justify-center shadow-md shadow-indigo-50 overflow-hidden border border-slate-100">
+            <div className="w-16 h-16 flex items-center justify-center overflow-hidden">
               <img 
-                src="/logo.png?v=6" 
+                src={LOGO_SRC} 
                 alt="Unnati Logo" 
-                className="w-full h-full object-contain p-1"
+                className="w-full h-full object-contain"
                 referrerPolicy="no-referrer"
                 onError={(e) => {
                   e.currentTarget.src = "https://picsum.photos/seed/growth/512/512";
