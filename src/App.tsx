@@ -92,38 +92,30 @@ import { Notice, AppNotification } from './types';
 // --- Helper for Capacitor Mobile File Saving/Downloading ---
 const downloadFileMobile = async (fileName: string, base64Data: string) => {
   try {
-    // Write to Cache directory - easier for Share plugin to access without extra permission dramas
+    // Write directly to Documents directory for local download as requested
     const result = await Filesystem.writeFile({
       path: fileName,
       data: base64Data,
-      directory: Directory.Cache
+      directory: Directory.Documents,
+      recursive: true
     });
     
-    console.log("Capacitor write success (Cache):", result.uri);
-    
-    // Share the file so user can save it or send it
-    await Share.share({
-      title: 'Unnati Statement',
-      text: `Your statement: ${fileName}`,
-      url: result.uri,
-      dialogTitle: 'Save or Share Statement',
-    });
-    
+    console.log("Capacitor download success (Documents):", result.uri);
     return { success: true, uri: result.uri };
   } catch (error: any) {
-    console.error("Capacitor share/save failed, trying fallback write to Documents...", error);
+    console.error("Capacitor download to Documents failed, trying External...", error);
     try {
       const result = await Filesystem.writeFile({
         path: fileName,
         data: base64Data,
-        directory: Directory.Documents,
+        directory: Directory.External,
         recursive: true
       });
-      console.log("Capacitor fallback write to Documents success:", result.uri);
+      console.log("Capacitor download to External success:", result.uri);
       return { success: true, uri: result.uri, fallback: true };
-    } catch (docError: any) {
-      console.error("Capacitor all mobile download methods failed", docError);
-      return { success: false, error: docError };
+    } catch (extError: any) {
+      console.error("Capacitor all local download methods failed", extError);
+      return { success: false, error: extError };
     }
   }
 };
