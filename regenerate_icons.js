@@ -52,10 +52,21 @@ async function processIcons() {
       'ic_launcher_app_foreground.png'
     ];
 
+    // Brand color for PNG fallbacks
+    const brandBackground = { r: 0, g: 77, b: 64, alpha: 1 }; // #004D40
+
     for (const f of foregroundFiles) {
       const targetPath = path.join(dir, f);
       // Adaptive foreground MUST be 108dp, logo should be in centered 72dp zone
-      const safeSize = Math.floor(sizes.foreground * 0.66);
+      const safeSize = Math.floor(sizes.foreground * 0.60); // Slightly smaller for extra safe margin
+      
+      // We attempt to make the background of the logo transparent if it's white
+      // Since it's a JPEG, we use the flatten/extend or color manipulation
+      // For now, let's just resize it and hope it's clean, or use a threshold
+      const logoBuffer = await sharp(SRC)
+        .resize(safeSize, safeSize, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .toBuffer();
+
       await sharp({
         create: {
           width: sizes.foreground,
@@ -65,9 +76,30 @@ async function processIcons() {
         }
       })
       .composite([{
-        input: await sharp(SRC).resize(safeSize, safeSize, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } }).toBuffer(),
+        input: logoBuffer,
         gravity: 'center'
       }])
+      .png()
+      .toFile(targetPath);
+      console.log(`  Updated ${density}/${f}`);
+    }
+
+    // Update PNG backgrounds as fallbacks for some launchers
+    const backgroundFiles = [
+      'ic_launcher_background.png',
+      'ic_launcher_unnati_background.png',
+      'ic_launcher_app_background.png'
+    ];
+    for (const f of backgroundFiles) {
+      const targetPath = path.join(dir, f);
+      await sharp({
+        create: {
+          width: sizes.foreground,
+          height: sizes.foreground,
+          channels: 4,
+          background: brandBackground
+        }
+      })
       .png()
       .toFile(targetPath);
       console.log(`  Updated ${density}/${f}`);
