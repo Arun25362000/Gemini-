@@ -52,6 +52,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
+  // Exclude Firebase and other essential external domains from being intercepted by the SW
+  if (url.hostname.includes('firebase') || 
+      url.hostname.includes('googleapis') || 
+      url.hostname.includes('google-analytics') ||
+      url.hostname.includes('googletagmanager')) {
+    return; // Pass through to network directly
+  }
+
   // For navigation requests, try network first, then cache
   if (event.request.mode === 'navigate') {
     event.respondWith(

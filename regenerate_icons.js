@@ -36,7 +36,12 @@ async function processIcons() {
 
     for (const f of iconFiles) {
       const targetPath = path.join(dir, f);
-      await sharp(SRC).resize(sizes.icon, sizes.icon).toFile(targetPath);
+      // For standard icons, we want it to fit nicely. 
+      // If it's a transparency-based logo, we might want to put a white background or keep it transparent.
+      // Usually launcher icons are square or round. Round is handled by roundIcon param in manifest.
+      await sharp(SRC)
+        .resize(sizes.icon, sizes.icon, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .toFile(targetPath);
       console.log(`  Updated ${density}/${f}`);
     }
 
@@ -49,7 +54,22 @@ async function processIcons() {
 
     for (const f of foregroundFiles) {
       const targetPath = path.join(dir, f);
-      await sharp(SRC).resize(sizes.foreground, sizes.foreground).toFile(targetPath);
+      // Adaptive foreground MUST be 108dp, logo should be in centered 72dp zone
+      const safeSize = Math.floor(sizes.foreground * 0.66);
+      await sharp({
+        create: {
+          width: sizes.foreground,
+          height: sizes.foreground,
+          channels: 4,
+          background: { r: 255, g: 255, b: 255, alpha: 0 }
+        }
+      })
+      .composite([{
+        input: await sharp(SRC).resize(safeSize, safeSize, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } }).toBuffer(),
+        gravity: 'center'
+      }])
+      .png()
+      .toFile(targetPath);
       console.log(`  Updated ${density}/${f}`);
     }
   }

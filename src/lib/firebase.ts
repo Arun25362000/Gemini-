@@ -15,12 +15,21 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore with settings optimized for mobile WebViews
 // Using experimentalForceLongPolling avoids websocket issues in some Android environments
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  })
-}, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Optional: Enable offline persistence if in browser environment
+if (typeof window !== 'undefined') {
+  // We use the simpler enableIndexedDbPersistence for compatibility
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      // Multiple tabs open, persistence can only be enabled in one tab at a a time.
+      console.warn('Firestore persistence failed: failed-precondition');
+    } else if (err.code === 'unimplemented') {
+      // The current browser doesn't support all of the features required to enable persistence
+      console.warn('Firestore persistence failed: unimplemented');
+    }
+  });
+}
 
 export const auth = getAuth(app);
 
@@ -49,8 +58,10 @@ async function testConnection() {
       } else if (error.message.includes('PERMISSION_DENIED')) {
         console.error("Firestore Error: Permission Denied. Please ensure the Firestore API is enabled and rules are deployed.");
       } else {
-        console.error("Firestore connection test failed:", error.message);
+        console.error("Firestore connection test failed:", error);
       }
+    } else {
+      console.error("Firestore connection test failed with non-Error object:", error);
     }
   }
 }
