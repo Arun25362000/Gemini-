@@ -1,10 +1,10 @@
-// Service Worker Version: 3000.0.0
-const CACHE_NAME = 'unnati-v3000';
+// Service Worker Version: 4000.0.0
+const CACHE_NAME = 'unnati-v4000';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
-  // brand-unnati-official.png is purposely omitted here to ensure network-first fetch
+  // brand_unnati_logo.png is purposely omitted here to ensure network-first fetch
 ];
 
 self.addEventListener('install', (event) => {
@@ -63,7 +63,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Use the unique name to bypass any possible legacy proxy/worker caches
-  if (url.pathname.includes('brand-unnati-official.png')) {
+  if (url.pathname.includes('brand_unnati_logo.png')) {
     event.respondWith(
       fetch(event.request)
         .catch(() => caches.match(event.request, { ignoreSearch: true }))

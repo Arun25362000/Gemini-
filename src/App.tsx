@@ -288,7 +288,7 @@ function ErrorBoundary({ error }: { error: string }) {
   );
 }
 
-const LOGO_SRC = "/brand-unnati-official.png?v=3000";
+const LOGO_SRC = "/brand_unnati_logo.png?v=4000";
 
 export default function App() {
   const isMobileApp = useMemo(() => {

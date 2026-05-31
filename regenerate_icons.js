@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
-const SRC = 'public/brand-unnati-official.png';
+const SRC = 'public/brand_unnati_logo.png';
 
 const DENSITIES = {
   'mdpi': { icon: 48, foreground: 108 },
