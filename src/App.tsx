@@ -6447,6 +6447,18 @@ export default function App() {
         )}
 
         <footer className="max-w-6xl mx-auto px-4 sm:px-6 py-12 text-center">
+          <div className="flex flex-col items-center gap-6 mb-8">
+            {!Capacitor.isNativePlatform() && (
+              <a 
+                href="https://github.com/Arun-J-21/Unnati-Finance/actions/workflows/android-build.yml" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-sm font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
+              >
+                <Download className="w-5 h-5" /> Download Latest Android App (APK)
+              </a>
+            )}
+          </div>
           <p className="text-sm text-slate-400">
             Rules: ₹1,000 contribution due before the 10th of every month.
           </p>
