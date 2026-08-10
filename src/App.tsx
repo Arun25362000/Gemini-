@@ -57,6 +57,7 @@ import {
   IndianRupee,
   Bell,
   Megaphone,
+  ChevronUp,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -446,6 +447,8 @@ export default function App() {
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
+  const [isContribListExpanded, setIsContribListExpanded] = useState<boolean>(true);
+  const [isLoanListExpanded, setIsLoanListExpanded] = useState<boolean>(true);
   const [customPrincipal, setCustomPrincipal] = useState<number>(5000);
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
@@ -5833,16 +5836,27 @@ export default function App() {
                   </div>
 
                   {/* Detailed Tables Section */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                     {/* Table 1: Paid Member Contributions */}
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <div 
+                        onClick={() => setIsContribListExpanded(!isContribListExpanded)}
+                        className="flex items-center justify-between pb-3 border-b border-slate-100 cursor-pointer select-none group"
+                        title={isContribListExpanded ? "Click to collapse" : "Click to expand"}
+                      >
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold shrink-0">
                             <Wallet className="w-4 h-4" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-slate-900 text-sm sm:text-base">Member Contributions</h4>
+                            <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                              Member Contributions
+                              {isContribListExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                              )}
+                            </h4>
                             <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
                           </div>
                         </div>
@@ -5851,110 +5865,125 @@ export default function App() {
                         </span>
                       </div>
 
-                      {monthlyPaidContributions.length === 0 ? (
-                        <p className="text-slate-400 text-xs italic py-8 text-center">No paid contributions recorded for this month.</p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100 select-none">
-                                <th 
-                                  onClick={() => handleContribSort('sno')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-l-lg"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    #
-                                    {collectionContribSortConfig.field === 'sno' ? (
-                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleContribSort('member')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Member
-                                    {collectionContribSortConfig.field === 'member' ? (
-                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleContribSort('amount')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Amount
-                                    {collectionContribSortConfig.field === 'amount' ? (
-                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleContribSort('method')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Method
-                                    {collectionContribSortConfig.field === 'method' ? (
-                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleContribSort('date')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-r-lg"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Date
-                                    {collectionContribSortConfig.field === 'date' ? (
-                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                              {sortedContribs.map((item, rowIdx) => (
-                                <tr key={`coll-contrib-${item.id}`} className="hover:bg-slate-50/80 transition-colors">
-                                  <td className="py-2.5 px-3 font-semibold text-slate-400">
-                                    {rowIdx + 1}
-                                  </td>
-                                  <td className="py-2.5 px-3 font-bold text-slate-900">
-                                    {item.memberName}
-                                  </td>
-                                  <td className="py-2.5 px-3 font-bold text-emerald-600">
-                                    ₹{item.amount.toLocaleString()}
-                                  </td>
-                                  <td className="py-2.5 px-3">
-                                    <span className={cn(
-                                      "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase",
-                                      item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                    )}>
-                                      {item.method}
-                                    </span>
-                                  </td>
-                                  <td className="py-2.5 px-3 text-slate-500">
-                                    {item.dateFormatted}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                      {isContribListExpanded && (
+                        <>
+                          {monthlyPaidContributions.length === 0 ? (
+                            <p className="text-slate-400 text-xs italic py-8 text-center">No paid contributions recorded for this month.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead>
+                                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100 select-none">
+                                    <th 
+                                      onClick={() => handleContribSort('sno')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-l-lg"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        #
+                                        {collectionContribSortConfig.field === 'sno' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('member')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Member
+                                        {collectionContribSortConfig.field === 'member' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('amount')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Amount
+                                        {collectionContribSortConfig.field === 'amount' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('method')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Method
+                                        {collectionContribSortConfig.field === 'method' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('date')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-r-lg"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Date
+                                        {collectionContribSortConfig.field === 'date' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                  {sortedContribs.map((item, rowIdx) => (
+                                    <tr key={`coll-contrib-${item.id}`} className="hover:bg-slate-50/80 transition-colors">
+                                      <td className="py-2.5 px-3 font-semibold text-slate-400">
+                                        {rowIdx + 1}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-bold text-slate-900">
+                                        {item.memberName}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-bold text-emerald-600">
+                                        ₹{item.amount.toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 px-3">
+                                        <span className={cn(
+                                          "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase",
+                                          item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                        )}>
+                                          {item.method}
+                                        </span>
+                                      </td>
+                                      <td className="py-2.5 px-3 text-slate-500">
+                                        {item.dateFormatted}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
 
                     {/* Table 2: Loan Repayments Collected */}
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <div 
+                        onClick={() => setIsLoanListExpanded(!isLoanListExpanded)}
+                        className="flex items-center justify-between pb-3 border-b border-slate-100 cursor-pointer select-none group"
+                        title={isLoanListExpanded ? "Click to collapse" : "Click to expand"}
+                      >
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
                             <IndianRupee className="w-4 h-4" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-slate-900 text-sm sm:text-base">Loan Repayments Collected</h4>
+                            <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-emerald-600 transition-colors flex items-center gap-2">
+                              Loan Repayments Collected
+                              {isLoanListExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                              )}
+                            </h4>
                             <p className="text-xs text-slate-500">Principal + Interest for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
                           </div>
                         </div>
@@ -5963,107 +5992,111 @@ export default function App() {
                         </span>
                       </div>
 
-                      {monthlyPaidLoanPayments.length === 0 ? (
-                        <p className="text-slate-400 text-xs italic py-8 text-center">No loan repayments collected for this month.</p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100 select-none">
-                                <th 
-                                  onClick={() => handleLoanSort('sno')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-l-lg"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    #
-                                    {collectionLoanSortConfig.field === 'sno' ? (
-                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleLoanSort('borrower')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Borrower
-                                    {collectionLoanSortConfig.field === 'borrower' ? (
-                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleLoanSort('principal')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Principal
-                                    {collectionLoanSortConfig.field === 'principal' ? (
-                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleLoanSort('interest')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Interest
-                                    {collectionLoanSortConfig.field === 'interest' ? (
-                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleLoanSort('total')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Total Paid
-                                    {collectionLoanSortConfig.field === 'total' ? (
-                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                                <th 
-                                  onClick={() => handleLoanSort('date')}
-                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-r-lg"
-                                >
-                                  <div className="flex items-center gap-1">
-                                    Date
-                                    {collectionLoanSortConfig.field === 'date' ? (
-                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-                                  </div>
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                              {sortedLoanPayments.map((p, rowIdx) => (
-                                <tr key={`coll-loan-p-${p.id}`} className="hover:bg-slate-50/80 transition-colors">
-                                  <td className="py-2.5 px-3 font-semibold text-slate-400">
-                                    {rowIdx + 1}
-                                  </td>
-                                  <td className="py-2.5 px-3 font-bold text-slate-900">
-                                    {p.borrowerName}
-                                  </td>
-                                  <td className="py-2.5 px-3 font-semibold text-slate-700">
-                                    ₹{p.principal.toLocaleString()}
-                                  </td>
-                                  <td className="py-2.5 px-3 font-semibold text-amber-600">
-                                    ₹{p.interest.toLocaleString()}
-                                  </td>
-                                  <td className="py-2.5 px-3 font-bold text-emerald-600">
-                                    ₹{p.total.toLocaleString()}
-                                  </td>
-                                  <td className="py-2.5 px-3 text-slate-500">
-                                    {p.dateFormatted}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                      {isLoanListExpanded && (
+                        <>
+                          {monthlyPaidLoanPayments.length === 0 ? (
+                            <p className="text-slate-400 text-xs italic py-8 text-center">No loan repayments collected for this month.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead>
+                                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100 select-none">
+                                    <th 
+                                      onClick={() => handleLoanSort('sno')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-l-lg"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        #
+                                        {collectionLoanSortConfig.field === 'sno' ? (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleLoanSort('borrower')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Borrower
+                                        {collectionLoanSortConfig.field === 'borrower' ? (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleLoanSort('principal')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Principal
+                                        {collectionLoanSortConfig.field === 'principal' ? (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleLoanSort('interest')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Interest
+                                        {collectionLoanSortConfig.field === 'interest' ? (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleLoanSort('total')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Total Paid
+                                        {collectionLoanSortConfig.field === 'total' ? (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleLoanSort('date')}
+                                      className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-r-lg"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Date
+                                        {collectionLoanSortConfig.field === 'date' ? (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                      </div>
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                  {sortedLoanPayments.map((p, rowIdx) => (
+                                    <tr key={`coll-loan-p-${p.id}`} className="hover:bg-slate-50/80 transition-colors">
+                                      <td className="py-2.5 px-3 font-semibold text-slate-400">
+                                        {rowIdx + 1}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-bold text-slate-900">
+                                        {p.borrowerName}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-semibold text-slate-700">
+                                        ₹{p.principal.toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-semibold text-amber-600">
+                                        ₹{p.interest.toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 px-3 font-bold text-emerald-600">
+                                        ₹{p.total.toLocaleString()}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-slate-500">
+                                        {p.dateFormatted}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -6980,18 +7013,6 @@ export default function App() {
         )}
 
         <footer className="max-w-6xl mx-auto px-4 sm:px-6 py-12 text-center">
-          <div className="flex flex-col items-center gap-6 mb-8">
-            {!Capacitor.isNativePlatform() && (
-              <a 
-                href="https://github.com/Arun-J-21/Unnati-Finance/actions/workflows/android-build.yml" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-sm font-bold hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
-              >
-                <Download className="w-5 h-5" /> Download Latest Android App (APK)
-              </a>
-            )}
-          </div>
           <p className="text-sm text-slate-400">
             Rules: ₹1,000 contribution due before the 10th of every month.
           </p>
