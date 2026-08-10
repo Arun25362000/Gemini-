@@ -395,7 +395,7 @@ export default function App() {
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [originalEditingEmail, setOriginalEditingEmail] = useState<string | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
-  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs'>('contributions');
+  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs' | 'monthlyCollection'>('contributions');
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments'>('applications');
   const [isApplyingLoan, setIsApplyingLoan] = useState(false);
   const [loanAmount, setLoanAmount] = useState(10000);
@@ -439,9 +439,13 @@ export default function App() {
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const [repaymentMonth, setRepaymentMonth] = useState(new Date().getMonth() + 1);
   const [repaymentYear, setRepaymentYear] = useState(new Date().getFullYear());
+  const [collectionMonth, setCollectionMonth] = useState(new Date().getMonth() + 1);
+  const [collectionYear, setCollectionYear] = useState(new Date().getFullYear());
   const [appliedFilter, setAppliedFilter] = useState<{ month: number; year: number } | null>(null);
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
+  const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
+  const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [customPrincipal, setCustomPrincipal] = useState<number>(5000);
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
@@ -3503,28 +3507,32 @@ export default function App() {
 
         {isAdmin && (
           <div className={cn(
-            "flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit",
+            "flex gap-2 mb-8 p-1.5 bg-slate-200/80 rounded-2xl w-fit border border-slate-300/50 shadow-inner",
             isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
           )}>
             <button 
               onClick={() => setActiveTab('contributions')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'contributions' 
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               Contributions
               {isAdmin && contributions.some(c => c.status === 'pending') && (
-                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
               )}
             </button>
             <button 
               onClick={() => setActiveTab('members')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'members' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'members' 
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               Members
@@ -3532,32 +3540,51 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('loans')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'loans' 
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               Loans
               {isAdmin && loans.some(l => l.status === 'pending') && (
-                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
               )}
             </button>
             <button 
               onClick={() => setActiveTab('notices')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'notices' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'notices' 
+                  ? "bg-amber-600 text-white shadow-md shadow-amber-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               Notices
             </button>
             <button 
+              onClick={() => setActiveTab('monthlyCollection')}
+              className={cn(
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileVisual && "px-3 py-2 text-xs",
+                activeTab === 'monthlyCollection' 
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+              )}
+            >
+              <IndianRupee className="w-4 h-4" />
+              Monthly Collection
+            </button>
+            <button 
               onClick={() => setActiveTab('graphs')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'graphs' 
+                  ? "bg-teal-600 text-white shadow-md shadow-teal-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               <GraphIcon className="w-4 h-4" />
@@ -3568,15 +3595,17 @@ export default function App() {
 
         {!isAdmin && (
           <div className={cn(
-            "flex gap-2 mb-8 p-1 bg-slate-100 rounded-2xl w-fit",
+            "flex gap-2 mb-8 p-1.5 bg-slate-200/80 rounded-2xl w-fit border border-slate-300/50 shadow-inner",
             isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
           )}>
             <button 
               onClick={() => setActiveTab('contributions')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'contributions' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'contributions' 
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               Contributions
@@ -3584,22 +3613,26 @@ export default function App() {
             <button 
               onClick={() => setActiveTab('loans')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'loans' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'loans' 
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               Loans
               {loans.some(l => l.userId === user?.uid && l.status === 'approved') && (
-                <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
               )}
             </button>
             <button 
               onClick={() => setActiveTab('graphs')}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'graphs' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === 'graphs' 
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
+                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
               )}
             >
               <GraphIcon className="w-4 h-4" />
@@ -3612,7 +3645,7 @@ export default function App() {
           <div className="flex flex-col">
             <h2 className="text-2xl font-bold text-slate-900">
               {isAdmin 
-                ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : activeTab === 'loans' ? 'Loan Applications' : activeTab === 'graphs' ? 'Data Analytics' : 'Notice Board') 
+                ? (activeTab === 'contributions' ? 'All Contributions' : activeTab === 'members' ? 'Group Members' : activeTab === 'loans' ? 'Loan Applications' : activeTab === 'graphs' ? 'Data Analytics' : activeTab === 'monthlyCollection' ? 'Monthly Collection Overview' : 'Notice Board') 
                 : (activeTab === 'contributions' ? 'Your History' : activeTab === 'graphs' ? 'Your Insights' : 'Loan Dashboard')}
             </h2>
             {isAdmin && activeTab === 'members' && !isSmtpConfigured && (
@@ -5537,6 +5570,506 @@ export default function App() {
                 </div>
               )}
             </div>
+          </div>
+        ) : activeTab === 'monthlyCollection' ? (
+          <div className="space-y-6">
+            {(() => {
+              const monthlyPaidContributions = contributions.filter(c => 
+                c.status === 'paid' && 
+                c.month === collectionMonth && 
+                c.year === collectionYear
+              );
+              const monthlyContributionTotal = monthlyPaidContributions.reduce((acc, c) => acc + (c.amount || 0), 0);
+
+              const monthlyPaidLoanPayments = loanPayments.filter(p => 
+                p.status === 'paid' && 
+                p.month === collectionMonth && 
+                p.year === collectionYear
+              );
+              const monthlyLoanPrincipalCollected = monthlyPaidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+              const monthlyLoanInterestCollected = monthlyPaidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+              const monthlyLoanTotalCollected = monthlyLoanPrincipalCollected + monthlyLoanInterestCollected;
+
+              const grandTotalMonthlyReceived = monthlyContributionTotal + monthlyLoanTotalCollected;
+
+              // Member lookup and mapping for contributions
+              const mappedContribs = monthlyPaidContributions.map((c, idx) => {
+                const mUser = allUsers.find(u => 
+                  (u.uid && c.userId && u.uid === c.userId) || 
+                  (u.email && c.userEmail && u.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim())
+                );
+                const memberName = mUser?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : 'Member');
+                const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : null;
+                return {
+                  sno: idx + 1,
+                  id: c.id,
+                  memberName,
+                  amount: c.amount || 0,
+                  method: c.paymentMethod || 'online',
+                  dateFormatted: dateObj ? format(dateObj, 'dd MMM yyyy') : '-',
+                  timeMs: dateObj ? dateObj.getTime() : 0,
+                  raw: c
+                };
+              });
+
+              const sortedContribs = [...mappedContribs].sort((a, b) => {
+                const { field, direction } = collectionContribSortConfig;
+                const factor = direction === 'asc' ? 1 : -1;
+                if (field === 'sno') return (a.sno - b.sno) * factor;
+                if (field === 'member') return a.memberName.localeCompare(b.memberName) * factor;
+                if (field === 'amount') return (a.amount - b.amount) * factor;
+                if (field === 'method') return a.method.localeCompare(b.method) * factor;
+                if (field === 'date') return (a.timeMs - b.timeMs) * factor;
+                return 0;
+              });
+
+              const handleContribSort = (field: 'sno' | 'member' | 'amount' | 'method' | 'date') => {
+                if (collectionContribSortConfig.field === field) {
+                  setCollectionContribSortConfig({
+                    field,
+                    direction: collectionContribSortConfig.direction === 'asc' ? 'desc' : 'asc'
+                  });
+                } else {
+                  setCollectionContribSortConfig({ field, direction: 'asc' });
+                }
+              };
+
+              // Borrower lookup and mapping for loan repayments
+              const mappedLoanPayments = monthlyPaidLoanPayments.map((p, idx) => {
+                const parentLoan = loans.find(l => l.id === p.loanId);
+                const borrower = allUsers.find(u => 
+                  (u.uid && parentLoan?.userId && u.uid === parentLoan.userId) ||
+                  (u.email && parentLoan?.userEmail && u.email.toLowerCase().trim() === parentLoan.userEmail.toLowerCase().trim()) ||
+                  (u.uid && p.userId && u.uid === p.userId) ||
+                  (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
+                );
+                const borrowerName = borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || 'Borrower';
+                const principal = p.amount || 0;
+                const interest = p.interest || 0;
+                const total = principal + interest;
+                const dateObj = p.approvedAt?.toDate ? p.approvedAt.toDate() : p.timestamp?.toDate ? p.timestamp.toDate() : null;
+
+                return {
+                  sno: idx + 1,
+                  id: p.id,
+                  borrowerName,
+                  principal,
+                  interest,
+                  total,
+                  dateFormatted: dateObj ? format(dateObj, 'dd MMM yyyy') : '-',
+                  timeMs: dateObj ? dateObj.getTime() : 0,
+                  raw: p
+                };
+              });
+
+              const sortedLoanPayments = [...mappedLoanPayments].sort((a, b) => {
+                const { field, direction } = collectionLoanSortConfig;
+                const factor = direction === 'asc' ? 1 : -1;
+                if (field === 'sno') return (a.sno - b.sno) * factor;
+                if (field === 'borrower') return a.borrowerName.localeCompare(b.borrowerName) * factor;
+                if (field === 'principal') return (a.principal - b.principal) * factor;
+                if (field === 'interest') return (a.interest - b.interest) * factor;
+                if (field === 'total') return (a.total - b.total) * factor;
+                if (field === 'date') return (a.timeMs - b.timeMs) * factor;
+                return 0;
+              });
+
+              const handleLoanSort = (field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date') => {
+                if (collectionLoanSortConfig.field === field) {
+                  setCollectionLoanSortConfig({
+                    field,
+                    direction: collectionLoanSortConfig.direction === 'asc' ? 'desc' : 'asc'
+                  });
+                } else {
+                  setCollectionLoanSortConfig({ field, direction: 'asc' });
+                }
+              };
+
+              return (
+                <div className="space-y-6">
+                  {/* Top Banner */}
+                  <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-indigo-900/50">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-indigo-800/40">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-12 h-12 bg-indigo-500/20 rounded-2xl flex items-center justify-center border border-indigo-400/30 text-indigo-300 shrink-0">
+                          <IndianRupee className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-xl text-white">Monthly Collection Summary</h3>
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                              Live
+                            </span>
+                          </div>
+                          <p className="text-xs text-indigo-200/80 mt-0.5">
+                            Total received amount including member contributions &amp; loan repayments (principal + interest)
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Month / Year Traversable Selector Controls */}
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        <div className="flex items-center bg-slate-800/90 rounded-2xl p-1 border border-indigo-700/50">
+                          <button 
+                            onClick={() => {
+                              if (collectionMonth === 1) {
+                                setCollectionMonth(12);
+                                setCollectionYear(collectionYear - 1);
+                              } else {
+                                setCollectionMonth(collectionMonth - 1);
+                              }
+                            }}
+                            className="p-2 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-xl transition-all"
+                            title="Previous Month"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          
+                          <select 
+                            value={collectionMonth}
+                            onChange={(e) => setCollectionMonth(Number(e.target.value))}
+                            className="bg-transparent text-white font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
+                          >
+                            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                              <option key={`coll-m-${m}`} value={m} className="bg-slate-900 text-white">
+                                {format(new Date(2026, m - 1, 1), 'MMMM')}
+                              </option>
+                            ))}
+                          </select>
+
+                          <select 
+                            value={collectionYear}
+                            onChange={(e) => setCollectionYear(Number(e.target.value))}
+                            className="bg-transparent text-white font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
+                          >
+                            {[2024, 2025, 2026, 2027, 2028].map(y => (
+                              <option key={`coll-y-${y}`} value={y} className="bg-slate-900 text-white">
+                                {y}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button 
+                            onClick={() => {
+                              if (collectionMonth === 12) {
+                                setCollectionMonth(1);
+                                setCollectionYear(collectionYear + 1);
+                              } else {
+                                setCollectionMonth(collectionMonth + 1);
+                              }
+                            }}
+                            className="p-2 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-xl transition-all"
+                            title="Next Month"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {(collectionMonth !== (new Date().getMonth() + 1) || collectionYear !== new Date().getFullYear()) && (
+                          <button 
+                            onClick={() => {
+                              setCollectionMonth(new Date().getMonth() + 1);
+                              setCollectionYear(new Date().getFullYear());
+                            }}
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-2xl text-white transition-all shadow-sm whitespace-nowrap"
+                          >
+                            Current Month
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Collection Metrics Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+                      <div className="bg-gradient-to-br from-indigo-900/80 to-indigo-950 border border-indigo-400/40 rounded-2xl p-5 relative overflow-hidden shadow-lg">
+                        <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+                        <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider mb-1">
+                          Total Received ({format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM yyyy')})
+                        </p>
+                        <p className="text-3xl font-black text-emerald-400">
+                          ₹{grandTotalMonthlyReceived.toLocaleString()}
+                        </p>
+                        <p className="text-[10px] text-indigo-200/80 font-medium mt-1.5">
+                          Contributions + Loan Repayments
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-800/70 border border-indigo-800/40 rounded-2xl p-5">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                          Member Contributions
+                        </p>
+                        <p className="text-2xl font-black text-white">
+                          ₹{monthlyContributionTotal.toLocaleString()}
+                        </p>
+                        <p className="text-[10px] text-indigo-300/80 font-medium mt-1.5">
+                          {monthlyPaidContributions.length} Paid Members
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-800/70 border border-indigo-800/40 rounded-2xl p-5">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                          Total Loan Repayments
+                        </p>
+                        <p className="text-2xl font-black text-emerald-300">
+                          ₹{monthlyLoanTotalCollected.toLocaleString()}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-medium mt-1.5">
+                          {monthlyPaidLoanPayments.length} Collected Repayments
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-800/70 border border-indigo-800/40 rounded-2xl p-5">
+                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">
+                          Principal &amp; Interest Split
+                        </p>
+                        <div className="text-lg font-black text-white">
+                          ₹{monthlyLoanPrincipalCollected.toLocaleString()} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-300">₹{monthlyLoanInterestCollected.toLocaleString()}</span>
+                        </div>
+                        <p className="text-[10px] text-amber-200/70 font-medium mt-1.5">
+                          Principal + Interest Portion
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detailed Tables Section */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Table 1: Paid Member Contributions */}
+                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                            <Wallet className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-sm sm:text-base">Member Contributions</h4>
+                            <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
+                          </div>
+                        </div>
+                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
+                          ₹{monthlyContributionTotal.toLocaleString()}
+                        </span>
+                      </div>
+
+                      {monthlyPaidContributions.length === 0 ? (
+                        <p className="text-slate-400 text-xs italic py-8 text-center">No paid contributions recorded for this month.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100 select-none">
+                                <th 
+                                  onClick={() => handleContribSort('sno')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-l-lg"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    #
+                                    {collectionContribSortConfig.field === 'sno' ? (
+                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleContribSort('member')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Member
+                                    {collectionContribSortConfig.field === 'member' ? (
+                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleContribSort('amount')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Amount
+                                    {collectionContribSortConfig.field === 'amount' ? (
+                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleContribSort('method')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Method
+                                    {collectionContribSortConfig.field === 'method' ? (
+                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleContribSort('date')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-r-lg"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Date
+                                    {collectionContribSortConfig.field === 'date' ? (
+                                      collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                              {sortedContribs.map((item, rowIdx) => (
+                                <tr key={`coll-contrib-${item.id}`} className="hover:bg-slate-50/80 transition-colors">
+                                  <td className="py-2.5 px-3 font-semibold text-slate-400">
+                                    {rowIdx + 1}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-bold text-slate-900">
+                                    {item.memberName}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-bold text-emerald-600">
+                                    ₹{item.amount.toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <span className={cn(
+                                      "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase",
+                                      item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                    )}>
+                                      {item.method}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-500">
+                                    {item.dateFormatted}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Table 2: Loan Repayments Collected */}
+                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                            <IndianRupee className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-sm sm:text-base">Loan Repayments Collected</h4>
+                            <p className="text-xs text-slate-500">Principal + Interest for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
+                          </div>
+                        </div>
+                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
+                          ₹{monthlyLoanTotalCollected.toLocaleString()}
+                        </span>
+                      </div>
+
+                      {monthlyPaidLoanPayments.length === 0 ? (
+                        <p className="text-slate-400 text-xs italic py-8 text-center">No loan repayments collected for this month.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-100 select-none">
+                                <th 
+                                  onClick={() => handleLoanSort('sno')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-l-lg"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    #
+                                    {collectionLoanSortConfig.field === 'sno' ? (
+                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleLoanSort('borrower')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Borrower
+                                    {collectionLoanSortConfig.field === 'borrower' ? (
+                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleLoanSort('principal')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Principal
+                                    {collectionLoanSortConfig.field === 'principal' ? (
+                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleLoanSort('interest')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Interest
+                                    {collectionLoanSortConfig.field === 'interest' ? (
+                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleLoanSort('total')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Total Paid
+                                    {collectionLoanSortConfig.field === 'total' ? (
+                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                                <th 
+                                  onClick={() => handleLoanSort('date')}
+                                  className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-r-lg"
+                                >
+                                  <div className="flex items-center gap-1">
+                                    Date
+                                    {collectionLoanSortConfig.field === 'date' ? (
+                                      collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                    ) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                                  </div>
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                              {sortedLoanPayments.map((p, rowIdx) => (
+                                <tr key={`coll-loan-p-${p.id}`} className="hover:bg-slate-50/80 transition-colors">
+                                  <td className="py-2.5 px-3 font-semibold text-slate-400">
+                                    {rowIdx + 1}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-bold text-slate-900">
+                                    {p.borrowerName}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-semibold text-slate-700">
+                                    ₹{p.principal.toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-semibold text-amber-600">
+                                    ₹{p.interest.toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5 px-3 font-bold text-emerald-600">
+                                    ₹{p.total.toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-slate-500">
+                                    {p.dateFormatted}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ) : (
           <div className="space-y-6">
