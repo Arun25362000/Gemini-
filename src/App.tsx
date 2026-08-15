@@ -151,7 +151,7 @@ const downloadFileMobile = async (fileName: string, base64Data: string) => {
 
 // --- Constants ---
 const MONTHLY_AMOUNT = 1000;
-const LATE_FEE = 0;
+const LATE_FEE = 100;
 const DUE_DAY = 10;
 
 // API Base URL for Capacitor/Android support
@@ -159,8 +159,22 @@ const API_BASE_URL = (typeof window !== 'undefined' && (window.location.origin.i
   ? 'https://ais-pre-b3p2r2pdo3w65e5qjebwlf-552793991303.asia-southeast1.run.app'
   : '';
 
-const getContributionAmount = (month: number, year: number) => {
-  return MONTHLY_AMOUNT;
+const getContributionAmount = (month: number, year: number, dateStr?: string) => {
+  if (dateStr) {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(day)) {
+        return day > DUE_DAY ? MONTHLY_AMOUNT + LATE_FEE : MONTHLY_AMOUNT;
+      }
+    }
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.getDate() > DUE_DAY ? MONTHLY_AMOUNT + LATE_FEE : MONTHLY_AMOUNT;
+    }
+  }
+  const day = new Date().getDate();
+  return day > DUE_DAY ? MONTHLY_AMOUNT + LATE_FEE : MONTHLY_AMOUNT;
 };
 const ADMIN_EMAILS = ['arun2102000@gmail.com', 'unnati.finance2026@gmail.com', 'arun.cse.rymec@gmail.com'];
 const SYSTEM_ADMIN_EMAIL = 'unnati.finance2026@gmail.com';
@@ -415,6 +429,7 @@ export default function App() {
   const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState<number>(1000);
+  const [customFine, setCustomFine] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingNotification, setPendingNotification] = useState<string | null>(null);
@@ -434,6 +449,7 @@ export default function App() {
   const [adminLoanAmount, setAdminLoanAmount] = useState(10000);
   const [adminLoanDetails, setAdminLoanDetails] = useState('');
   const [adminLoanStatus, setAdminLoanStatus] = useState<'pending' | 'approved'>('approved');
+  const [adminLoanPaymentMode, setAdminLoanPaymentMode] = useState<'Online' | 'Cash'>('Online');
   const [isSubmittingAdminLoan, setIsSubmittingAdminLoan] = useState(false);
   const [loanDate, setLoanDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
@@ -672,7 +688,7 @@ export default function App() {
     setIsSubmittingAdminLoan(true);
     try {
       if (adminLoanAmount > financials.availableBalance) {
-        notify('error', `Low balance! Available: ₹${financials.availableBalance.toLocaleString()}. Requested: ₹${adminLoanAmount.toLocaleString()}`);
+        notify('error', `Low balance! Available: ₹${financials.availableBalance.toLocaleString('en-IN')}. Requested: ₹${adminLoanAmount.toLocaleString('en-IN')}`);
         return;
       }
 
@@ -684,7 +700,8 @@ export default function App() {
         amount: adminLoanAmount,
         details: adminLoanDetails,
         status: adminLoanStatus,
-        createdAt: timestampValue
+        createdAt: timestampValue,
+        paymentMode: adminLoanPaymentMode
       };
 
       if (adminLoanStatus === 'approved') {
@@ -692,7 +709,7 @@ export default function App() {
         loanData.interestRate = 0.5;
         loanData.approvedAt = timestampValue;
         loanData.installments = Math.ceil(adminLoanAmount / 5000);
-        loanData.paymentMode = 'Online';
+        loanData.paymentMode = adminLoanPaymentMode;
       }
 
       await addDoc(collection(db, 'loans'), loanData);
@@ -701,7 +718,7 @@ export default function App() {
         createNotification(
           targetUser.uid, 
           adminLoanStatus === 'approved' ? "Loan Recorded" : "Loan Application Recorded", 
-          `An admin has recorded a ${adminLoanStatus === 'approved' ? 'approved' : 'pending'} loan of ₹${adminLoanAmount.toLocaleString()} for you.`, 
+          `An admin has recorded a ${adminLoanStatus === 'approved' ? 'approved' : 'pending'} loan of ₹${adminLoanAmount.toLocaleString('en-IN')} for you.`, 
           'loan'
         );
       }
@@ -710,6 +727,7 @@ export default function App() {
       setSelectedLoanUserId(null);
       setAdminLoanAmount(10000);
       setAdminLoanDetails('');
+      setAdminLoanPaymentMode('Online');
       notify('success', `Loan ${adminLoanStatus === 'approved' ? 'recorded and approved' : 'recorded as pending'} successfully!`);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'loans');
@@ -1027,6 +1045,7 @@ export default function App() {
 
       return {
         totalSavings,
+        totalCollected,
         availableBalance: Math.max(0, availableBalance),
         outstandingPrincipal,
         totalInterest,
@@ -1435,6 +1454,19 @@ export default function App() {
         }
       });
 
+      // Ensure all loans where total principal paid >= approvedAmount are marked status: 'paid'
+      loans.forEach(async (loan) => {
+        if (loan.id && loan.status !== 'paid' && loan.approvedAmount) {
+          const payments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
+          const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
+          if (totalPaid >= loan.approvedAmount) {
+            try {
+              await updateDoc(doc(db, 'loans', loan.id), { status: 'paid' });
+            } catch (e) {}
+          }
+        }
+      });
+
       // Special fix for Priya SB's repayments
       loanPayments.forEach(async (p) => {
         const userProfile = allUsers.find(u => 
@@ -1736,9 +1768,26 @@ export default function App() {
     window.location.reload();
   };
 
+  const isLatePaymentDate = useMemo(() => {
+    if (!paymentDate) return false;
+    const parts = paymentDate.split('-');
+    if (parts.length === 3) {
+      const day = parseInt(parts[2], 10);
+      if (!isNaN(day)) return day > DUE_DAY;
+    }
+    const d = new Date(paymentDate);
+    return !isNaN(d.getTime()) && d.getDate() > DUE_DAY;
+  }, [paymentDate]);
+
   useEffect(() => {
-    setCustomAmount(getContributionAmount(selectedMonth, selectedYear));
-  }, [selectedMonth, selectedYear, isAdding]);
+    if (isLatePaymentDate) {
+      setCustomFine(LATE_FEE);
+      setCustomAmount(MONTHLY_AMOUNT + LATE_FEE);
+    } else {
+      setCustomFine(0);
+      setCustomAmount(MONTHLY_AMOUNT);
+    }
+  }, [isLatePaymentDate, paymentDate, isAdding, selectedMonth, selectedYear]);
 
   const addContribution = async (month: number, year: number, targetUserId?: string, status: 'paid' | 'pending' = 'paid', customDate?: string, amount?: number, method?: 'cash' | 'online') => {
     if (!user || !profile) return;
@@ -1804,7 +1853,7 @@ export default function App() {
         );
         if (targetUser && targetUser.phoneNumber) {
           const monthName = format(new Date(contrib.year, contrib.month - 1), 'MMMM');
-          const message = `Hi ${targetUser.displayName || 'Member'}, your Unnati contribution of ₹${contrib.amount.toLocaleString()} for ${monthName} ${contrib.year} has been successfully verified and approved. Thank you!`;
+          const message = `Hi ${targetUser.displayName || 'Member'}, your Unnati contribution of ₹${contrib.amount.toLocaleString('en-IN')} for ${monthName} ${contrib.year} has been successfully verified and approved. Thank you!`;
           const encodedMessage = encodeURIComponent(message);
           window.open(`https://wa.me/${targetUser.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
         }
@@ -2054,11 +2103,11 @@ export default function App() {
     }
   };
 
-  const handleUPIPayment = (month: number, year: number) => {
+  const handleUPIPayment = (month: number, year: number, customPayAmount?: number) => {
     if (!user || !profile) return;
     
     const monthName = format(new Date(year, month - 1), 'MMMM');
-    const amount = getContributionAmount(month, year);
+    const amount = customPayAmount !== undefined ? customPayAmount : getContributionAmount(month, year, paymentDate);
     const note = `Unnati Contribution - ${monthName} ${year}`;
     setPaymentModal({
       isOpen: true,
@@ -2136,14 +2185,14 @@ export default function App() {
       notify('error', "No phone number found for this user.");
       return;
     }
-    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of ₹${amount.toLocaleString()} for ${month}. Please pay before the 10th to avoid late fees. Thanks!`;
+    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of ₹${amount.toLocaleString('en-IN')} for ${month}. Please pay before the 10th to avoid late fees. Thanks!`;
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/${u.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
   };
 
   const sendLoanEmailReminder = (u: UserProfile, amount: number, month: string) => {
     const subject = `Loan Repayment Reminder: Unnati - ${month}`;
-    const body = `Hi ${u.displayName || 'Member'},\n\nThis is a reminder for your Unnati loan repayment of ₹${amount.toLocaleString()} for ${month}. Please ensure the payment is made before the 10th.\n\nThanks!`;
+    const body = `Hi ${u.displayName || 'Member'},\n\nThis is a reminder for your Unnati loan repayment of ₹${amount.toLocaleString('en-IN')} for ${month}. Please ensure the payment is made before the 10th.\n\nThanks!`;
     const mailtoUrl = `mailto:${u.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.location.href = mailtoUrl;
   };
@@ -2472,14 +2521,19 @@ export default function App() {
           case 'monthlyStatus': {
             const getMonthlyStatusRank = (loan: Loan) => {
               const payments = loanPayments.filter(p => p.loanId === loan.id);
+              const paidPayments = payments.filter(p => p.status === 'paid');
+              const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
+              const remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
+              const isFullyPaid = loan.status === 'paid' || remainingPrincipal <= 0;
+
               const isPaid = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
               const isPending = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
               const loanApprovedThisMonth = loan.approvedAt?.toDate && 
                 loan.approvedAt.toDate().getMonth() === (repaymentMonth - 1) && 
                 loan.approvedAt.toDate().getFullYear() === repaymentYear;
-              const isLate = !isPaid && !isPending && new Date().getDate() > 10 && !loanApprovedThisMonth && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
+              const isLate = !isFullyPaid && !isPaid && !isPending && new Date().getDate() > 10 && !loanApprovedThisMonth && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
 
-              if (isPaid || loan.status === 'paid') return 'PAID';
+              if (isPaid || isFullyPaid) return 'PAID';
               if (isPending) return 'AWAITING APPROVAL';
               if (isLate) return 'OVERDUE';
               if (loanApprovedThisMonth) return 'STARTS NEXT MONTH';
@@ -2598,9 +2652,9 @@ export default function App() {
       doc.setDrawColor(200);
       doc.line(20, 65, 190, 65);
       doc.setFont(undefined, 'bold');
-      doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString()}`, 20, 75);
-      doc.text(`Total Loan Principal Paid: Rs. ${totalLoanPaid.toLocaleString()}`, 20, 82);
-      doc.text(`Total Interest Paid: Rs. ${totalInterestPaid.toLocaleString()}`, 20, 89);
+      doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString('en-IN')}`, 20, 75);
+      doc.text(`Total Loan Principal Paid: Rs. ${totalLoanPaid.toLocaleString('en-IN')}`, 20, 82);
+      doc.text(`Total Interest Paid: Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, 20, 89);
       doc.setFont(undefined, 'normal');
 
       // Contributions Table
@@ -2632,7 +2686,7 @@ export default function App() {
             c.year || 'N/A',
             paymentDateTime,
             (c.paymentMethod || 'N/A').toUpperCase(),
-            `Rs. ${(c.amount || 0).toLocaleString()}`,
+            `Rs. ${(c.amount || 0).toLocaleString('en-IN')}`,
             (c.status || 'N/A').toUpperCase()
           ];
         });
@@ -2680,8 +2734,8 @@ export default function App() {
               p.year || 'N/A',
               paymentDateTime,
               (p.paymentMethod || 'N/A').toUpperCase(),
-              `Rs. ${(p.amount || 0).toLocaleString()}`,
-              `Rs. ${(p.interest || 0).toLocaleString()}`,
+              `Rs. ${(p.amount || 0).toLocaleString('en-IN')}`,
+              `Rs. ${(p.interest || 0).toLocaleString('en-IN')}`,
               (p.status || 'N/A').toUpperCase()
             ];
           });
@@ -2708,7 +2762,7 @@ export default function App() {
           head: [['Date & Time', 'Amount', 'Status']],
           body: userLoans.map(l => [
             l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy p') : 'N/A',
-            `Rs. ${(l.amount || 0).toLocaleString()}`,
+            `Rs. ${(l.amount || 0).toLocaleString('en-IN')}`,
             (l.status || 'N/A').toUpperCase()
           ]),
           theme: 'grid',
@@ -2778,7 +2832,7 @@ export default function App() {
         // Mark loan as paid
         await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
         
-        createNotification(loan.userId, "Loan Settled", `Your loan of ₹${loan.approvedAmount?.toLocaleString()} has been settled immediately.`, 'loan');
+        createNotification(loan.userId, "Loan Settled", `Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} has been settled immediately.`, 'loan');
         
         // Get target user for notifications
         const targetUser = allUsers.find(u => u.uid === loan.userId || u.email.toLowerCase() === loan.userEmail.toLowerCase());
@@ -2800,7 +2854,7 @@ export default function App() {
 
         // Prepare WhatsApp message
         if (targetUser?.phoneNumber) {
-          const message = `*Loan Fully Settled - Unnati Finance*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString()} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: ₹${settlePrincipal.toLocaleString()}\n- Interest: ₹${settleInterest.toLocaleString()}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
+          const message = `*Loan Fully Settled - Unnati Finance*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: ₹${settlePrincipal.toLocaleString('en-IN')}\n- Interest: ₹${settleInterest.toLocaleString('en-IN')}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
           const encodedMessage = encodeURIComponent(message);
           window.open(`https://wa.me/${targetUser.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
         }
@@ -2834,7 +2888,7 @@ export default function App() {
     const loan = approvingLoanForPaymentMode;
     try {
       if (loan.amount > financials.availableBalance) {
-        notify('error', `Low balance! Available: ₹${financials.availableBalance.toLocaleString()}. Required: ₹${loan.amount.toLocaleString()}`);
+        notify('error', `Low balance! Available: ₹${financials.availableBalance.toLocaleString('en-IN')}. Required: ₹${loan.amount.toLocaleString('en-IN')}`);
         return;
       }
 
@@ -2904,7 +2958,7 @@ export default function App() {
         
         if (totalPrincipalPaid >= loan.approvedAmount!) {
           await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
-          createNotification(payment.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString()} is now fully paid.`, 'loan');
+          createNotification(payment.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now fully paid.`, 'loan');
         }
       }
 
@@ -3053,7 +3107,7 @@ export default function App() {
       
       if (loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount) {
         await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
-        createNotification(loan.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount.toLocaleString()} is now fully paid.`, 'loan');
+        createNotification(loan.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount.toLocaleString('en-IN')} is now fully paid.`, 'loan');
       }
 
       createNotification(loan.userId, "Loan Payment Recorded", `Admin has recorded your loan payment for ${format(new Date(year, month - 1), 'MMMM yyyy')}.`, 'payment');
@@ -3331,177 +3385,221 @@ export default function App() {
         </div>
 
         <div className={cn(
-          "grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8",
+          "grid grid-cols-1 sm:grid-cols-2 gap-3.5 lg:gap-4 mb-6",
           isAdmin ? "lg:grid-cols-5" : "lg:grid-cols-2 max-w-2xl",
-          isMobileVisual && "gap-4 mb-6"
+          isMobileVisual && "gap-3 mb-5"
         )}>
+          {/* Card 1: Current Month */}
           <motion.div 
             key="dashboard-card-status"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileVisual && "p-4 rounded-2xl")}
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn(
+              "bg-white p-4.5 rounded-2xl shadow-sm border border-slate-200/90 hover:border-indigo-200 transition-all flex flex-col justify-between group",
+              isMobileVisual && "p-3.5 rounded-xl"
+            )}
           >
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-indigo-50 rounded-2xl">
-                <Calendar className="w-6 h-6 text-indigo-600" />
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl group-hover:scale-105 transition-transform">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  {format(new Date(), 'MMM yyyy')}
+                </span>
               </div>
-              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase">Current Month</span>
-            </div>
-            {isAdmin ? (
-              <div className="space-y-3">
+              {isAdmin ? (
                 <div>
-                  <h3 className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total Received</h3>
-                  <div className={cn("text-2xl font-black text-slate-900 line-clamp-1", isMobileVisual && "text-xl")}>
-                    ₹{adminCurrentMonthTotalReceived.toLocaleString()}
+                  <h3 className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Monthly Received</h3>
+                  <div className="mt-1 text-2xl font-black text-slate-900 tracking-tight">
+                    ₹{adminCurrentMonthTotalReceived.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="pt-2 border-t border-slate-100">
-                  <h3 className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Status for {format(new Date(), 'MMM yyyy')}</h3>
+              ) : (
+                <div>
+                  <h3 className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Status for {format(new Date(), 'MMM yyyy')}</h3>
                   <div className="mt-1 flex items-center gap-2">
                     {hasPaidCurrent ? (
-                      <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-sm sm:text-base">
+                      <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-base">
                         <CheckCircle2 className="w-4 h-4" /> Paid
                       </div>
                     ) : hasPendingCurrent ? (
-                      <div className="flex items-center gap-1.5 text-amber-600 font-bold text-sm sm:text-base">
-                        <Clock className="w-4 h-4" /> Pending Verification
+                      <div className="flex items-center gap-1.5 text-amber-600 font-bold text-base">
+                        <Clock className="w-4 h-4" /> Verification
                       </div>
                     ) : isLate ? (
-                      <div className="flex items-center gap-1.5 text-red-600 font-bold text-sm sm:text-base">
+                      <div className="flex items-center gap-1.5 text-red-600 font-bold text-base">
                         <AlertCircle className="w-4 h-4" /> Overdue
                       </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 text-amber-600 font-bold text-sm sm:text-base">
+                      <div className="flex items-center gap-1.5 text-amber-600 font-bold text-base">
                         <Clock className="w-4 h-4" /> Pending
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
-            ) : (
-              <>
-                <h3 className="text-slate-500 text-sm font-medium">Status for {format(new Date(), 'MMMM yyyy')}</h3>
-                <div className="mt-2 flex items-center gap-2">
+              )}
+            </div>
+            {isAdmin && (
+              <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between text-xs">
+                <span className="text-[11px] font-semibold text-slate-400">Status:</span>
+                <div>
                   {hasPaidCurrent ? (
-                    <div className="flex items-center gap-2 text-emerald-600 font-bold text-lg">
-                      <CheckCircle2 className="w-5 h-5" /> Paid
-                    </div>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600">
+                      <CheckCircle2 className="w-3 h-3" /> Paid
+                    </span>
                   ) : hasPendingCurrent ? (
-                    <div className="flex items-center gap-2 text-amber-600 font-bold text-lg">
-                      <Clock className="w-5 h-5" /> Pending Verification
-                    </div>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600">
+                      <Clock className="w-3 h-3" /> Pending
+                    </span>
                   ) : isLate ? (
-                    <div className="flex items-center gap-2 text-red-600 font-bold text-lg">
-                      <AlertCircle className="w-5 h-5" /> Overdue
-                    </div>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600">
+                      <AlertCircle className="w-3 h-3" /> Overdue
+                    </span>
                   ) : (
-                    <div className="flex items-center gap-2 text-amber-600 font-bold text-lg">
-                      <Clock className="w-5 h-5" /> Pending
-                    </div>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600">
+                      <Clock className="w-3 h-3" /> Pending
+                    </span>
                   )}
                 </div>
-              </>
+              </div>
             )}
           </motion.div>
 
           {!isAdmin ? (
             <motion.div 
               key="dashboard-card-your-savings"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className={cn("bg-white p-6 rounded-3xl shadow-sm border border-slate-200", isMobileVisual && "p-4 rounded-2xl")}
+              className={cn("bg-white p-4.5 rounded-2xl shadow-sm border border-slate-200", isMobileVisual && "p-3.5 rounded-xl")}
             >
-              <div className="flex items-center justify-between mb-4">
-                <div className={cn("p-3 bg-slate-50 rounded-2xl", isMobileVisual && "p-2")}>
-                  <TrendingUp className={cn("w-6 h-6 text-slate-600", isMobileVisual && "w-5 h-5")} />
+              <div className="flex items-center justify-between mb-3">
+                <div className={cn("p-2 bg-slate-50 text-slate-600 rounded-xl", isMobileVisual && "p-1.5")}>
+                  <TrendingUp className="w-5 h-5" />
                 </div>
-                <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Your Savings</span>
+                <span className="text-[10px] font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md uppercase tracking-wider">Your Savings</span>
               </div>
-              <h3 className="text-slate-500 text-sm font-medium">Your Contributions</h3>
-              <div className={cn("mt-2 text-3xl font-black text-slate-900 line-clamp-1", isMobileVisual && "text-2xl")}>
-                ₹{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString()}
+              <h3 className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Your Contributions</h3>
+              <div className={cn("mt-1 text-2xl font-black text-slate-900 tracking-tight", isMobileVisual && "text-xl")}>
+                ₹{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString('en-IN')}
               </div>
             </motion.div>
           ) : (
+            /* Card 2: Active Members */
             <motion.div 
               key="dashboard-card-active-members"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+              transition={{ delay: 0.05 }}
+              className="bg-white p-4.5 rounded-2xl shadow-sm border border-slate-200/90 hover:border-blue-200 transition-all flex flex-col justify-between group"
             >
-              <div className="flex items-center justify-between mb-4">
-                <div className="p-3 bg-slate-50 rounded-2xl">
-                  <UserIcon className="w-6 h-6 text-slate-600" />
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl group-hover:scale-105 transition-transform">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    Group Size
+                  </span>
                 </div>
-                <span className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1 rounded-lg uppercase">Group Size</span>
+                <h3 className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Active Members</h3>
+                <div className="mt-1 text-2xl font-black text-slate-900 tracking-tight">
+                  {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
+                </div>
               </div>
-              <h3 className="text-slate-500 text-sm font-medium">Active Members</h3>
-              <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
-                {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
+              <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between text-xs">
+                <span className="text-[11px] font-semibold text-slate-400">Total Sub:</span>
+                <span className="text-[11px] font-bold text-emerald-600">₹{financials.totalCollected.toLocaleString('en-IN')}</span>
               </div>
             </motion.div>
           )}
 
           {isAdmin && (
             <>
+              {/* Card 3: Group Funds */}
               <motion.div 
                 key="dashboard-card-group-funds"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                transition={{ delay: 0.1 }}
+                className="bg-white p-4.5 rounded-2xl shadow-sm border border-slate-200/90 hover:border-emerald-200 transition-all flex flex-col justify-between group"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-emerald-50 rounded-2xl">
-                    <TrendingUp className="w-6 h-6 text-emerald-600" />
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl group-hover:scale-105 transition-transform">
+                      <TrendingUp className="w-5 h-5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                      Total Savings
+                    </span>
                   </div>
-                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg uppercase">
-                    Total Group Savings
-                  </span>
+                  <h3 className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Group Funds</h3>
+                  <div className="mt-1 text-2xl font-black text-slate-900 tracking-tight">
+                    ₹{financials.totalSavings.toLocaleString('en-IN')}
+                  </div>
                 </div>
-                <h3 className="text-slate-500 text-sm font-medium">Group Funds</h3>
-                <div className="mt-2 text-3xl font-black text-slate-900 line-clamp-1">
-                  ₹{financials.totalSavings.toLocaleString()}
+                <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between text-xs">
+                  <span className="text-[11px] font-semibold text-slate-400">Total Interest:</span>
+                  <span className="text-[11px] font-bold text-indigo-600">₹{financials.totalInterest.toLocaleString('en-IN')}</span>
                 </div>
               </motion.div>
 
+              {/* Card 4: Outstanding Principal */}
               <motion.div 
                 key="dashboard-card-outstanding-principal"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200"
+                transition={{ delay: 0.15 }}
+                className="bg-white p-4.5 rounded-2xl shadow-sm border border-slate-200/90 hover:border-amber-200 transition-all flex flex-col justify-between group"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-indigo-50 rounded-2xl">
-                    <CreditCard className="w-6 h-6 text-indigo-600" />
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2 bg-amber-50 text-amber-600 rounded-xl group-hover:scale-105 transition-transform">
+                      <CreditCard className="w-5 h-5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                      Group Loans
+                    </span>
                   </div>
-                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg uppercase">Group Loans</span>
+                  <h3 className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Outstanding Loan</h3>
+                  <div className="mt-1 text-2xl font-black text-amber-600 tracking-tight">
+                    ₹{financials.outstandingPrincipal.toLocaleString('en-IN')}
+                  </div>
                 </div>
-                <h3 className="text-slate-500 text-sm font-medium">Outstanding Principal</h3>
-                <div className="mt-2 text-3xl font-black text-indigo-600 line-clamp-1">
-                  ₹{financials.outstandingPrincipal.toLocaleString()}
+                <div className="mt-3 pt-2.5 border-t border-slate-200 flex items-center justify-between text-xs">
+                  <span className="text-[11px] font-semibold text-slate-400">Active Loans:</span>
+                  <span className="text-[11px] font-bold text-slate-700">{loans.filter(l => l.status === 'approved').length} active</span>
                 </div>
               </motion.div>
 
+              {/* Card 5: Subscription / Available Balance */}
               <motion.div 
                 key="dashboard-card-available-balance"
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="bg-slate-900 p-6 rounded-3xl shadow-xl border border-slate-800"
+                transition={{ delay: 0.2 }}
+                className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 p-4.5 rounded-2xl shadow-md border border-slate-700/80 flex flex-col justify-between group"
               >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-3 bg-emerald-500/10 rounded-2xl">
-                    <Wallet className="w-6 h-6 text-emerald-400" />
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2 bg-emerald-500/15 text-emerald-400 rounded-xl border border-emerald-500/20 group-hover:scale-105 transition-transform">
+                      <Wallet className="w-5 h-5" />
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                      Available
+                    </span>
                   </div>
-                  <span className="text-xs font-bold text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-lg uppercase">Available</span>
+                  <h3 className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">Available Balance</h3>
+                  <div className="mt-1 text-2xl font-black text-white tracking-tight">
+                    ₹{financials.availableBalance.toLocaleString('en-IN')}
+                  </div>
                 </div>
-                <h3 className="text-slate-400 text-sm font-medium">Subscription Balance</h3>
-                <div className="mt-2 text-3xl font-black text-white line-clamp-1">
-                  ₹{financials.availableBalance.toLocaleString()}
+                <div className="mt-3 pt-2.5 border-t border-slate-700 flex items-center justify-between text-xs">
+                  <span className="text-[11px] font-semibold text-slate-400">Liquid Funds</span>
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Ready
+                  </span>
                 </div>
               </motion.div>
             </>
@@ -3954,7 +4052,7 @@ export default function App() {
                             <span className="text-sm text-slate-500">{u.joinDate}</span>
                           </td>
                           <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
-                            <span className="text-sm font-bold text-slate-900">₹{totalPaid.toLocaleString()}</span>
+                            <span className="text-sm font-bold text-slate-900">₹{totalPaid.toLocaleString('en-IN')}</span>
                           </td>
                           <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <span className={cn(
@@ -4094,7 +4192,7 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-4 mb-6">
                       <div className="bg-slate-50 p-3 rounded-2xl">
                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Paid</p>
-                        <p className="font-bold text-slate-900">₹{totalPaid.toLocaleString()}</p>
+                        <p className="font-bold text-slate-900">₹{totalPaid.toLocaleString('en-IN')}</p>
                       </div>
                       <div className="bg-slate-50 p-3 rounded-2xl">
                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Joined</p>
@@ -4287,7 +4385,7 @@ export default function App() {
                                           </div>
                                         </td>
                                         <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
-                                          <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
+                                          <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString('en-IN')}</span>
                                         </td>
                                         <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                                           <p className="text-xs text-slate-500 max-w-[200px] truncate" title={l.details}>
@@ -4411,7 +4509,7 @@ export default function App() {
                                   
                                   <div className="mb-4">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Amount Requested</p>
-                                    <p className="text-xl font-black text-slate-900">₹{l.amount.toLocaleString()}</p>
+                                    <p className="text-xl font-black text-slate-900">₹{l.amount.toLocaleString('en-IN')}</p>
                                   </div>
 
                                   {l.details && (
@@ -4477,7 +4575,7 @@ export default function App() {
 
                       return (
                         <>
-                          {/* Active Loans Section */}
+                          {/* Approved Applications Section */}
                           <div className="space-y-3">
                             <div className="flex items-center justify-between px-1">
                               <button 
@@ -4485,17 +4583,17 @@ export default function App() {
                                 onClick={() => setIsActiveLoansExpanded(!isActiveLoansExpanded)}
                                 className="flex items-center gap-2.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
                               >
-                                <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Active Loans</h3>
+                                <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Approved Applications</h3>
                                 <span className="px-2.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/60 rounded-full text-xs font-bold">
                                   {activeLoans.length}
                                 </span>
                                 <ChevronDown className={cn("w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200", !isActiveLoansExpanded && "-rotate-90")} />
                               </button>
                             </div>
-                            {isActiveLoansExpanded && renderLoanApplicationsList(activeLoans, "No active loan applications found.", "active")}
+                            {isActiveLoansExpanded && renderLoanApplicationsList(activeLoans, "No approved loan applications found.", "active")}
                           </div>
 
-                          {/* Completed Loans Section */}
+                          {/* Repaid Applications Section */}
                           <div className="space-y-3">
                             <div className="flex items-center justify-between px-1 pt-2">
                               <button 
@@ -4503,14 +4601,14 @@ export default function App() {
                                 onClick={() => setIsCompletedLoansExpanded(!isCompletedLoansExpanded)}
                                 className="flex items-center gap-2.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
                               >
-                                <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Completed Loans</h3>
+                                <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Repaid Applications</h3>
                                 <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
                                   {completedLoans.length}
                                 </span>
                                 <ChevronDown className={cn("w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200", !isCompletedLoansExpanded && "-rotate-90")} />
                               </button>
                             </div>
-                            {isCompletedLoansExpanded && renderLoanApplicationsList(completedLoans, "No completed loans found.", "completed")}
+                            {isCompletedLoansExpanded && renderLoanApplicationsList(completedLoans, "No repaid applications found.", "completed")}
                           </div>
                         </>
                       );
@@ -4541,13 +4639,13 @@ export default function App() {
                                   <div>
                                     <p className="text-sm font-bold text-slate-900">{targetUser?.displayName || p.userId}</p>
                                     <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                                      {format(new Date(p.year, p.month - 1), 'MMMM yyyy')} • Principal: ₹{p.amount.toLocaleString()} • Interest: ₹{p.interest.toLocaleString()}
+                                      {format(new Date(p.year, p.month - 1), 'MMMM yyyy')} • Principal: ₹{p.amount.toLocaleString('en-IN')} • Interest: ₹{p.interest.toLocaleString('en-IN')}
                                     </p>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-4">
                                   <div className="text-right">
-                                    <p className="text-sm font-black text-slate-900">₹{(p.amount + p.interest).toLocaleString()}</p>
+                                    <p className="text-sm font-black text-slate-900">₹{(p.amount + p.interest).toLocaleString('en-IN')}</p>
                                     <p className="text-[10px] text-slate-400 font-bold uppercase">Total Amount</p>
                                   </div>
                                   <div className="flex items-center gap-2">
@@ -4683,7 +4781,7 @@ export default function App() {
                                 Total Collection ({format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMM yyyy')})
                               </p>
                               <p className="text-2xl font-black text-emerald-400">
-                                ₹{monthlyTotalCollected.toLocaleString()}
+                                ₹{monthlyTotalCollected.toLocaleString('en-IN')}
                               </p>
                               <p className="text-[10px] text-indigo-200/80 font-medium mt-1">
                                 Principal + Interest Received
@@ -4695,7 +4793,7 @@ export default function App() {
                                 Principal Portion
                               </p>
                               <p className="text-2xl font-black text-white">
-                                ₹{monthlyPrincipalCollected.toLocaleString()}
+                                ₹{monthlyPrincipalCollected.toLocaleString('en-IN')}
                               </p>
                               <p className="text-[10px] text-slate-400 font-medium mt-1">
                                 Loan Principal Recovered
@@ -4707,7 +4805,7 @@ export default function App() {
                                 Interest Earned
                               </p>
                               <p className="text-2xl font-black text-amber-300">
-                                ₹{monthlyInterestCollected.toLocaleString()}
+                                ₹{monthlyInterestCollected.toLocaleString('en-IN')}
                               </p>
                               <p className="text-[10px] text-amber-200/70 font-medium mt-1">
                                 0.5% Monthly Interest
@@ -4752,28 +4850,28 @@ export default function App() {
                           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Loan Issued</p>
                             <p className="text-2xl font-black text-slate-900">
-                              ₹{financials.totalLoanIssued.toLocaleString()}
+                              ₹{financials.totalLoanIssued.toLocaleString('en-IN')}
                             </p>
                           </div>
 
                           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Loan Paid</p>
                             <p className="text-2xl font-black text-emerald-600">
-                              ₹{financials.totalLoanPaid.toLocaleString()}
+                              ₹{financials.totalLoanPaid.toLocaleString('en-IN')}
                             </p>
                           </div>
 
                           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Interest Paid</p>
                             <p className="text-2xl font-black text-amber-600">
-                              ₹{financials.totalInterest.toLocaleString()}
+                              ₹{financials.totalInterest.toLocaleString('en-IN')}
                             </p>
                           </div>
 
                           <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Outstanding Principal</p>
                             <p className="text-2xl font-black text-slate-900">
-                              ₹{financials.outstandingPrincipal.toLocaleString()}
+                              ₹{financials.outstandingPrincipal.toLocaleString('en-IN')}
                             </p>
                           </div>
 
@@ -4783,7 +4881,7 @@ export default function App() {
                               ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
                                 const payments = loanPayments.filter(p => p.loanId === l.id);
                                 return acc + calculateLoanRemainingTotal(l, payments);
-                              }, 0).toLocaleString()}
+                              }, 0).toLocaleString('en-IN')}
                             </p>
                           </div>
                         </div>
@@ -4841,7 +4939,8 @@ export default function App() {
                             const loanApprovedThisMonth = l.approvedAt?.toDate && 
                               l.approvedAt.toDate().getMonth() === (repaymentMonth - 1) && 
                               l.approvedAt.toDate().getFullYear() === repaymentYear;
-                            const isLate = !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanApprovedThisMonth && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
+                            const isFullyPaid = l.status === 'paid' || remainingPrincipal <= 0 || remainingTotal <= 0;
+                            const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanApprovedThisMonth && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
 
                             return (
                               <motion.div 
@@ -4873,14 +4972,14 @@ export default function App() {
 
                                   {/* Total Loan */}
                                   <div>
-                                    <p className="font-bold text-slate-900 text-sm">₹{l.approvedAmount?.toLocaleString()}</p>
+                                    <p className="font-bold text-slate-900 text-sm">₹{l.approvedAmount?.toLocaleString('en-IN')}</p>
                                     <p className="text-[10px] text-slate-400 font-medium">@ 0.5% Interest</p>
                                   </div>
 
                                   {/* Remaining */}
                                   <div>
-                                    <p className="font-bold text-indigo-600 text-sm">₹{remainingTotal.toLocaleString()}</p>
-                                    <p className="text-[10px] text-slate-400 font-medium">₹{remainingPrincipal.toLocaleString()} Principal</p>
+                                    <p className="font-bold text-indigo-600 text-sm">₹{remainingTotal.toLocaleString('en-IN')}</p>
+                                    <p className="text-[10px] text-slate-400 font-medium">₹{remainingPrincipal.toLocaleString('en-IN')} Principal</p>
                                   </div>
 
                                   {/* Progress */}
@@ -4898,13 +4997,12 @@ export default function App() {
                                   <div>
                                     <span className={cn(
                                       "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border",
-                                      isPaidThisMonth ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
+                                      (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
                                       isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
                                       isLate ? "bg-red-50 text-red-600 border-red-200" : 
-                                      l.status === 'paid' ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
                                       loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
                                     )}>
-                                      {isPaidThisMonth ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : l.status === 'paid' ? 'PAID' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                      {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
                                     </span>
                                   </div>
 
@@ -4977,11 +5075,11 @@ export default function App() {
                                   <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
                                     <div>
                                       <p className="text-[10px] font-bold text-slate-400 uppercase">Total Loan</p>
-                                      <p className="font-bold text-slate-900">₹{l.approvedAmount?.toLocaleString()}</p>
+                                      <p className="font-bold text-slate-900">₹{l.approvedAmount?.toLocaleString('en-IN')}</p>
                                     </div>
                                     <div>
                                       <p className="text-[10px] font-bold text-slate-400 uppercase">Remaining</p>
-                                      <p className="font-bold text-indigo-600">₹{remainingTotal.toLocaleString()}</p>
+                                      <p className="font-bold text-indigo-600">₹{remainingTotal.toLocaleString('en-IN')}</p>
                                     </div>
                                     <div>
                                       <p className="text-[10px] font-bold text-slate-400 uppercase">Progress</p>
@@ -4991,13 +5089,12 @@ export default function App() {
                                       <p className="text-[10px] font-bold text-slate-400 uppercase">Monthly Status</p>
                                       <span className={cn(
                                         "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5 border",
-                                        isPaidThisMonth ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
+                                        (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
                                         isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
                                         isLate ? "bg-red-50 text-red-600 border-red-200" : 
-                                        l.status === 'paid' ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
                                         loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
                                       )}>
-                                        {isPaidThisMonth ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : l.status === 'paid' ? 'PAID' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                        {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
                                       </span>
                                     </div>
                                   </div>
@@ -5091,7 +5188,7 @@ export default function App() {
                                                 <span className="text-xs font-bold text-slate-400 w-6">{installmentNum}.</span>
                                                 <div>
                                                   <p className="text-sm font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
-                                                  <p className="text-[10px] text-slate-500">₹{principalToDisplay.toLocaleString()} + ₹{interestToDisplay.toLocaleString()} Int.</p>
+                                                  <p className="text-[10px] text-slate-500">₹{principalToDisplay.toLocaleString('en-IN')} + ₹{interestToDisplay.toLocaleString('en-IN')} Int.</p>
                                                 </div>
                                               </div>
                                               <div className="flex items-center gap-4">
@@ -5113,7 +5210,7 @@ export default function App() {
                                                     ) : '-'}
                                                   </p>
                                                 </div>
-                                                <span className="text-sm font-black text-slate-900 w-20 text-right">₹{total.toLocaleString()}</span>
+                                                <span className="text-sm font-black text-slate-900 w-20 text-right">₹{total.toLocaleString('en-IN')}</span>
                                                 <div className="flex items-center gap-2">
                                                   {isPaid && (
                                                     <button 
@@ -5183,14 +5280,14 @@ export default function App() {
                             )}
                           </div>
 
-                          {/* Completed Loans Section */}
+                          {/* Settled Loans Section */}
                           <div>
                             <button
                               type="button"
                               onClick={() => setIsCompletedRepaymentsExpanded(!isCompletedRepaymentsExpanded)}
                               className="flex items-center gap-2.5 mb-3.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
                             >
-                              <h3 className="font-bold text-base sm:text-lg text-slate-900 group-hover:text-indigo-600 transition-colors">Completed Loans</h3>
+                              <h3 className="font-bold text-base sm:text-lg text-slate-900 group-hover:text-indigo-600 transition-colors">Settled Loans</h3>
                               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                 {completedLoansList.length}
                               </span>
@@ -5201,7 +5298,7 @@ export default function App() {
                                 renderLoanList(completedLoansList, 'completed')
                               ) : (
                                 <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center">
-                                  <p className="text-slate-400 italic text-sm">No completed loans yet.</p>
+                                  <p className="text-slate-400 italic text-sm">No settled loans yet.</p>
                                 </div>
                               )
                             )}
@@ -5258,7 +5355,7 @@ export default function App() {
                             </div>
                           </div>
                           <h3 className="text-indigo-100 font-bold uppercase tracking-widest text-[10px] sm:text-xs mb-1">Approved Amount</h3>
-                          <div className="text-3xl sm:text-5xl font-black mb-6">₹{l.approvedAmount?.toLocaleString()}</div>
+                          <div className="text-3xl sm:text-5xl font-black mb-6">₹{l.approvedAmount?.toLocaleString('en-IN')}</div>
                           
                           <div className="grid grid-cols-2 gap-4 sm:gap-8 pt-5 sm:pt-6 border-t border-white/10">
                             <div>
@@ -5267,8 +5364,8 @@ export default function App() {
                             </div>
                             <div>
                               <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Remaining Due</p>
-                              <p className="text-lg sm:text-xl font-bold">₹{remainingTotal.toLocaleString()}</p>
-                              <p className="text-[10px] text-indigo-200 font-bold">₹{remainingPrincipal.toLocaleString()} Principal</p>
+                              <p className="text-lg sm:text-xl font-bold">₹{remainingTotal.toLocaleString('en-IN')}</p>
+                              <p className="text-[10px] text-indigo-200 font-bold">₹{remainingPrincipal.toLocaleString('en-IN')} Principal</p>
                             </div>
                           </div>
                         </div>
@@ -5356,14 +5453,14 @@ export default function App() {
                                              {format(installmentDate, 'MMMM yyyy')}
                                            </p>
                                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                             ₹{principalToDisplay.toLocaleString()} + ₹{interest.toLocaleString()} Int.
+                                             ₹{principalToDisplay.toLocaleString('en-IN')} + ₹{interest.toLocaleString('en-IN')} Int.
                                            </p>
                                          </div>
                                        </div>
                                        
                                        <div className="sm:hidden text-right">
                                          <p className="text-[9px] font-bold text-slate-400 uppercase">Amount</p>
-                                         <p className="font-black text-slate-950 text-sm">₹{total.toLocaleString()}</p>
+                                         <p className="font-black text-slate-950 text-sm">₹{total.toLocaleString('en-IN')}</p>
                                        </div>
                                      </div>
                                      
@@ -5392,7 +5489,7 @@ export default function App() {
                                        </div>
                                        
                                        <div className="flex items-center gap-3 ml-auto sm:ml-0">
-                                         <span className="hidden sm:inline font-black text-slate-900 w-20 text-right">₹{total.toLocaleString()}</span>
+                                         <span className="hidden sm:inline font-black text-slate-900 w-20 text-right">₹{total.toLocaleString('en-IN')}</span>
                                          {!isPaid && !isPending && (
                                            <button 
                                              onClick={() => {
@@ -5467,7 +5564,7 @@ export default function App() {
                         <div key={`loan-history-${l.id || 'loan-hist'}-${idx}`} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
                           <div className="flex items-center justify-between mb-2">
                              <div className="flex flex-col">
-                               <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString()}</span>
+                               <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString('en-IN')}</span>
                                <span className={cn(
                                  "text-[10px] font-bold",
                                  l.paymentMode === 'Online' ? "text-indigo-600" : l.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
@@ -5790,7 +5887,7 @@ export default function App() {
                           Total Received ({format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM yyyy')})
                         </p>
                         <p className="text-3xl font-black text-emerald-400">
-                          ₹{grandTotalMonthlyReceived.toLocaleString()}
+                          ₹{grandTotalMonthlyReceived.toLocaleString('en-IN')}
                         </p>
                         <p className="text-[10px] text-indigo-200/80 font-medium mt-1.5">
                           Contributions + Loan Repayments
@@ -5802,7 +5899,7 @@ export default function App() {
                           Member Contributions
                         </p>
                         <p className="text-2xl font-black text-white">
-                          ₹{monthlyContributionTotal.toLocaleString()}
+                          ₹{monthlyContributionTotal.toLocaleString('en-IN')}
                         </p>
                         <p className="text-[10px] text-indigo-300/80 font-medium mt-1.5">
                           {monthlyPaidContributions.length} Paid Members
@@ -5814,7 +5911,7 @@ export default function App() {
                           Total Loan Repayments
                         </p>
                         <p className="text-2xl font-black text-emerald-300">
-                          ₹{monthlyLoanTotalCollected.toLocaleString()}
+                          ₹{monthlyLoanTotalCollected.toLocaleString('en-IN')}
                         </p>
                         <p className="text-[10px] text-slate-400 font-medium mt-1.5">
                           {monthlyPaidLoanPayments.length} Collected Repayments
@@ -5826,7 +5923,7 @@ export default function App() {
                           Principal &amp; Interest Split
                         </p>
                         <div className="text-lg font-black text-white">
-                          ₹{monthlyLoanPrincipalCollected.toLocaleString()} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-300">₹{monthlyLoanInterestCollected.toLocaleString()}</span>
+                          ₹{monthlyLoanPrincipalCollected.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-300">₹{monthlyLoanInterestCollected.toLocaleString('en-IN')}</span>
                         </div>
                         <p className="text-[10px] text-amber-200/70 font-medium mt-1.5">
                           Principal + Interest Portion
@@ -5861,7 +5958,7 @@ export default function App() {
                           </div>
                         </div>
                         <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
-                          ₹{monthlyContributionTotal.toLocaleString()}
+                          ₹{monthlyContributionTotal.toLocaleString('en-IN')}
                         </span>
                       </div>
 
@@ -5941,7 +6038,7 @@ export default function App() {
                                         {item.memberName}
                                       </td>
                                       <td className="py-2.5 px-3 font-bold text-emerald-600">
-                                        ₹{item.amount.toLocaleString()}
+                                        ₹{item.amount.toLocaleString('en-IN')}
                                       </td>
                                       <td className="py-2.5 px-3">
                                         <span className={cn(
@@ -5988,7 +6085,7 @@ export default function App() {
                           </div>
                         </div>
                         <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
-                          ₹{monthlyLoanTotalCollected.toLocaleString()}
+                          ₹{monthlyLoanTotalCollected.toLocaleString('en-IN')}
                         </span>
                       </div>
 
@@ -6079,13 +6176,13 @@ export default function App() {
                                         {p.borrowerName}
                                       </td>
                                       <td className="py-2.5 px-3 font-semibold text-slate-700">
-                                        ₹{p.principal.toLocaleString()}
+                                        ₹{p.principal.toLocaleString('en-IN')}
                                       </td>
                                       <td className="py-2.5 px-3 font-semibold text-amber-600">
-                                        ₹{p.interest.toLocaleString()}
+                                        ₹{p.interest.toLocaleString('en-IN')}
                                       </td>
                                       <td className="py-2.5 px-3 font-bold text-emerald-600">
-                                        ₹{p.total.toLocaleString()}
+                                        ₹{p.total.toLocaleString('en-IN')}
                                       </td>
                                       <td className="py-2.5 px-3 text-slate-500">
                                         {p.dateFormatted}
@@ -6192,7 +6289,7 @@ export default function App() {
                           )}
                         >
                           <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'all' ? "text-indigo-50" : "text-indigo-600")}>Total Amount</p>
-                          <p className={cn("text-lg font-black", paymentMethodFilter === 'all' ? "text-white" : "text-indigo-700")}>₹{total.toLocaleString()}</p>
+                          <p className={cn("text-lg font-black", paymentMethodFilter === 'all' ? "text-white" : "text-indigo-700")}>₹{total.toLocaleString('en-IN')}</p>
                         </button>
                       </>
                     );
@@ -6284,7 +6381,7 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
-                            <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString()}</span>
+                            <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString('en-IN')}</span>
                           </td>
                           <td className="px-2.5 sm:px-6 py-3.5 sm:py-4">
                             <div className="flex flex-col gap-1">
@@ -6388,7 +6485,7 @@ export default function App() {
                           <div className="grid grid-cols-2 gap-4 mb-4">
                             <div>
                               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Amount</p>
-                              <p className="text-lg font-black text-slate-900">₹{c.amount.toLocaleString()}</p>
+                              <p className="text-lg font-black text-slate-900">₹{c.amount.toLocaleString('en-IN')}</p>
                             </div>
                             <div>
                               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Method</p>
@@ -6641,12 +6738,12 @@ export default function App() {
                   <div className="w-full flex-col flex items-center space-y-3">
                     <div className="w-full bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/50 text-center">
                       <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest mb-0.5">Amount to Transfer</p>
-                      <p className="text-2xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString()}</p>
+                      <p className="text-2xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString('en-IN')}</p>
                     </div>
                     
                     <div className="w-full bg-slate-50 p-4 rounded-xl border border-slate-100 text-center">
                       <p className="text-[11px] text-slate-600 font-semibold leading-relaxed">
-                        Please proceed to make the bank transfer or UPI payment of <strong className="text-indigo-600 font-extrabold">₹{paymentModal.amount.toLocaleString()}</strong> using your preferred banking/UPI application.
+                        Please proceed to make the bank transfer or UPI payment of <strong className="text-indigo-600 font-extrabold">₹{paymentModal.amount.toLocaleString('en-IN')}</strong> using your preferred banking/UPI application.
                       </p>
                       <p className="text-[10px] text-slate-500 font-bold leading-relaxed mt-2">
                         After transferring, tap "Confirm Paid" below to notify the admin for verification.
@@ -6657,12 +6754,12 @@ export default function App() {
                   <div className="w-full flex-col flex items-center space-y-3">
                     <div className="w-full bg-amber-50/50 p-4 rounded-2xl border border-amber-100/50 text-center">
                       <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mb-0.5">Amount to Handover</p>
-                      <p className="text-2xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString()}</p>
+                      <p className="text-2xl font-black text-slate-900">₹{paymentModal.amount.toLocaleString('en-IN')}</p>
                     </div>
 
                     <div className="w-full bg-slate-50 p-4 rounded-xl border border-slate-100 text-center">
                       <p className="text-[11px] text-slate-600 font-semibold leading-relaxed">
-                        Please handover cash of <strong className="text-amber-600 font-extrabold">₹{paymentModal.amount.toLocaleString()}</strong> to any Unnati Group Admin.
+                        Please handover cash of <strong className="text-amber-600 font-extrabold">₹{paymentModal.amount.toLocaleString('en-IN')}</strong> to any Unnati Group Admin.
                       </p>
                       <p className="text-[10px] text-slate-500 font-bold leading-relaxed mt-2">
                         After handing over, tap "Confirm Paid" below. The admin will review and verify.
@@ -6691,7 +6788,8 @@ export default function App() {
                            const monthMap: any = { 'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12 };
                            const month = monthMap[monthName] || (new Date().getMonth() + 1);
                            const year = parseInt(yearStr) || new Date().getFullYear();
-                           await addContribution(month, year, undefined, 'pending', undefined, paymentModal.amount, paymentModal.mode);
+                           const paymentDateToRecord = paymentDate || format(new Date(), 'yyyy-MM-dd');
+                           await addContribution(month, year, undefined, 'pending', paymentDateToRecord, paymentModal.amount, paymentModal.mode);
                         } else if (paymentModal.type === 'loan' && selectedLoanForPayment) {
                            notify('success', `Installment noted as ${paymentModal.mode}. Admin will verify once received.`);
                            await payLoanInstallment(
@@ -7068,7 +7166,7 @@ export default function App() {
               </div>
               <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">Loan Approved!</h2>
               <p className="text-slate-600 font-medium leading-relaxed mb-8">
-                Your loan application for <span className="text-indigo-600 font-bold">₹{approvedLoanPopup.amount.toLocaleString()}</span> has been approved. The amount will be disbursed soon.
+                Your loan application for <span className="text-indigo-600 font-bold">₹{approvedLoanPopup.amount.toLocaleString('en-IN')}</span> has been approved. The amount will be disbursed soon.
               </p>
               <button 
                 onClick={() => setApprovedLoanPopup(null)}
@@ -7380,7 +7478,7 @@ export default function App() {
                             : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
                         )}
                       >
-                        ₹{amt.toLocaleString()}
+                        ₹{amt.toLocaleString('en-IN')}
                       </button>
                     ))}
                   </div>
@@ -7411,6 +7509,36 @@ export default function App() {
                     onChange={(e) => setLoanDate(e.target.value)}
                     className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Payment Mode</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAdminLoanPaymentMode('Online')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
+                        adminLoanPaymentMode === 'Online' 
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
+                      )}
+                    >
+                      <Zap className="w-4 h-4" /> Online
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdminLoanPaymentMode('Cash')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
+                        adminLoanPaymentMode === 'Cash' 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                      )}
+                    >
+                      <Banknote className="w-4 h-4" /> Cash
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -7669,22 +7797,81 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-bold text-indigo-700">Amount to Pay</span>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-900 font-black">₹</span>
-                      <input 
-                        type="number"
-                        value={customAmount}
-                        onChange={(e) => setCustomAmount(Number(e.target.value))}
-                        className="w-32 pl-7 pr-4 py-2 bg-white rounded-xl border border-indigo-200 text-indigo-900 font-black focus:ring-2 focus:ring-indigo-500 outline-none text-right"
-                      />
+                <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Base Contribution Field */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                        Subscription (₹)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">₹</span>
+                        <input
+                          type="number"
+                          value={MONTHLY_AMOUNT}
+                          disabled
+                          className="w-full pl-7 pr-3 py-2.5 bg-white rounded-xl border border-slate-200 text-slate-700 font-bold text-sm outline-none cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Separate Fine / Late Fee Field */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          Fine / Late Fee (₹)
+                        </label>
+                        <span className={cn(
+                          "text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider border",
+                          isLatePaymentDate 
+                            ? "bg-red-50 text-red-600 border-red-200" 
+                            : "bg-slate-100 text-slate-400 border-slate-200"
+                        )}>
+                          {isLatePaymentDate ? "Active (>10th)" : "Inactive (≤10th)"}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <span className={cn(
+                          "absolute left-3 top-1/2 -translate-y-1/2 font-bold text-sm",
+                          isLatePaymentDate ? "text-red-600" : "text-slate-400"
+                        )}>₹</span>
+                        <input
+                          type="number"
+                          value={isLatePaymentDate ? customFine : 0}
+                          onChange={(e) => {
+                            const val = Math.max(0, Number(e.target.value) || 0);
+                            setCustomFine(val);
+                            setCustomAmount(MONTHLY_AMOUNT + val);
+                          }}
+                          disabled={!isLatePaymentDate}
+                          className={cn(
+                            "w-full pl-7 pr-3 py-2.5 rounded-xl border font-bold text-sm outline-none transition-all",
+                            isLatePaymentDate
+                              ? "bg-red-50/50 border-red-300 text-red-700 focus:ring-2 focus:ring-red-400"
+                              : "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
+                          )}
+                          placeholder="0"
+                        />
+                      </div>
                     </div>
                   </div>
-                  {customAmount > MONTHLY_AMOUNT && (
-                    <p className="text-[10px] text-indigo-500 font-bold mt-1 uppercase tracking-wider">Includes ₹{LATE_FEE} Late Fee (Calculated: ₹{getContributionAmount(selectedMonth, selectedYear)})</p>
-                  )}
+
+                  {/* Total Amount to Pay row */}
+                  <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
+                    <div>
+                      <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Total Amount to Pay</span>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        {isLatePaymentDate 
+                          ? `₹${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base + ₹${customFine.toLocaleString('en-IN')} Fine (Paid after 10th)` 
+                          : `₹${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base (Paid on or before 10th)`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-black text-indigo-900">
+                        ₹{(MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0)).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-4">
@@ -7700,11 +7887,12 @@ export default function App() {
                   {paymentMethod === 'online' ? (
                     <button 
                       onClick={() => {
+                        const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
                         if (isAdmin && selectedUserId) {
                            // Admin recording online payment directly
-                           addContribution(selectedMonth, selectedYear, selectedUserId, 'paid', paymentDate, customAmount, 'online');
+                           addContribution(selectedMonth, selectedYear, selectedUserId, 'paid', paymentDate, finalAmt, 'online');
                         } else {
-                           handleUPIPayment(selectedMonth, selectedYear);
+                           handleUPIPayment(selectedMonth, selectedYear, finalAmt);
                         }
                       }}
                       className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
@@ -7713,7 +7901,10 @@ export default function App() {
                     </button>
                   ) : (
                     <button 
-                      onClick={() => addContribution(selectedMonth, selectedYear, selectedUserId || undefined, isAdmin ? 'paid' : 'pending', paymentDate, customAmount, 'cash')}
+                      onClick={() => {
+                        const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
+                        addContribution(selectedMonth, selectedYear, selectedUserId || undefined, isAdmin ? 'paid' : 'pending', paymentDate, finalAmt, 'cash');
+                      }}
                       className="flex-2 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 active:scale-95 flex items-center justify-center gap-2"
                     >
                       <Banknote className="w-5 h-5" /> Pay
@@ -7878,7 +8069,7 @@ export default function App() {
                           loanAmount === amt ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                         )}
                       >
-                        ₹{amt.toLocaleString()}
+                        ₹{amt.toLocaleString('en-IN')}
                       </button>
                     ))}
                   </div>
@@ -7993,11 +8184,11 @@ export default function App() {
                       </div>
                       <div className="flex justify-between mb-2.5 text-sm">
                         <span className="text-slate-600 font-medium">Interest (0.5%)</span>
-                        <span className="font-bold text-emerald-600">+₹{interest.toFixed(0)}</span>
+                        <span className="font-bold text-emerald-600">+₹{Math.round(interest).toLocaleString('en-IN')}</span>
                       </div>
                       <div className="pt-2.5 border-t border-slate-200 flex justify-between items-center">
                         <span className="text-sm font-bold text-slate-950">Total Amount</span>
-                        <span className="text-lg font-black text-indigo-600">₹{total.toLocaleString()}</span>
+                        <span className="text-lg font-black text-indigo-600">₹{total.toLocaleString('en-IN')}</span>
                       </div>
                     </div>
 
@@ -8113,7 +8304,7 @@ export default function App() {
                 <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-amber-700 uppercase">Total Settlement Amount</span>
-                    <span className="text-lg font-black text-amber-900">₹{(settlePrincipal + settleInterest).toLocaleString()}</span>
+                    <span className="text-lg font-black text-amber-900">₹{(settlePrincipal + settleInterest).toLocaleString('en-IN')}</span>
                   </div>
                 </div>
               </div>
@@ -8307,7 +8498,7 @@ export default function App() {
 
                 <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
                   <span className="text-xs font-bold text-indigo-700 uppercase">Total to Record</span>
-                  <span className="text-xl font-black text-indigo-900">₹{(adminManualRepayment.amount + adminManualRepayment.interest).toLocaleString()}</span>
+                  <span className="text-xl font-black text-indigo-900">₹{(adminManualRepayment.amount + adminManualRepayment.interest).toLocaleString('en-IN')}</span>
                 </div>
 
                 <div className="flex gap-3 pt-4">

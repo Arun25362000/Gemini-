@@ -141,11 +141,11 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                       return val.length > limit ? val.substring(0, limit - 2) + ".." : val;
                     }}
                   />
-                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} />
+                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} tickFormatter={(val) => Number(val).toLocaleString('en-IN')} />
                   <Tooltip 
                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                     labelFormatter={(id) => memberContributionsData.find(d => d.uniqueId === id)?.name || 'Unknown'}
-                    formatter={(value: any) => [`₹${value.toLocaleString()}`, 'Amount']}
+                    formatter={(value: any) => [`₹${Number(value).toLocaleString('en-IN')}`, 'Amount']}
                   />
                   <Bar dataKey="amount" fill="#6366f1" radius={[6, 6, 0, 0]} />
                 </BarChart>
@@ -177,11 +177,11 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                       return val.length > limit ? val.substring(0, limit - 2) + ".." : val;
                     }}
                   />
-                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} />
+                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} tickFormatter={(val) => Number(val).toLocaleString('en-IN')} />
                   <Tooltip 
                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                     labelFormatter={(id) => memberLoans.find(d => d.uniqueId === id)?.name || 'Unknown'}
-                    formatter={(value: any) => `₹${value.toLocaleString()}`}
+                    formatter={(value: any) => `₹${Number(value).toLocaleString('en-IN')}`}
                   />
                   <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
                   <Bar dataKey="borrowed" name="Borrowed" fill="#6366f1" radius={[6, 6, 0, 0]} />
@@ -201,10 +201,10 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                 <BarChart data={savingsVsLoans} margin={isAndroid ? { top: 10, right: 10, left: 0, bottom: 20 } : { top: 20, right: 30, left: 20, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" hide />
-                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} />
+                  <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} tickFormatter={(val) => Number(val).toLocaleString('en-IN')} />
                   <Tooltip 
                     contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: any) => `₹${value.toLocaleString()}`}
+                    formatter={(value: any) => `₹${Number(value).toLocaleString('en-IN')}`}
                   />
                   <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
                   <Bar dataKey="savings" name="Savings" fill="#6366f1" radius={[6, 6, 0, 0]} />
