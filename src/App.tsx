@@ -4204,7 +4204,7 @@ export default function App() {
             )}
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
-            {isAdmin && (
+            {isAdmin && activeTab !== 'graphs' && (
               <form 
                 onSubmit={(e) => e.preventDefault()}
                 className="relative w-full sm:w-64"
@@ -6358,7 +6358,22 @@ export default function App() {
                 };
               });
 
-              const sortedContribs = [...mappedContribs].sort((a, b) => {
+              // Filter contributions by search query
+              const filteredContribs = searchQuery && searchQuery.trim() ? mappedContribs.filter(item => {
+                const query = searchQuery.trim().toLowerCase();
+                const digitsOnly = query.replace(/\D/g, '');
+                const nameMatch = item.memberName.toLowerCase().includes(query);
+                const emailMatch = item.userEmail.toLowerCase().includes(query);
+                const phoneMatch = Boolean(digitsOnly.length >= 3 && item.userPhone && item.userPhone.replace(/\D/g, '').includes(digitsOnly));
+                const amountMatch = item.amount.toString().includes(query);
+                const methodMatch = item.method.toLowerCase().includes(query);
+                const dateMatch = item.dateFormatted.toLowerCase().includes(query);
+                const notesMatch = Boolean((item.raw as any)?.notes && (item.raw as any).notes.toLowerCase().includes(query));
+                const txMatch = Boolean((item.raw as any)?.transactionId && (item.raw as any).transactionId.toLowerCase().includes(query));
+                return nameMatch || emailMatch || phoneMatch || amountMatch || methodMatch || dateMatch || notesMatch || txMatch;
+              }) : mappedContribs;
+
+              const sortedContribs = [...filteredContribs].sort((a, b) => {
                 const { field, direction } = collectionContribSortConfig;
                 const factor = direction === 'asc' ? 1 : -1;
                 if (field === 'sno') return (a.sno - b.sno) * factor;
@@ -6414,7 +6429,24 @@ export default function App() {
                 };
               });
 
-              const sortedLoanPayments = [...mappedLoanPayments].sort((a, b) => {
+              // Filter loan repayments by search query
+              const filteredLoanPayments = searchQuery && searchQuery.trim() ? mappedLoanPayments.filter(item => {
+                const query = searchQuery.trim().toLowerCase();
+                const digitsOnly = query.replace(/\D/g, '');
+                const nameMatch = item.borrowerName.toLowerCase().includes(query);
+                const emailMatch = item.borrowerEmail.toLowerCase().includes(query);
+                const phoneMatch = Boolean(digitsOnly.length >= 3 && item.borrowerPhone && item.borrowerPhone.replace(/\D/g, '').includes(digitsOnly));
+                const principalMatch = item.principal.toString().includes(query);
+                const interestMatch = item.interest.toString().includes(query);
+                const totalMatch = item.total.toString().includes(query);
+                const modeMatch = item.paymentMode.toLowerCase().includes(query);
+                const dateMatch = item.dateFormatted.toLowerCase().includes(query);
+                const notesMatch = Boolean((item.raw as any)?.notes && (item.raw as any).notes.toLowerCase().includes(query));
+                const txMatch = Boolean((item.raw as any)?.transactionId && (item.raw as any).transactionId.toLowerCase().includes(query));
+                return nameMatch || emailMatch || phoneMatch || principalMatch || interestMatch || totalMatch || modeMatch || dateMatch || notesMatch || txMatch;
+              }) : mappedLoanPayments;
+
+              const sortedLoanPayments = [...filteredLoanPayments].sort((a, b) => {
                 const { field, direction } = collectionLoanSortConfig;
                 const factor = direction === 'asc' ? 1 : -1;
                 if (field === 'sno') return (a.sno - b.sno) * factor;
@@ -6616,8 +6648,10 @@ export default function App() {
 
                       {isContribListExpanded && (
                         <>
-                          {monthlyPaidContributions.length === 0 ? (
-                            <p className="text-slate-400 text-xs italic py-8 text-center">No paid contributions recorded for this month.</p>
+                          {sortedContribs.length === 0 ? (
+                            <p className="text-slate-400 text-xs italic py-8 text-center">
+                              {searchQuery && searchQuery.trim() ? "No contributions match your search." : "No paid contributions recorded for this month."}
+                            </p>
                           ) : (
                             <>
                               {/* Desktop Table View */}
@@ -6801,8 +6835,10 @@ export default function App() {
 
                       {isLoanListExpanded && (
                         <>
-                          {monthlyPaidLoanPayments.length === 0 ? (
-                            <p className="text-slate-400 text-xs italic py-8 text-center">No loan repayments collected for this month.</p>
+                          {sortedLoanPayments.length === 0 ? (
+                            <p className="text-slate-400 text-xs italic py-8 text-center">
+                              {searchQuery && searchQuery.trim() ? "No loan repayments match your search." : "No loan repayments collected for this month."}
+                            </p>
                           ) : (
                             <>
                               {/* Desktop Table View */}
