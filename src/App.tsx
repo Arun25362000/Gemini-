@@ -4684,6 +4684,87 @@ export default function App() {
 
             {/* Mobile Card View */}
             <div className="lg:hidden space-y-4">
+              {/* Quick Sorting Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs mb-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sort by:</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      onClick={() => handleSortMembers('name')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                        memberSortConfig.field === 'name'
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Member
+                      {memberSortConfig.field === 'name' && (
+                        memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleSortMembers('contact')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                        memberSortConfig.field === 'contact'
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Contact
+                      {memberSortConfig.field === 'contact' && (
+                        memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleSortMembers('joinDate')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                        memberSortConfig.field === 'joinDate'
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Join Date
+                      {memberSortConfig.field === 'joinDate' && (
+                        memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleSortMembers('totalPaid')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                        memberSortConfig.field === 'totalPaid'
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Total Paid
+                      {memberSortConfig.field === 'totalPaid' && (
+                        memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleSortMembers('status')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                        memberSortConfig.field === 'status'
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      Status
+                      {memberSortConfig.field === 'status' && (
+                        memberSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-slate-400">
+                  {sortedMembers.length} {sortedMembers.length === 1 ? 'Member' : 'Members'}
+                </span>
+              </div>
               {sortedMembers.map((u, idx) => {
                 const userContribs = contributions.filter(c => 
                   ((u.uid && c.userId === u.uid) || 
@@ -5062,6 +5143,103 @@ export default function App() {
 
                           {/* Mobile Card View */}
                           <div className="lg:hidden space-y-4">
+                            {/* Quick Sorting Toolbar */}
+                            {loanList.length > 0 && (
+                              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs mb-4">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sort by:</span>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                      onClick={() => handleSortLoans('name')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'name'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Member
+                                      {loanSortConfig.field === 'name' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('amount')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'amount'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Amount
+                                      {loanSortConfig.field === 'amount' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('date')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'date'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Date
+                                      {loanSortConfig.field === 'date' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('status')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'status'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Status
+                                      {loanSortConfig.field === 'status' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('paymentMode')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'paymentMode'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Mode
+                                      {loanSortConfig.field === 'paymentMode' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('details')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'details'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Details
+                                      {loanSortConfig.field === 'details' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                <span className="text-xs font-bold text-slate-400">
+                                  {loanList.length} {loanList.length === 1 ? 'Application' : 'Applications'}
+                                </span>
+                              </div>
+                            )}
                             {loanList.map((l, idx) => {
                               const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                               const isOldestPending = l.id === oldestPendingLoanId;
@@ -5651,6 +5829,75 @@ export default function App() {
 
                           {/* Mobile View Cards */}
                           <div className="lg:hidden space-y-4">
+                            {/* Mobile Sort Bar */}
+                            {loanList.length > 0 && (
+                              <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs mb-4">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sort by:</span>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <button
+                                      onClick={() => handleSortLoans('date')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'date'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      # / Date
+                                      {loanSortConfig.field === 'date' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('name')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'name'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Member
+                                      {loanSortConfig.field === 'name' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('remaining')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'remaining'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Balance
+                                      {loanSortConfig.field === 'remaining' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleSortLoans('monthlyStatus')}
+                                      className={cn(
+                                        "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                        loanSortConfig.field === 'monthlyStatus'
+                                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                          : "bg-slate-50 border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      Status
+                                      {loanSortConfig.field === 'monthlyStatus' && (
+                                        loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+                                <span className="text-xs font-bold text-slate-400">
+                                  {loanList.length} {loanList.length === 1 ? 'Loan' : 'Loans'}
+                                </span>
+                              </div>
+                            )}
                             {loanList.map((l, idx) => {
                               const payments = loanPayments.filter(p => p.loanId === l.id);
                               const paidPayments = payments.filter(p => p.status === 'paid');
@@ -5679,10 +5926,13 @@ export default function App() {
                                   initial={{ opacity: 0, y: 15 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   transition={{ delay: idx * 0.04 }}
-                                  className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden"
+                                  className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden relative"
                                 >
+                                  <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                                    #{idx + 1}
+                                  </div>
                                   <div className="p-5 flex flex-col gap-4">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between pr-8">
                                       <div className="flex items-center gap-3 min-w-0">
                                         <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-base shrink-0">
                                           {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
@@ -5694,7 +5944,6 @@ export default function App() {
                                           </p>
                                         </div>
                                       </div>
-                                      <span className="text-xs font-bold text-slate-400 shrink-0">#{idx + 1}</span>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
@@ -6713,6 +6962,87 @@ export default function App() {
 
                               {/* Mobile Card View */}
                               <div className="lg:hidden space-y-4">
+                                {/* Mobile Sort Bar for Contributions */}
+                                <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Sort by:</span>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <button
+                                        onClick={() => handleContribSort('sno')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionContribSortConfig.field === 'sno'
+                                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        #
+                                        {collectionContribSortConfig.field === 'sno' && (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleContribSort('member')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionContribSortConfig.field === 'member'
+                                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Member
+                                        {collectionContribSortConfig.field === 'member' && (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleContribSort('amount')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionContribSortConfig.field === 'amount'
+                                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Amount
+                                        {collectionContribSortConfig.field === 'amount' && (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleContribSort('method')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionContribSortConfig.field === 'method'
+                                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Method
+                                        {collectionContribSortConfig.field === 'method' && (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleContribSort('date')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionContribSortConfig.field === 'date'
+                                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Date
+                                        {collectionContribSortConfig.field === 'date' && (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-400">
+                                    {sortedContribs.length} {sortedContribs.length === 1 ? 'Record' : 'Records'}
+                                  </span>
+                                </div>
                                 {sortedContribs.map((item, rowIdx) => (
                                   <motion.div 
                                     key={`coll-contrib-card-${item.id}-${rowIdx}`} 
@@ -6907,6 +7237,101 @@ export default function App() {
 
                               {/* Mobile Card View */}
                               <div className="lg:hidden space-y-4">
+                                {/* Mobile Sort Bar for Loan Payments */}
+                                <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 shadow-xs">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Sort by:</span>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <button
+                                        onClick={() => handleLoanSort('sno')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionLoanSortConfig.field === 'sno'
+                                            ? "bg-emerald-50 border-emerald-200 text-emerald-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        #
+                                        {collectionLoanSortConfig.field === 'sno' && (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-600" /> : <ArrowDown className="w-3 h-3 text-emerald-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleLoanSort('borrower')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionLoanSortConfig.field === 'borrower'
+                                            ? "bg-emerald-50 border-emerald-200 text-emerald-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Borrower
+                                        {collectionLoanSortConfig.field === 'borrower' && (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-600" /> : <ArrowDown className="w-3 h-3 text-emerald-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleLoanSort('principal')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionLoanSortConfig.field === 'principal'
+                                            ? "bg-emerald-50 border-emerald-200 text-emerald-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Principal
+                                        {collectionLoanSortConfig.field === 'principal' && (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-600" /> : <ArrowDown className="w-3 h-3 text-emerald-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleLoanSort('interest')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionLoanSortConfig.field === 'interest'
+                                            ? "bg-emerald-50 border-emerald-200 text-emerald-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Interest
+                                        {collectionLoanSortConfig.field === 'interest' && (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-600" /> : <ArrowDown className="w-3 h-3 text-emerald-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleLoanSort('total')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionLoanSortConfig.field === 'total'
+                                            ? "bg-emerald-50 border-emerald-200 text-emerald-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Total
+                                        {collectionLoanSortConfig.field === 'total' && (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-600" /> : <ArrowDown className="w-3 h-3 text-emerald-600" />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => handleLoanSort('date')}
+                                        className={cn(
+                                          "px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 border",
+                                          collectionLoanSortConfig.field === 'date'
+                                            ? "bg-emerald-50 border-emerald-200 text-emerald-700 shadow-xs"
+                                            : "bg-white border-slate-200/80 text-slate-600 hover:bg-slate-100"
+                                        )}
+                                      >
+                                        Date
+                                        {collectionLoanSortConfig.field === 'date' && (
+                                          collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-600" /> : <ArrowDown className="w-3 h-3 text-emerald-600" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-400">
+                                    {sortedLoanPayments.length} {sortedLoanPayments.length === 1 ? 'Record' : 'Records'}
+                                  </span>
+                                </div>
                                 {sortedLoanPayments.map((p, rowIdx) => (
                                   <motion.div 
                                     key={`coll-loan-p-card-${p.id}-${rowIdx}`} 
@@ -7123,8 +7548,8 @@ export default function App() {
                   </span>
                 </div>
 
-                {/* Record Cards Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {/* Record Cards */}
+                <div className="space-y-4">
                   {sortedContributions.map((c, idx) => {
                     const member = allUsers.find(u => 
                       (c.userId && u.uid === c.userId) || 
