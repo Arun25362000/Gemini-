@@ -325,10 +325,15 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
             "bg-white p-6 sm:p-7 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+              #1
+            </div>
+
             <div 
               onClick={() => toggleGraph('sanctions-repayments')}
               className={cn(
-                "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors",
+                "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
                 !collapsedGraphs['sanctions-repayments'] ? "mb-6" : "mb-0"
               )}
             >
@@ -481,10 +486,15 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
             "bg-white p-6 sm:p-7 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+              #2
+            </div>
+
             <div 
               onClick={() => toggleGraph('member-disbursements')}
               className={cn(
-                "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors",
+                "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
                 !collapsedGraphs['member-disbursements'] ? "mb-6" : "mb-0"
               )}
             >
@@ -638,13 +648,18 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
         {/* Personal Contributions for Members */}
         {!isAdmin && (
           <div className={cn(
-            "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 transition-all",
+            "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+              #1
+            </div>
+
             <div
               onClick={() => toggleGraph('contribution-history')}
               className={cn(
-                "flex items-center justify-between cursor-pointer group select-none transition-colors",
+                "flex items-center justify-between cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
                 !collapsedGraphs['contribution-history'] ? "mb-6" : "mb-0"
               )}
             >
@@ -715,11 +730,19 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
 
         {/* Member vs Loan Received vs Paid */}
         {(isAdmin || (memberLoans.length > 0 && memberLoans[0].borrowed > 0)) && (
-          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 transition-all", isAndroid && "p-4 overflow-hidden")}>
+          <div className={cn(
+            "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
+            isAndroid && "p-4 overflow-hidden"
+          )}>
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+              {isAdmin ? '#3' : '#2'}
+            </div>
+
             <div
               onClick={() => toggleGraph('borrowed-repaid')}
               className={cn(
-                "flex items-center justify-between cursor-pointer group select-none transition-colors",
+                "flex items-center justify-between cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
                 !collapsedGraphs['borrowed-repaid'] ? "mb-6" : "mb-0"
               )}
             >
@@ -800,11 +823,19 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
 
         {/* Group Financial Health (Area Chart) */}
         {isAdmin && (
-          <div className={cn("bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 transition-all", isAndroid && "p-4 overflow-hidden")}>
+          <div className={cn(
+            "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
+            isAndroid && "p-4 overflow-hidden"
+          )}>
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+              #4
+            </div>
+
             <div
               onClick={() => toggleGraph('financial-health')}
               className={cn(
-                "flex items-center justify-between cursor-pointer group select-none transition-colors",
+                "flex items-center justify-between cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
                 !collapsedGraphs['financial-health'] ? "mb-6" : "mb-0"
               )}
             >

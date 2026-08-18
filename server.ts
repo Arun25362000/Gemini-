@@ -291,41 +291,48 @@ cron.schedule('0 9 1 * *', () => {
 
 // Helper to generate Excel Buffer and Mail Options from Data
 async function generateBackupMail(data: {
-  users: any[],
-  contributions: any[],
-  loans: any[],
-  payments: any[],
-  notices: any[]
+  users?: any[],
+  contributions?: any[],
+  loans?: any[],
+  payments?: any[],
+  notices?: any[]
 }, source: string) {
   const now = new Date();
   const wb = XLSX.utils.book_new();
+
+  const safeUsers = data?.users || [];
+  const safeContribs = data?.contributions || [];
+  const safeLoans = data?.loans || [];
+  const safePayments = data?.payments || [];
+  const safeNotices = data?.notices || [];
 
   // Helper to format currency
   const formatCurrency = (val: any) => typeof val === 'number' ? `₹${val.toLocaleString()}` : val;
 
   // Calculate Summary Data
-  const totalCollected = data.contributions.filter(c => c.status === 'paid').reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
-  const totalInterest = data.payments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (Number(p.interest) || 0), 0);
+  const totalCollected = safeContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+  const totalInterest = safePayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (Number(p.interest) || 0), 0);
   
   const summaryData = [
     { Metric: 'Report Generation Date', Value: now.toLocaleString() },
     { Metric: 'Data Source', Value: source },
-    { Metric: 'Total Registered Members', Value: data.users.length },
+    { Metric: 'Total Registered Members', Value: safeUsers.length },
     { Metric: 'Total Collected Savings (Paid)', Value: formatCurrency(totalCollected) },
     { Metric: 'Total Interest Earned (Paid)', Value: formatCurrency(totalInterest) },
     { Metric: 'Total Group Savings Pool', Value: formatCurrency(totalCollected + totalInterest) },
-    { Metric: 'Total Loan Applications', Value: data.loans.length },
+    { Metric: 'Total Loan Applications', Value: safeLoans.length },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Financial_Summary");
 
   // Transform data for better Excel readability
-  const formatData = (items: any[]) => items.map(item => {
+  const formatData = (items: any[] = []) => (items || []).map(item => {
+    if (!item || typeof item !== 'object') return item;
     const newItem = { ...item };
     Object.keys(newItem).forEach(key => {
-      // Handle Firebase timestamps (objects with _seconds)
+      // Handle Firebase timestamps (objects with _seconds or seconds or toDate)
       if (newItem[key] && typeof newItem[key] === 'object') {
-        if (newItem[key].toDate && typeof newItem[key].toDate === 'function') {
-          newItem[key] = newItem[key].toDate().toLocaleString();
+        if (typeof newItem[key].toDate === 'function') {
+          try { newItem[key] = newItem[key].toDate().toLocaleString(); } catch {}
         } else if (newItem[key]._seconds !== undefined) {
           newItem[key] = new Date(newItem[key]._seconds * 1000).toLocaleString();
         } else if (newItem[key].seconds !== undefined) {
@@ -341,11 +348,11 @@ async function generateBackupMail(data: {
     return newItem;
   });
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.users)), "Members");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.contributions)), "Contributions");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.loans)), "Loans");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.payments)), "Loan_Repayments");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(data.notices)), "Notices");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeUsers)), "Members");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeContribs)), "Contributions");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeLoans)), "Loans");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safePayments)), "Loan_Repayments");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeNotices)), "Notices");
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   const monthName = now.toLocaleString('default', { month: 'long' });
@@ -436,7 +443,8 @@ async function startServer() {
   console.log('PORT:', PORT);
   const app = express();
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // Disable caching for all routes to prevent "blank screen" issues
   app.use((req, res, next) => {

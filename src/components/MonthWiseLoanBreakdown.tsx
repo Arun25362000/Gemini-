@@ -629,8 +629,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                           {isMonthExpanded && (
                             <div className="p-0 sm:p-0">
                               {/* Desktop Table View */}
-                              <div className="hidden md:block overflow-x-auto w-full">
-                                <table className="w-full text-left border-collapse whitespace-nowrap">
+                              <div className="hidden md:block overflow-x-auto w-full touch-pan-x overscroll-x-contain">
+                                <table className="w-full min-w-[850px] text-left border-collapse whitespace-nowrap">
                                   <thead>
                                     <tr className="bg-slate-50/75 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                                       <th 
@@ -876,9 +876,12 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                   return (
                                     <div 
                                       key={item.loan.id || lIdx}
-                                      className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3"
+                                      className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3 relative overflow-hidden"
                                     >
-                                      <div className="flex items-start justify-between gap-2">
+                                      <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                                        #{lIdx + 1}
+                                      </div>
+                                      <div className="flex items-start justify-between gap-2 pr-8">
                                         <div className="flex items-center gap-2.5">
                                           <div className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
                                             {item.memberName.charAt(0).toUpperCase()}
