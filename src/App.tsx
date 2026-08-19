@@ -80,7 +80,9 @@ import {
   CreditCard,
   Zap,
   Star,
-  Phone
+  Phone,
+  Percent,
+  Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -468,6 +470,7 @@ export default function App() {
   const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [isContribListExpanded, setIsContribListExpanded] = useState<boolean>(true);
   const [isLoanListExpanded, setIsLoanListExpanded] = useState<boolean>(true);
+  const [isMonthlyCollectionSummaryExpanded, setIsMonthlyCollectionSummaryExpanded] = useState<boolean>(true);
   const [customPrincipal, setCustomPrincipal] = useState<number>(5000);
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
@@ -3788,27 +3791,27 @@ export default function App() {
           <div className={cn("mb-5", isMobileVisual && "mb-4")}>
             <button
               onClick={() => setIsFinancialInsightsExpanded(prev => !prev)}
-              className="w-full flex items-center justify-between p-3.5 sm:p-4 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-2xl shadow-xs transition-all group select-none text-left"
+              className="w-full flex items-center justify-between p-3.5 sm:p-4 bg-gradient-to-r from-indigo-50/70 via-slate-50 to-white hover:from-indigo-50/90 hover:to-slate-50 border-2 border-indigo-200/90 rounded-2xl shadow-xs transition-all group select-none text-left"
             >
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 group-hover:scale-105 transition-transform shadow-xs">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
                   <Zap className="w-4 h-4" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-base font-bold text-slate-900 tracking-tight">Financial Insights</h2>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100/80">
+                    <h2 className="text-base font-black text-slate-900 tracking-tight">Financial Insights</h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
                       5 Cards
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 font-medium">Group funds, collections, outstanding loans & liquid balance overview</p>
+                  <p className="text-xs text-slate-500 font-medium">Group funds, collections, outstanding loans & liquid balance overview</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-400 hidden sm:inline">
+                <span className="text-xs font-bold text-indigo-600 hidden sm:inline">
                   {isFinancialInsightsExpanded ? 'Collapse' : 'Expand'}
                 </span>
-                <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 group-hover:bg-slate-200 transition-colors">
+                <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center text-indigo-600 group-hover:bg-indigo-200 transition-colors">
                   {isFinancialInsightsExpanded ? (
                     <ChevronUp className="w-4 h-4" />
                   ) : (
@@ -3832,29 +3835,29 @@ export default function App() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             className={cn(
-              "bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-slate-200/90 hover:border-indigo-200/90 hover:shadow-md transition-all flex flex-col justify-between group relative overflow-hidden",
+              "bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
               isMobileVisual && "p-3 rounded-xl"
             )}
           >
             <div>
               <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                <div className="w-7.5 h-7.5 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100/70 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <div className="w-7.5 h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                   <Calendar className="w-4 h-4" />
                 </div>
-                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50/90 border border-indigo-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
                   {format(new Date(), 'MMM yyyy')}
                 </span>
               </div>
               {isAdmin ? (
                 <div>
-                  <h3 className="text-slate-500 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Monthly Received</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
+                  <h3 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Monthly Received</h3>
+                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-indigo-950 tracking-tight truncate">
                     ₹{adminCurrentMonthTotalReceived.toLocaleString('en-IN')}
                   </div>
                 </div>
               ) : (
                 <div>
-                  <h3 className="text-slate-500 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Status ({format(new Date(), 'MMM')})</h3>
+                  <h3 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Status ({format(new Date(), 'MMM')})</h3>
                   <div className="mt-1 flex items-center gap-1.5">
                     {hasPaidCurrent ? (
                       <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-sm sm:text-base">
@@ -3878,8 +3881,8 @@ export default function App() {
               )}
             </div>
             {isAdmin && (
-              <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10.5px]">
-                <span className="font-semibold text-slate-400">Status:</span>
+              <div className="mt-2.5 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Status:</span>
                 <div>
                   {hasPaidCurrent ? (
                     <span className="inline-flex items-center gap-1 font-bold text-emerald-600">
@@ -3910,19 +3913,19 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.05 }}
               className={cn(
-                "bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-slate-200/90 hover:border-slate-300 hover:shadow-md transition-all flex flex-col justify-between group",
+                "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group",
                 isMobileVisual && "p-3 rounded-xl"
               )}
             >
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0">
                     <TrendingUp className="w-4 h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wider">Your Savings</span>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">Your Savings</span>
                 </div>
-                <h3 className="text-slate-500 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Your Contributions</h3>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Your Contributions</h3>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-950 tracking-tight">
                   ₹{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString('en-IN')}
                 </div>
               </div>
@@ -3934,25 +3937,28 @@ export default function App() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.04 }}
-              className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-slate-200/90 hover:border-blue-200/90 hover:shadow-md transition-all flex flex-col justify-between group relative overflow-hidden"
+              className={cn(
+                "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
+                isMobileVisual && "p-3 rounded-xl"
+              )}
             >
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100/70 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                     <Users className="w-4 h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50/90 border border-blue-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
                     Group Size
                   </span>
                 </div>
-                <h3 className="text-slate-500 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Active Members</h3>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
+                <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Active Members</h3>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
                   {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
                 </div>
               </div>
-              <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10.5px]">
-                <span className="font-semibold text-slate-400">Total Sub:</span>
-                <span className="font-bold text-emerald-600 truncate ml-1">₹{financials.totalCollected.toLocaleString('en-IN')}</span>
+              <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Total Sub:</span>
+                <span className="font-bold text-purple-700 truncate ml-1">₹{financials.totalCollected.toLocaleString('en-IN')}</span>
               </div>
             </motion.div>
           )}
@@ -3965,25 +3971,28 @@ export default function App() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.08 }}
-                className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-slate-200/90 hover:border-emerald-200/90 hover:shadow-md transition-all flex flex-col justify-between group relative overflow-hidden"
+                className={cn(
+                  "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
+                  isMobileVisual && "p-3 rounded-xl"
+                )}
               >
                 <div>
                   <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                    <div className="w-7.5 h-7.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/70 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                       <TrendingUp className="w-4 h-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50/90 border border-emerald-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
                       Savings
                     </span>
                   </div>
-                  <h3 className="text-slate-500 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Group Funds</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
+                  <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Group Funds</h3>
+                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-950 tracking-tight truncate">
                     ₹{financials.totalSavings.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10.5px]">
-                  <span className="font-semibold text-slate-400">Interest:</span>
-                  <span className="font-bold text-indigo-600 truncate ml-1">₹{financials.totalInterest.toLocaleString('en-IN')}</span>
+                <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10.5px]">
+                  <span className="font-semibold text-slate-500">Interest:</span>
+                  <span className="font-bold text-emerald-700 truncate ml-1">₹{financials.totalInterest.toLocaleString('en-IN')}</span>
                 </div>
               </motion.div>
 
@@ -3993,25 +4002,28 @@ export default function App() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.12 }}
-                className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-slate-200/90 hover:border-amber-200/90 hover:shadow-md transition-all flex flex-col justify-between group relative overflow-hidden"
+                className={cn(
+                  "bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
+                  isMobileVisual && "p-3 rounded-xl"
+                )}
               >
                 <div>
                   <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                    <div className="w-7.5 h-7.5 rounded-xl bg-amber-50 text-amber-600 border border-amber-100/70 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="w-7.5 h-7.5 rounded-xl bg-amber-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                       <CreditCard className="w-4 h-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50/90 border border-amber-100/80 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
                       Loans
                     </span>
                   </div>
-                  <h3 className="text-slate-500 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Loan</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-amber-600 tracking-tight truncate">
+                  <h3 className="text-amber-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Loan</h3>
+                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-amber-700 tracking-tight truncate">
                     ₹{financials.outstandingPrincipal.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10.5px]">
-                  <span className="font-semibold text-slate-400">Active:</span>
-                  <span className="font-bold text-slate-700 truncate ml-1">{loans.filter(l => l.status === 'approved').length} loans</span>
+                <div className="mt-2.5 pt-2 border-t border-amber-100/90 flex items-center justify-between text-[10.5px]">
+                  <span className="font-semibold text-slate-500">Active:</span>
+                  <span className="font-bold text-amber-800 truncate ml-1">{loans.filter(l => l.status === 'approved').length} loans</span>
                 </div>
               </motion.div>
 
@@ -4021,26 +4033,29 @@ export default function App() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.16 }}
-                className="bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-slate-700/90 hover:border-emerald-500/40 hover:shadow-md transition-all flex flex-col justify-between group relative overflow-hidden col-span-2 sm:col-span-1"
+                className={cn(
+                  "bg-gradient-to-br from-cyan-50/90 via-sky-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-cyan-200/90 hover:border-cyan-400 hover:shadow-md hover:shadow-cyan-100/50 transition-all flex flex-col justify-between group relative overflow-hidden col-span-2 sm:col-span-1",
+                  isMobileVisual && "p-3 rounded-xl"
+                )}
               >
                 <div>
                   <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                    <div className="w-7.5 h-7.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="w-7.5 h-7.5 rounded-xl bg-cyan-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                       <Wallet className="w-4 h-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                    <span className="text-[10px] font-bold text-cyan-700 bg-cyan-100/90 border border-cyan-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
                       Liquid
                     </span>
                   </div>
-                  <h3 className="text-slate-400 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Available Balance</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-white tracking-tight truncate">
+                  <h3 className="text-cyan-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Available Balance</h3>
+                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-cyan-950 tracking-tight truncate">
                     ₹{financials.availableBalance.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="mt-2.5 pt-2 border-t border-slate-700 flex items-center justify-between text-[10.5px]">
-                  <span className="font-semibold text-slate-400">Liquid Funds</span>
-                  <span className="inline-flex items-center gap-1 font-bold text-emerald-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Ready
+                <div className="mt-2.5 pt-2 border-t border-cyan-100/90 flex items-center justify-between text-[10.5px]">
+                  <span className="font-semibold text-slate-500">Liquid Funds</span>
+                  <span className="inline-flex items-center gap-1 font-bold text-emerald-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Ready
                   </span>
                 </div>
               </motion.div>
@@ -4051,7 +4066,7 @@ export default function App() {
 
         {isAdmin && (
           <div className={cn(
-            "flex gap-2 mb-8 p-1.5 bg-slate-200/80 rounded-2xl w-fit border border-slate-300/50 shadow-inner",
+            "flex gap-2 mb-8 p-2 bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-slate-100/90 rounded-2xl w-fit border-2 border-indigo-200/80 shadow-sm",
             isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
           )}>
             <button 
@@ -4061,7 +4076,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'contributions' 
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               Contributions
@@ -4076,7 +4091,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'members' 
                   ? "bg-purple-600 text-white shadow-md shadow-purple-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-purple-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               Members
@@ -4088,7 +4103,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'loans' 
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-emerald-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               Loans
@@ -4103,7 +4118,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'notices' 
                   ? "bg-amber-600 text-white shadow-md shadow-amber-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-amber-700 border border-slate-200/70 shadow-2xs"
               )}
             >
               Notices
@@ -4114,8 +4129,8 @@ export default function App() {
                 "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'monthlyCollection' 
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  ? "bg-sky-600 text-white shadow-md shadow-sky-200/60" 
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-sky-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               <IndianRupee className="w-4 h-4" />
@@ -4128,7 +4143,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'graphs' 
                   ? "bg-teal-600 text-white shadow-md shadow-teal-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-teal-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               <GraphIcon className="w-4 h-4" />
@@ -4139,7 +4154,7 @@ export default function App() {
 
         {!isAdmin && (
           <div className={cn(
-            "flex gap-2 mb-8 p-1.5 bg-slate-200/80 rounded-2xl w-fit border border-slate-300/50 shadow-inner",
+            "flex gap-2 mb-8 p-2 bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-slate-100/90 rounded-2xl w-fit border-2 border-indigo-200/80 shadow-sm",
             isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
           )}>
             <button 
@@ -4149,7 +4164,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'contributions' 
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               Contributions
@@ -4161,7 +4176,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'loans' 
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               Loans
@@ -4176,7 +4191,7 @@ export default function App() {
                 isMobileVisual && "px-3 py-2 text-xs",
                 activeTab === 'graphs' 
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/60 text-slate-700 hover:bg-white hover:text-slate-900 border border-slate-200/50"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
               )}
             >
               <GraphIcon className="w-4 h-4" />
@@ -4210,25 +4225,27 @@ export default function App() {
             {isAdmin && activeTab !== 'graphs' && (
               <form 
                 onSubmit={(e) => e.preventDefault()}
-                className="relative w-full sm:w-64"
+                className="relative w-full sm:w-72 md:w-80 group"
               >
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                <input 
-                  type="text"
-                  placeholder="Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
-                />
-                {searchQuery && (
-                  <button 
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-100 rounded-full transition-all"
-                  >
-                    <X className="w-3.5 h-3.5 text-slate-400" />
-                  </button>
-                )}
+                <div className="relative flex items-center bg-gradient-to-r from-white via-indigo-50/25 to-white border-2 border-indigo-200/90 focus-within:border-indigo-600 focus-within:ring-4 focus-within:ring-indigo-100 rounded-2xl shadow-xs transition-all">
+                  <Search className="w-4 h-4 text-indigo-600 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none group-hover:scale-110 transition-transform" />
+                  <input 
+                    type="text"
+                    placeholder="Search records across tabs..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-10 py-2.5 bg-transparent border-0 rounded-2xl text-xs sm:text-sm font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-0"
+                  />
+                  {searchQuery && (
+                    <button 
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </form>
             )}
             {!isAdmin && activeTab === 'contributions' && (
@@ -4278,32 +4295,41 @@ export default function App() {
         </div>
 
         {isAdmin && activeTab === 'loans' && (
-          <div className="flex flex-wrap gap-2 mb-6 p-1 bg-slate-100 rounded-2xl w-fit">
+          <div className="flex flex-wrap gap-2 mb-6 p-2 bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-slate-100/90 border-2 border-indigo-200/80 rounded-2xl w-fit shadow-xs">
             <button 
               onClick={() => setLoanSubTab('applications')}
               className={cn(
-                "px-6 py-2 rounded-xl text-xs font-bold transition-all",
-                loanSubTab === 'applications' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                loanSubTab === 'applications' 
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200" 
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/80 shadow-2xs"
               )}
             >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
               Applications
             </button>
             <button 
               onClick={() => setLoanSubTab('repayments')}
               className={cn(
-                "px-6 py-2 rounded-xl text-xs font-bold transition-all",
-                loanSubTab === 'repayments' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                loanSubTab === 'repayments' 
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-200" 
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-emerald-600 border border-slate-200/80 shadow-2xs"
               )}
             >
+              <IndianRupee className="w-3.5 h-3.5" />
               Loan Repayment
             </button>
             <button 
               onClick={() => setLoanSubTab('breakdown')}
               className={cn(
-                "px-6 py-2 rounded-xl text-xs font-bold transition-all",
-                loanSubTab === 'breakdown' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                loanSubTab === 'breakdown' 
+                  ? "bg-purple-600 text-white shadow-md shadow-purple-200" 
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-purple-600 border border-slate-200/80 shadow-2xs"
               )}
             >
+              <Layers className="w-3.5 h-3.5" />
               Payment Summary
             </button>
           </div>
@@ -4393,7 +4419,7 @@ export default function App() {
                     {/* Export All Button */}
                     <button 
                       onClick={exportAllDataToExcel}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white text-emerald-600 border border-emerald-200 hover:border-emerald-300 hover:bg-emerald-50/60 rounded-2xl font-bold transition-all shadow-sm active:scale-95 text-sm"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-teal-100 active:scale-95 text-sm"
                       title="Export all member contributions and financial data to Excel"
                     >
                       <FileSpreadsheet className="w-4 h-4" /> Export All
@@ -5215,13 +5241,16 @@ export default function App() {
                               <button 
                                 type="button"
                                 onClick={() => setIsActiveLoansExpanded(!isActiveLoansExpanded)}
-                                className="flex items-center gap-2.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
+                                className="flex items-center gap-2.5 px-3.5 py-1.5 bg-gradient-to-r from-indigo-50/80 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 border-2 border-indigo-200/90 rounded-xl transition-all cursor-pointer group text-left select-none shadow-2xs"
                               >
-                                <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Approved Applications</h3>
-                                <span className="px-2.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200/60 rounded-full text-xs font-bold">
+                                <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                                  <FileText className="w-3.5 h-3.5" />
+                                </div>
+                                <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-indigo-600 transition-colors">Approved Applications</h3>
+                                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 border border-indigo-300/80 rounded-full text-xs font-bold">
                                   {activeLoans.length}
                                 </span>
-                                <ChevronDown className={cn("w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200", !isActiveLoansExpanded && "-rotate-90")} />
+                                <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isActiveLoansExpanded && "-rotate-90")} />
                               </button>
                             </div>
                             {isActiveLoansExpanded && renderLoanApplicationsList(activeLoans, "No approved loan applications found.", "active")}
@@ -5233,13 +5262,16 @@ export default function App() {
                               <button 
                                 type="button"
                                 onClick={() => setIsCompletedLoansExpanded(!isCompletedLoansExpanded)}
-                                className="flex items-center gap-2.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
+                                className="flex items-center gap-2.5 px-3.5 py-1.5 bg-gradient-to-r from-emerald-50/80 via-slate-50 to-white hover:from-emerald-100 hover:to-emerald-50/50 border-2 border-emerald-200/90 rounded-xl transition-all cursor-pointer group text-left select-none shadow-2xs"
                               >
-                                <h3 className="text-base font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Repaid Applications</h3>
-                                <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
+                                <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                </div>
+                                <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-emerald-700 transition-colors">Repaid Applications</h3>
+                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300/80 rounded-full text-xs font-bold">
                                   {completedLoans.length}
                                 </span>
-                                <ChevronDown className={cn("w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200", !isCompletedLoansExpanded && "-rotate-90")} />
+                                <ChevronDown className={cn("w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-transform duration-200", !isCompletedLoansExpanded && "-rotate-90")} />
                               </button>
                             </div>
                             {isCompletedLoansExpanded && renderLoanApplicationsList(completedLoans, "No repaid applications found.", "completed")}
@@ -5312,58 +5344,151 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setIsLoanOverviewExpanded(!isLoanOverviewExpanded)}
-                          className="flex items-center gap-2.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
+                          className="flex items-center gap-2.5 px-3.5 py-1.5 bg-gradient-to-r from-indigo-50/70 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 border-2 border-indigo-200/90 rounded-xl transition-all cursor-pointer group text-left select-none shadow-2xs"
                         >
-                          <h3 className="font-bold text-base sm:text-lg text-slate-900 group-hover:text-indigo-600 transition-colors">Loan Overview</h3>
-                          <ChevronDown className={cn("w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200", !isLoanOverviewExpanded && "-rotate-90")} />
+                          <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                            <Layers className="w-3.5 h-3.5" />
+                          </div>
+                          <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-indigo-600 transition-colors">Loan Overview</h3>
+                          <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isLoanOverviewExpanded && "-rotate-90")} />
                         </button>
                       </div>
 
                       {isLoanOverviewExpanded && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-                          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Active Loans</p>
-                            <p className="text-2xl font-black text-slate-900">
-                              {loans.filter(l => l.status === 'approved').length}
-                            </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-3.5">
+                          {/* Card 1: Active Loans (Blue) */}
+                          <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+                            <div>
+                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                                <div className="w-7.5 h-7.5 rounded-xl bg-blue-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                  <Users className="w-4 h-4" />
+                                </div>
+                                <span className="text-[10px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                  Active
+                                </span>
+                              </div>
+                              <h4 className="text-blue-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Active Loans</h4>
+                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-blue-950 tracking-tight">
+                                {loans.filter(l => l.status === 'approved').length}
+                              </div>
+                            </div>
+                            <div className="mt-2.5 pt-2 border-t border-blue-100/90 flex items-center justify-between text-[10.5px]">
+                              <span className="font-semibold text-slate-500">Status:</span>
+                              <span className="font-bold text-blue-700">Open Accounts</span>
+                            </div>
                           </div>
 
-                          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Loan Issued</p>
-                            <p className="text-2xl font-black text-slate-900">
-                              ₹{financials.totalLoanIssued.toLocaleString('en-IN')}
-                            </p>
+                          {/* Card 2: Total Loan Issued (Purple) */}
+                          <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+                            <div>
+                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                                <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                  <CreditCard className="w-4 h-4" />
+                                </div>
+                                <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                  Disbursed
+                                </span>
+                              </div>
+                              <h4 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Loan Issued</h4>
+                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
+                                ₹{financials.totalLoanIssued.toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                            <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
+                              <span className="font-semibold text-slate-500">Cumulative:</span>
+                              <span className="font-bold text-purple-700">All Time</span>
+                            </div>
                           </div>
 
-                          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Loan Paid</p>
-                            <p className="text-2xl font-black text-emerald-600">
-                              ₹{financials.totalLoanPaid.toLocaleString('en-IN')}
-                            </p>
+                          {/* Card 3: Loan Paid (Emerald) */}
+                          <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+                            <div>
+                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                                <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </div>
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                  Recovered
+                                </span>
+                              </div>
+                              <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Loan Paid</h4>
+                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-700 tracking-tight truncate">
+                                ₹{financials.totalLoanPaid.toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                            <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10.5px]">
+                              <span className="font-semibold text-slate-500">Principal:</span>
+                              <span className="font-bold text-emerald-700">Repaid</span>
+                            </div>
                           </div>
 
-                          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Interest Paid</p>
-                            <p className="text-2xl font-black text-amber-600">
-                              ₹{financials.totalInterest.toLocaleString('en-IN')}
-                            </p>
+                          {/* Card 4: Interest Paid (Amber) */}
+                          <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+                            <div>
+                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                                <div className="w-7.5 h-7.5 rounded-xl bg-amber-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                  <Percent className="w-4 h-4" />
+                                </div>
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                  Interest
+                                </span>
+                              </div>
+                              <h4 className="text-amber-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Interest Paid</h4>
+                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-amber-700 tracking-tight truncate">
+                                ₹{financials.totalInterest.toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                            <div className="mt-2.5 pt-2 border-t border-amber-100/90 flex items-center justify-between text-[10.5px]">
+                              <span className="font-semibold text-slate-500">Income:</span>
+                              <span className="font-bold text-amber-700">Earned</span>
+                            </div>
                           </div>
 
-                          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Outstanding Principal</p>
-                            <p className="text-2xl font-black text-slate-900">
-                              ₹{financials.outstandingPrincipal.toLocaleString('en-IN')}
-                            </p>
+                          {/* Card 5: Outstanding Principal (Rose) */}
+                          <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+                            <div>
+                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                                <div className="w-7.5 h-7.5 rounded-xl bg-rose-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                  <AlertCircle className="w-4 h-4" />
+                                </div>
+                                <span className="text-[10px] font-bold text-rose-700 bg-rose-100/90 border border-rose-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                  Principal
+                                </span>
+                              </div>
+                              <h4 className="text-rose-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Principal</h4>
+                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-rose-700 tracking-tight truncate">
+                                ₹{financials.outstandingPrincipal.toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                            <div className="mt-2.5 pt-2 border-t border-rose-100/90 flex items-center justify-between text-[10.5px]">
+                              <span className="font-semibold text-slate-500">Balance:</span>
+                              <span className="font-bold text-rose-700">Due</span>
+                            </div>
                           </div>
 
-                          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 transition-all hover:shadow-md">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 text-wrap">Total Outstanding with inclusive of interest</p>
-                            <p className="text-2xl font-black text-indigo-600">
-                              ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
-                                const payments = loanPayments.filter(p => p.loanId === l.id);
-                                return acc + calculateLoanRemainingTotal(l, payments);
-                              }, 0).toLocaleString('en-IN')}
-                            </p>
+                          {/* Card 6: Total Outstanding with Interest (Teal) */}
+                          <div className="bg-gradient-to-br from-teal-50/90 via-cyan-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-teal-200/90 hover:border-teal-400 hover:shadow-md hover:shadow-teal-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+                            <div>
+                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                                <div className="w-7.5 h-7.5 rounded-xl bg-teal-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                                  <IndianRupee className="w-4 h-4" />
+                                </div>
+                                <span className="text-[10px] font-bold text-teal-800 bg-teal-100/90 border border-teal-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                  Total Due
+                                </span>
+                              </div>
+                              <h4 className="text-teal-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Outstanding (Inc. Int)</h4>
+                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-teal-950 tracking-tight truncate">
+                                ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
+                                  const payments = loanPayments.filter(p => p.loanId === l.id);
+                                  return acc + calculateLoanRemainingTotal(l, payments);
+                                }, 0).toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                            <div className="mt-2.5 pt-2 border-t border-teal-100/90 flex items-center justify-between text-[10.5px]">
+                              <span className="font-semibold text-slate-500">Total:</span>
+                              <span className="font-bold text-teal-700">Principal + Int</span>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -5721,10 +5846,13 @@ export default function App() {
                                   initial={{ opacity: 0, y: 15 }}
                                   animate={{ opacity: 1, y: 0 }}
                                   transition={{ delay: idx * 0.04 }}
-                                  className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden"
+                                  className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden relative"
                                 >
+                                  <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                                    #{idx + 1}
+                                  </div>
                                   <div className="p-5 flex flex-col gap-4">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between pr-8">
                                       <div className="flex items-center gap-3 min-w-0">
                                         <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-base shrink-0">
                                           {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
@@ -5736,7 +5864,6 @@ export default function App() {
                                           </p>
                                         </div>
                                       </div>
-                                      <span className="text-xs font-bold text-slate-400 shrink-0">#{idx + 1}</span>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
@@ -5854,10 +5981,18 @@ export default function App() {
                                             const targetPaymentId = payment?.id || displayPayment?.id;
 
                                             return (
-                                              <div key={`admin-loan-schedule-mob-${l.id || 'loan'}-${idx}-${i}`} className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col gap-2.5">
-                                                <div className="flex items-center justify-between">
+                                              <div key={`admin-loan-schedule-mob-${l.id || 'loan'}-${idx}-${i}`} className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col gap-2.5 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-lg border-b border-l border-slate-200">
+                                                  #{installmentNum}
+                                                </div>
+                                                <div className="flex items-center justify-between pr-8">
                                                   <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-bold text-slate-400 w-5">{installmentNum}.</span>
+                                                    <div className={cn(
+                                                      "w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0",
+                                                      isPaid ? "bg-emerald-100 text-emerald-600" : isPending ? "bg-amber-100 text-amber-600" : "bg-slate-100 text-slate-500"
+                                                    )}>
+                                                      {installmentNum}
+                                                    </div>
                                                     <div>
                                                       <p className="text-xs font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
                                                       <p className="text-[10px] text-slate-500">₹{principalToDisplay.toLocaleString('en-IN')} + ₹{interestToDisplay.toLocaleString('en-IN')} Int.</p>
@@ -5937,13 +6072,16 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => setIsActiveRepaymentsExpanded(!isActiveRepaymentsExpanded)}
-                              className="flex items-center gap-2.5 mb-3.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
+                              className="flex items-center gap-2.5 px-3.5 py-1.5 bg-gradient-to-r from-amber-50/80 via-slate-50 to-white hover:from-amber-100 hover:to-amber-50/50 border-2 border-amber-200/90 rounded-xl transition-all cursor-pointer group text-left select-none shadow-2xs mb-3.5"
                             >
-                              <h3 className="font-bold text-base sm:text-lg text-slate-900 group-hover:text-indigo-600 transition-colors">Active Loans</h3>
-                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              <div className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center shadow-xs">
+                                <Clock className="w-3.5 h-3.5" />
+                              </div>
+                              <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-amber-700 transition-colors">Active Loans</h3>
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300/80">
                                 {activeLoansList.length}
                               </span>
-                              <ChevronDown className={cn("w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200", !isActiveRepaymentsExpanded && "-rotate-90")} />
+                              <ChevronDown className={cn("w-4 h-4 text-amber-600 group-hover:text-amber-700 transition-transform duration-200", !isActiveRepaymentsExpanded && "-rotate-90")} />
                             </button>
                             {isActiveRepaymentsExpanded && (
                               activeLoansList.length > 0 ? (
@@ -5961,13 +6099,16 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => setIsCompletedRepaymentsExpanded(!isCompletedRepaymentsExpanded)}
-                              className="flex items-center gap-2.5 mb-3.5 hover:opacity-80 transition-all cursor-pointer group text-left select-none"
+                              className="flex items-center gap-2.5 px-3.5 py-1.5 bg-gradient-to-r from-emerald-50/80 via-slate-50 to-white hover:from-emerald-100 hover:to-emerald-50/50 border-2 border-emerald-200/90 rounded-xl transition-all cursor-pointer group text-left select-none shadow-2xs mb-3.5"
                             >
-                              <h3 className="font-bold text-base sm:text-lg text-slate-900 group-hover:text-indigo-600 transition-colors">Settled Loans</h3>
-                              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <div className="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              </div>
+                              <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-emerald-700 transition-colors">Settled Loans</h3>
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300/80">
                                 {completedLoansList.length}
                               </span>
-                              <ChevronDown className={cn("w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform duration-200", !isCompletedRepaymentsExpanded && "-rotate-90")} />
+                              <ChevronDown className={cn("w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-transform duration-200", !isCompletedRepaymentsExpanded && "-rotate-90")} />
                             </button>
                             {isCompletedRepaymentsExpanded && (
                               completedLoansList.length > 0 ? (
@@ -6115,14 +6256,18 @@ export default function App() {
                                    <div 
                                      key={`loan-schedule-${l.id || 'loan'}-${idx}-${i}`}
                                      className={cn(
-                                       "p-4 rounded-2xl border transition-all flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
-                                       isPaid ? "bg-slate-50 border-slate-100 opacity-70" : 
-                                       isPending ? "bg-amber-50/70 border-amber-100 shadow-sm" :
+                                       "p-4 sm:p-5 rounded-3xl border transition-all flex flex-col gap-3 relative overflow-hidden",
+                                       isPaid ? "bg-slate-50 border-slate-100 opacity-80" : 
+                                       isPending ? "bg-amber-50/70 border-amber-200 shadow-sm" :
                                        isCurrentMonth ? "bg-white border-indigo-200 ring-2 ring-indigo-50 shadow-md" :
-                                       isFuture ? "bg-white border-slate-100 opacity-45 blur-[0.2px]" : "bg-white border-slate-200"
+                                       isFuture ? "bg-white border-slate-100 opacity-50" : "bg-white border-slate-200"
                                      )}
                                    >
-                                     <div className="flex items-center justify-between sm:justify-start gap-4 flex-1">
+                                     <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                                       #{installmentNum}
+                                     </div>
+
+                                     <div className="flex items-center justify-between pr-8">
                                        <div className="flex items-center gap-3">
                                          <div className={cn(
                                            "w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0",
@@ -6136,42 +6281,65 @@ export default function App() {
                                            <p className="font-bold text-slate-900 text-sm">
                                              {format(installmentDate, 'MMMM yyyy')}
                                            </p>
-                                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                             ₹{principalToDisplay.toLocaleString('en-IN')} + ₹{interest.toLocaleString('en-IN')} Int.
-                                           </p>
+                                           <span className={cn(
+                                             "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5 border",
+                                             isPaid ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
+                                             isPending ? "bg-amber-50 text-amber-600 border-amber-200" : 
+                                             isCurrentMonth ? "bg-indigo-50 text-indigo-600 border-indigo-200" : 
+                                             isFuture ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-slate-50 text-slate-500 border-slate-200"
+                                           )}>
+                                             {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
+                                           </span>
                                          </div>
                                        </div>
                                        
-                                       <div className="sm:hidden text-right">
-                                         <p className="text-[9px] font-bold text-slate-400 uppercase">Amount</p>
-                                         <p className="font-black text-slate-950 text-sm">₹{total.toLocaleString('en-IN')}</p>
+                                       <div className="text-right">
+                                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Amount</p>
+                                         <p className="font-black text-slate-950 text-sm sm:text-base">₹{total.toLocaleString('en-IN')}</p>
                                        </div>
                                      </div>
-                                     
-                                     <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-6 border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100">
-                                       <div className="flex items-center gap-4 sm:gap-6">
-                                         {(isPaid || isPending) && (
-                                           <div className="w-16">
-                                             <p className="text-[9px] font-bold text-slate-400 uppercase">Mode</p>
-                                             <p className={cn(
-                                               "text-xs font-bold truncate",
-                                               displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-500"
-                                             )}>
-                                               {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
-                                             </p>
-                                           </div>
-                                         )}
-                                         {isPaid && (
-                                           <div className="w-20">
-                                             <p className="text-[9px] font-bold text-slate-400 uppercase">Paid On</p>
-                                             <p className="text-xs font-bold text-slate-600 whitespace-nowrap">
-                                               {displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yy') :
-                                               displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yy') : '-'}
-                                             </p>
-                                           </div>
-                                         )}
+
+                                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
+                                       <div>
+                                         <p className="text-[10px] font-bold text-slate-400 uppercase">Principal</p>
+                                         <p className="font-bold text-slate-800">₹{principalToDisplay.toLocaleString('en-IN')}</p>
                                        </div>
-                                       
+                                       <div>
+                                         <p className="text-[10px] font-bold text-slate-400 uppercase">Interest (0.5%)</p>
+                                         <p className="font-bold text-indigo-600">₹{interest.toLocaleString('en-IN')}</p>
+                                       </div>
+                                       <div>
+                                         <p className="text-[10px] font-bold text-slate-400 uppercase">Payment Mode</p>
+                                         <p className={cn(
+                                           "font-bold truncate",
+                                           displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                                         )}>
+                                           {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                         </p>
+                                       </div>
+                                       {isPaid && (
+                                         <div className="col-span-2 sm:col-span-1">
+                                           <p className="text-[10px] font-bold text-slate-400 uppercase">Paid On</p>
+                                           <p className="font-bold text-slate-700">
+                                             {displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
+                                             displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'}
+                                           </p>
+                                         </div>
+                                       )}
+                                     </div>
+                                     
+                                     <div className="flex items-center justify-between pt-1">
+                                       <div className="text-xs text-slate-400">
+                                         {isPaid ? (
+                                           <span className="flex items-center gap-1 text-emerald-600 font-bold text-xs">
+                                             <CheckCircle2 className="w-4 h-4" /> Installment Cleared
+                                           </span>
+                                         ) : isPending ? (
+                                           <span className="text-amber-600 font-bold text-xs">
+                                             Verification in progress
+                                           </span>
+                                         ) : null}
+                                       </div>
                                        <div className="flex items-center gap-3 ml-auto sm:ml-0">
                                          <span className="hidden sm:inline font-black text-slate-900 w-20 text-right">₹{total.toLocaleString('en-IN')}</span>
                                          {!isPaid && !isPending && (
@@ -6245,8 +6413,11 @@ export default function App() {
                         const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
                         return dateB - dateA;
                       }).map((l, idx) => (
-                        <div key={`loan-history-${l.id || 'loan-hist'}-${idx}`} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                          <div className="flex items-center justify-between mb-2">
+                        <div key={`loan-history-${l.id || 'loan-hist'}-${idx}`} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 px-3 py-1 bg-slate-200/70 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                            #{idx + 1}
+                          </div>
+                          <div className="flex items-center justify-between mb-2 pr-8">
                              <div className="flex flex-col">
                                <span className="text-sm font-bold text-slate-900">₹{l.amount.toLocaleString('en-IN')}</span>
                                <span className={cn(
@@ -6514,20 +6685,26 @@ export default function App() {
               return (
                 <div className="space-y-6">
                   {/* Top Banner */}
-                  <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-indigo-900/50">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-indigo-800/40">
-                      <div className="flex items-center gap-3.5">
-                        <div className="w-12 h-12 bg-indigo-500/20 rounded-2xl flex items-center justify-center border border-indigo-400/30 text-indigo-300 shrink-0">
+                  <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border-2 border-indigo-200/90">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-indigo-100/80">
+                      <div 
+                        onClick={() => setIsMonthlyCollectionSummaryExpanded(!isMonthlyCollectionSummaryExpanded)}
+                        className="flex items-center gap-3.5 cursor-pointer group select-none"
+                      >
+                        <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center border border-indigo-200 text-indigo-600 shrink-0 group-hover:scale-105 transition-transform shadow-xs">
                           <IndianRupee className="w-6 h-6" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-xl text-white">Monthly Collection Summary</h3>
-                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                            <h3 className="font-bold text-xl text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                              Monthly Collection Summary
+                              <ChevronDown className={cn("w-5 h-5 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMonthlyCollectionSummaryExpanded && "-rotate-90")} />
+                            </h3>
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                               Live
                             </span>
                           </div>
-                          <p className="text-xs text-indigo-200/80 mt-0.5">
+                          <p className="text-xs text-slate-500 mt-0.5">
                             Total received amount including member contributions &amp; loan repayments (principal + interest)
                           </p>
                         </div>
@@ -6535,7 +6712,7 @@ export default function App() {
 
                       {/* Month / Year Traversable Selector Controls */}
                       <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                        <div className="flex items-center bg-slate-800/90 rounded-2xl p-1 border border-indigo-700/50">
+                        <div className="flex items-center bg-white rounded-2xl p-1 border border-slate-200 shadow-xs">
                           <button 
                             onClick={() => {
                               if (collectionMonth === 1) {
@@ -6545,7 +6722,7 @@ export default function App() {
                                 setCollectionMonth(collectionMonth - 1);
                               }
                             }}
-                            className="p-2 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-xl transition-all"
+                            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"
                             title="Previous Month"
                           >
                             <ChevronLeft className="w-4 h-4" />
@@ -6554,10 +6731,10 @@ export default function App() {
                           <select 
                             value={collectionMonth}
                             onChange={(e) => setCollectionMonth(Number(e.target.value))}
-                            className="bg-transparent text-white font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
+                            className="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
                           >
                             {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                              <option key={`coll-m-${m}`} value={m} className="bg-slate-900 text-white">
+                              <option key={`coll-m-${m}`} value={m} className="bg-white text-slate-900">
                                 {format(new Date(2026, m - 1, 1), 'MMMM')}
                               </option>
                             ))}
@@ -6566,10 +6743,10 @@ export default function App() {
                           <select 
                             value={collectionYear}
                             onChange={(e) => setCollectionYear(Number(e.target.value))}
-                            className="bg-transparent text-white font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
+                            className="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
                           >
                             {[2024, 2025, 2026, 2027, 2028].map(y => (
-                              <option key={`coll-y-${y}`} value={y} className="bg-slate-900 text-white">
+                              <option key={`coll-y-${y}`} value={y} className="bg-white text-slate-900">
                                 {y}
                               </option>
                             ))}
@@ -6584,7 +6761,7 @@ export default function App() {
                                 setCollectionMonth(collectionMonth + 1);
                               }
                             }}
-                            className="p-2 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-xl transition-all"
+                            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"
                             title="Next Month"
                           >
                             <ChevronRight className="w-4 h-4" />
@@ -6597,7 +6774,7 @@ export default function App() {
                               setCollectionMonth(new Date().getMonth() + 1);
                               setCollectionYear(new Date().getFullYear());
                             }}
-                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-2xl text-white transition-all shadow-sm whitespace-nowrap"
+                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-xs font-bold rounded-2xl text-white transition-all shadow-sm whitespace-nowrap"
                           >
                             Current Month
                           </button>
@@ -6606,56 +6783,57 @@ export default function App() {
                     </div>
 
                     {/* Collection Metrics Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-                      <div className="bg-gradient-to-br from-indigo-900/80 to-indigo-950 border border-indigo-400/40 rounded-2xl p-5 relative overflow-hidden shadow-lg">
-                        <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
-                        <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider mb-1">
-                          Total Received ({format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM yyyy')})
-                        </p>
-                        <p className="text-3xl font-black text-emerald-400">
-                          ₹{grandTotalMonthlyReceived.toLocaleString('en-IN')}
-                        </p>
-                        <p className="text-[10px] text-indigo-200/80 font-medium mt-1.5">
-                          Contributions + Loan Repayments
-                        </p>
-                      </div>
-
-                      <div className="bg-slate-800/70 border border-indigo-800/40 rounded-2xl p-5">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                          Member Contributions
-                        </p>
-                        <p className="text-2xl font-black text-white">
-                          ₹{monthlyContributionTotal.toLocaleString('en-IN')}
-                        </p>
-                        <p className="text-[10px] text-indigo-300/80 font-medium mt-1.5">
-                          {monthlyPaidContributions.length} Paid Members
-                        </p>
-                      </div>
-
-                      <div className="bg-slate-800/70 border border-indigo-800/40 rounded-2xl p-5">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                          Total Loan Repayments
-                        </p>
-                        <p className="text-2xl font-black text-emerald-300">
-                          ₹{monthlyLoanTotalCollected.toLocaleString('en-IN')}
-                        </p>
-                        <p className="text-[10px] text-slate-400 font-medium mt-1.5">
-                          {monthlyPaidLoanPayments.length} Collected Repayments
-                        </p>
-                      </div>
-
-                      <div className="bg-slate-800/70 border border-indigo-800/40 rounded-2xl p-5">
-                        <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1">
-                          Principal &amp; Interest Split
-                        </p>
-                        <div className="text-lg font-black text-white">
-                          ₹{monthlyLoanPrincipalCollected.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-300">₹{monthlyLoanInterestCollected.toLocaleString('en-IN')}</span>
+                    {isMonthlyCollectionSummaryExpanded && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+                        <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white border-2 border-emerald-200/90 rounded-2xl p-5 relative overflow-hidden shadow-xs">
+                          <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1">
+                            Total Received ({format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM yyyy')})
+                          </p>
+                          <p className="text-3xl font-black text-emerald-700">
+                            ₹{grandTotalMonthlyReceived.toLocaleString('en-IN')}
+                          </p>
+                          <p className="text-[10px] text-emerald-600 font-semibold mt-1.5">
+                            Contributions + Loan Repayments
+                          </p>
                         </div>
-                        <p className="text-[10px] text-amber-200/70 font-medium mt-1.5">
-                          Principal + Interest Portion
-                        </p>
+
+                        <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white border-2 border-indigo-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider mb-1">
+                            Member Contributions
+                          </p>
+                          <p className="text-2xl font-black text-indigo-950">
+                            ₹{monthlyContributionTotal.toLocaleString('en-IN')}
+                          </p>
+                          <p className="text-[10px] text-indigo-600 font-semibold mt-1.5">
+                            {monthlyPaidContributions.length} Paid Members
+                          </p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white border-2 border-purple-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-[10px] font-bold text-purple-800 uppercase tracking-wider mb-1">
+                            Total Loan Repayments
+                          </p>
+                          <p className="text-2xl font-black text-purple-950">
+                            ₹{monthlyLoanTotalCollected.toLocaleString('en-IN')}
+                          </p>
+                          <p className="text-[10px] text-purple-600 font-semibold mt-1.5">
+                            {monthlyPaidLoanPayments.length} Collected Repayments
+                          </p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white border-2 border-amber-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mb-1">
+                            Principal &amp; Interest Split
+                          </p>
+                          <div className="text-lg font-black text-slate-900">
+                            ₹{monthlyLoanPrincipalCollected.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-700">₹{monthlyLoanInterestCollected.toLocaleString('en-IN')}</span>
+                          </div>
+                          <p className="text-[10px] text-amber-700 font-semibold mt-1.5">
+                            Principal + Interest Portion
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Detailed Tables Section */}
@@ -6664,26 +6842,22 @@ export default function App() {
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
                       <div 
                         onClick={() => setIsContribListExpanded(!isContribListExpanded)}
-                        className="flex items-center justify-between pb-3 border-b border-slate-100 cursor-pointer select-none group"
+                        className="flex items-center justify-between p-3.5 bg-gradient-to-r from-indigo-50/80 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-2xs"
                         title={isContribListExpanded ? "Click to collapse" : "Click to expand"}
                       >
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold shrink-0">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
                             <Wallet className="w-4 h-4" />
                           </div>
                           <div>
                             <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                               Member Contributions
-                              {isContribListExpanded ? (
-                                <ChevronUp className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
-                              )}
+                              <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isContribListExpanded && "-rotate-90")} />
                             </h4>
                             <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
                           </div>
                         </div>
-                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
+                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-bold shadow-2xs">
                           ₹{monthlyContributionTotal.toLocaleString('en-IN')}
                         </span>
                       </div>
@@ -6864,26 +7038,22 @@ export default function App() {
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
                       <div 
                         onClick={() => setIsLoanListExpanded(!isLoanListExpanded)}
-                        className="flex items-center justify-between pb-3 border-b border-slate-100 cursor-pointer select-none group"
+                        className="flex items-center justify-between p-3.5 bg-gradient-to-r from-emerald-50/80 via-slate-50 to-white hover:from-emerald-100 hover:to-emerald-50/50 border-2 border-emerald-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-2xs"
                         title={isLoanListExpanded ? "Click to collapse" : "Click to expand"}
                       >
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
                             <IndianRupee className="w-4 h-4" />
                           </div>
                           <div>
-                            <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-emerald-600 transition-colors flex items-center gap-2">
+                            <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-emerald-700 transition-colors flex items-center gap-2">
                               Loan Repayments Collected
-                              {isLoanListExpanded ? (
-                                <ChevronUp className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
-                              )}
+                              <ChevronDown className={cn("w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-transform duration-200", !isLoanListExpanded && "-rotate-90")} />
                             </h4>
                             <p className="text-xs text-slate-500">Principal + Interest for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
                           </div>
                         </div>
-                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full text-xs font-bold">
+                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-bold shadow-2xs">
                           ₹{monthlyLoanTotalCollected.toLocaleString('en-IN')}
                         </span>
                       </div>

@@ -464,20 +464,20 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
     <div className={cn("space-y-6", isAndroid && "space-y-4")}>
       
       {/* Header & Metric Ribbon (styled identically to Monthly Loan Collection Verification) */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 shadow-md border border-indigo-900/50">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-indigo-800/40">
+      <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-6 shadow-sm border border-indigo-100/90">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-indigo-100/80">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-indigo-500/20 rounded-2xl flex items-center justify-center border border-indigo-400/30 text-indigo-300 shrink-0">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 bg-indigo-100 rounded-2xl flex items-center justify-center border border-indigo-200 text-indigo-600 shrink-0">
               <Layers className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-lg text-white">Loan Breadkdown details</h3>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                <h3 className="font-bold text-lg text-slate-900">Loan Breakdown Details</h3>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   Live
                 </span>
               </div>
-              <p className="text-xs text-indigo-200/80">
+              <p className="text-xs text-slate-500">
                 Hierarchical year-wise and month-wise record of all sanctioned loans
               </p>
             </div>
@@ -487,14 +487,14 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
             <button
               type="button"
               onClick={handleExpandAll}
-              className="px-3.5 py-2 bg-indigo-900/60 hover:bg-indigo-800/70 border border-indigo-700/50 text-indigo-200 hover:text-white text-xs font-bold rounded-2xl transition-all shadow-sm"
+              className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-indigo-600 text-xs font-bold rounded-2xl transition-all shadow-xs"
             >
               Expand All
             </button>
             <button
               type="button"
               onClick={handleCollapseAll}
-              className="px-3.5 py-2 bg-indigo-900/60 hover:bg-indigo-800/70 border border-indigo-700/50 text-indigo-200 hover:text-white text-xs font-bold rounded-2xl transition-all shadow-sm"
+              className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 hover:text-indigo-600 text-xs font-bold rounded-2xl transition-all shadow-xs"
             >
               Collapse All
             </button>
@@ -503,28 +503,30 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
 
         {/* Filter Controls Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4 pt-1">
-          <div className="relative w-full sm:w-96">
-            <Search className="w-4 h-4 text-indigo-300 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search member, amount, repaid, balance, or status..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 bg-slate-800/90 border border-indigo-700/50 rounded-2xl text-xs font-semibold text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400 transition-all"
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white rounded-full transition-all"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+          <div className="relative w-full sm:w-96 group">
+            <div className="relative flex items-center bg-gradient-to-r from-white via-indigo-50/25 to-white border-2 border-indigo-200/90 focus-within:border-indigo-600 focus-within:ring-4 focus-within:ring-indigo-100 rounded-2xl shadow-xs transition-all">
+              <Search className="w-4 h-4 text-indigo-600 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none group-hover:scale-110 transition-transform" />
+              <input
+                type="text"
+                placeholder="Search member, amount, repaid, balance, or status..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-10 py-2.5 bg-transparent border-0 rounded-2xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-0"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="text-xs text-indigo-200/80 font-medium">
-            Showing <span className="font-bold text-white">{hierarchyData.reduce((acc, y) => acc + y.totalLoansCount, 0)}</span> loan record(s)
+          <div className="text-xs text-slate-500 font-medium">
+            Showing <span className="font-bold text-slate-900">{hierarchyData.reduce((acc, y) => acc + y.totalLoansCount, 0)}</span> loan record(s)
           </div>
         </div>
       </div>
@@ -584,14 +586,14 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
 
                 {/* Year Body: Month List */}
                 {isYearExpanded && (
-                  <div className="p-4 sm:p-6 space-y-4 bg-slate-50/40">
+                  <div className="p-2 sm:p-6 space-y-3 sm:space-y-4 bg-slate-50/40">
                     {yearGroup.months.map((monthGroup) => {
                       const isMonthExpanded = expandedMonths[monthGroup.monthKey] ?? true;
 
                       return (
                         <div 
                           key={monthGroup.monthKey}
-                          className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+                          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm overflow-hidden"
                         >
                           {/* Month Header Accordion Trigger */}
                           <button
@@ -734,7 +736,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </th>
                                     </tr>
-                                    <tr className="bg-slate-50/75 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                    <tr className="bg-slate-50/75 border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                                       <th 
                                         onClick={() => handleSort('nextDate')}
                                         className="px-3 py-2 bg-indigo-50/30 text-indigo-900 border-r border-slate-200/60 text-center cursor-pointer hover:bg-indigo-100/50 transition-colors group select-none"
@@ -870,7 +872,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                               </div>
 
                               {/* Mobile / Tablet Card View */}
-                              <div className="block md:hidden p-3.5 space-y-3">
+                              <div className="block md:hidden p-3 space-y-3.5">
                                 <MobileQuickSort
                                   options={[
                                     { key: 'date', label: 'Date' },
@@ -894,23 +896,23 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                   return (
                                     <div 
                                       key={item.loan.id || lIdx}
-                                      className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-3 relative overflow-hidden"
+                                      className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-5 space-y-4 relative overflow-hidden"
                                     >
                                       <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
                                         #{lIdx + 1}
                                       </div>
                                       <div className="flex items-start justify-between gap-2 pr-8">
-                                        <div className="flex items-center gap-2.5">
-                                          <div className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                          <div className="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-base shrink-0">
                                             {item.memberName.charAt(0).toUpperCase()}
                                           </div>
-                                          <div>
-                                            <h4 className="font-bold text-sm text-slate-900">{item.memberName}</h4>
-                                            <p className="text-[10px] text-slate-400">{item.memberPhone || item.memberEmail}</p>
+                                          <div className="min-w-0">
+                                            <h4 className="font-bold text-sm text-slate-900 truncate">{item.memberName}</h4>
+                                            <p className="text-xs text-slate-500 truncate">{item.memberPhone || item.memberEmail || '-'}</p>
                                           </div>
                                         </div>
                                         <span className={cn(
-                                          "px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
+                                          "px-2.5 py-1 rounded-full text-[10px] font-bold border shrink-0",
                                           isPaid 
                                             ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
                                             : "bg-amber-50 text-amber-700 border-amber-200"
@@ -919,52 +921,67 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </span>
                                       </div>
 
-                                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+                                      <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
                                         <div>
                                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Loan Amount</p>
-                                          <p className="font-black text-slate-900 text-sm">₹{item.amount.toLocaleString('en-IN')}</p>
-                                        </div>
-                                        <div>
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
-                                          <p className="font-bold text-emerald-700">₹{(item.repaidPrincipal + item.repaidInterest).toLocaleString('en-IN')}</p>
-                                          <div className="flex items-center gap-0.5 mt-0.5 text-[9.5px] font-semibold">
-                                            <span className="text-emerald-700">₹{item.repaidPrincipal.toLocaleString('en-IN')}</span>
-                                            <span className="text-slate-400 font-normal">+</span>
-                                            <span className="text-indigo-700">₹{item.repaidInterest.toLocaleString('en-IN')} Int</span>
-                                          </div>
+                                          <p className="font-black text-slate-900 text-sm mt-0.5">₹{item.amount.toLocaleString('en-IN')}</p>
                                         </div>
                                         <div>
                                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Loan Balance</p>
-                                          <p className="font-bold text-amber-700">₹{item.remainingPrincipal.toLocaleString('en-IN')}</p>
+                                          <p className={cn(
+                                            "font-bold text-sm mt-0.5",
+                                            item.remainingPrincipal > 0 ? "text-amber-700" : "text-slate-400"
+                                          )}>
+                                            ₹{item.remainingPrincipal.toLocaleString('en-IN')}
+                                          </p>
                                         </div>
-                                        {(isPaid || item.remainingPrincipal <= 0) && (
-                                          <div className="col-span-3 pt-2 border-t border-dashed border-slate-200 flex items-center justify-between">
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Closed Date</span>
-                                            <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">{item.closedDateStr}</span>
+                                        <div className="col-span-2 sm:col-span-1 pt-1 border-t border-slate-200/60 sm:border-t-0 sm:pt-0">
+                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
+                                          <p className="font-bold text-emerald-700 text-sm mt-0.5">₹{(item.repaidPrincipal + item.repaidInterest).toLocaleString('en-IN')}</p>
+                                          <div className="flex items-center gap-1 mt-0.5 text-[10px] font-semibold text-slate-500">
+                                            <span className="text-emerald-700 font-bold">₹{item.repaidPrincipal.toLocaleString('en-IN')}</span>
+                                            <span>+</span>
+                                            <span className="text-indigo-700 font-bold">₹{item.repaidInterest.toLocaleString('en-IN')} Int</span>
+                                          </div>
+                                        </div>
+                                        <div className="col-span-2 sm:col-span-1 pt-1 border-t border-slate-200/60 sm:border-t-0 sm:pt-0">
+                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                            {isPaid || item.remainingPrincipal <= 0 ? 'Closed Date' : 'Tenure'}
+                                          </p>
+                                          <p className="font-bold text-slate-800 text-xs sm:text-sm mt-0.5">
+                                            {isPaid || item.remainingPrincipal <= 0 ? (
+                                              <span className="text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                                {item.closedDateStr}
+                                              </span>
+                                            ) : (
+                                              <span>{item.loan.installments || 10} Months</span>
+                                            )}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      {/* Next Payment Card Section */}
+                                      <div className="p-3 bg-slate-50/80 rounded-2xl border border-slate-100 space-y-1.5">
+                                        <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Next Payment</p>
+                                        {isPaid || item.remainingPrincipal <= 0 ? (
+                                          <p className="text-xs text-slate-400 font-medium">No upcoming payments (Settled)</p>
+                                        ) : (
+                                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 rounded-xl border border-indigo-100/80">
+                                            <div>
+                                              <p className="text-[10px] text-slate-400 font-bold uppercase">Due Date</p>
+                                              <p className="text-xs font-bold text-slate-800">{item.nextPaymentDateStr}</p>
+                                            </div>
+                                            <div className="sm:text-right border-t sm:border-t-0 pt-1 sm:pt-0 border-slate-100">
+                                              <p className="text-[10px] text-slate-400 font-bold uppercase">Next Installment</p>
+                                              <p className="text-xs font-black text-slate-900">
+                                                ₹{item.nextTotalAmount.toLocaleString('en-IN')}
+                                              </p>
+                                              <p className="text-[10px] text-slate-500 font-semibold">
+                                                (₹{item.nextPrincipal.toLocaleString('en-IN')} + <span className="text-indigo-700 font-bold">₹{item.nextInterest.toLocaleString('en-IN')} Int</span>)
+                                              </p>
+                                            </div>
                                           </div>
                                         )}
-                                        <div className="col-span-3 pt-2 border-t border-dashed border-slate-200">
-                                          <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">Next Payment</p>
-                                          {isPaid || item.remainingPrincipal <= 0 ? (
-                                            <p className="text-xs text-slate-400 font-medium">No upcoming payments (Settled)</p>
-                                          ) : (
-                                            <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-100">
-                                              <div>
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase">Date</p>
-                                                <p className="text-xs font-bold text-slate-800">{item.nextPaymentDateStr}</p>
-                                              </div>
-                                              <div className="text-right">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase">Principal + Interest</p>
-                                                <p className="text-xs font-black text-slate-900">
-                                                  ₹{item.nextTotalAmount.toLocaleString('en-IN')}
-                                                  <span className="text-[10px] font-semibold text-slate-600 ml-1">
-                                                    (₹{item.nextPrincipal.toLocaleString('en-IN')} + <span className="text-indigo-700 font-bold">₹{item.nextInterest.toLocaleString('en-IN')} Int</span>)
-                                                  </span>
-                                                </p>
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
                                       </div>
                                     </div>
                                   );
