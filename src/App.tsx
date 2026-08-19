@@ -4338,22 +4338,23 @@ export default function App() {
         {isAdmin && activeTab === 'members' ? (
           <div className="space-y-6">
             {/* Member Management Actions Collapsible Card */}
-            <div className={cn("bg-white rounded-3xl border border-slate-200 shadow-sm transition-all", isMemberActionsCollapsed ? "overflow-hidden" : "overflow-visible")}>
+            <div className={cn("bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm transition-all overflow-hidden")}>
               <div 
                 onClick={() => setIsMemberActionsCollapsed(!isMemberActionsCollapsed)}
-                className="flex items-center justify-between p-5 sm:p-6 cursor-pointer hover:bg-slate-50/70 transition-colors select-none group rounded-3xl"
+                className="flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
                     <UserPlus className="w-5 h-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                         Member Management Actions
+                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMemberActionsCollapsed && "-rotate-180")} />
                       </h3>
-                      <span className="text-slate-400 group-hover:text-indigo-600 transition-colors">
-                        {isMemberActionsCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300/80">
+                        Admin
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
@@ -4364,8 +4365,8 @@ export default function App() {
               </div>
 
               {!isMemberActionsCollapsed && (
-                <div className="px-5 sm:px-6 pb-6 pt-1 border-t border-slate-100">
-                  <div className="flex flex-wrap items-center gap-3 pt-3">
+                <div className="px-5 sm:px-6 py-6 bg-white">
+                  <div className="flex flex-wrap items-center gap-3">
                     {/* Add Member Dropdown */}
                     <div className="relative flex-1 sm:flex-none">
                       <button 
@@ -4460,23 +4461,21 @@ export default function App() {
             </div>
 
             {/* Member Details Collapsible Card */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm overflow-hidden transition-all">
               <div 
                 onClick={() => setIsMemberDetailsCollapsed(!isMemberDetailsCollapsed)}
-                className="flex items-center justify-between p-5 sm:p-6 cursor-pointer hover:bg-slate-50/70 transition-colors select-none group"
+                className="flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
                     <Users className="w-5 h-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                         Member Details
+                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMemberDetailsCollapsed && "-rotate-180")} />
                       </h3>
-                      <span className="text-slate-400 group-hover:text-indigo-600 transition-colors">
-                        {isMemberDetailsCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-                      </span>
                     </div>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
                       Overview of registered group members, payment status, contact details, and administration controls
@@ -4485,7 +4484,7 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-xs font-bold border border-slate-200">
+                  <span className="px-3.5 py-1.5 bg-indigo-100 text-indigo-800 rounded-full text-xs font-bold border border-indigo-300/80 shadow-2xs">
                     {sortedMembers.length} Members
                   </span>
                 </div>
@@ -7246,34 +7245,38 @@ export default function App() {
         ) : (
           <div className="space-y-6">
             {/* Filter Section */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+            <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white p-6 sm:p-7 rounded-3xl shadow-sm border-2 border-indigo-200/90">
               <div className="flex flex-col md:flex-row md:items-end gap-4">
-                <div className="flex-1 grid grid-cols-2 gap-4">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Month</label>
-                    <select 
-                      value={filterMonth}
-                      onChange={(e) => setFilterMonth(Number(e.target.value))}
-                      className="w-full p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                    >
-                      {Array.from({ length: 12 }).map((_, i) => (
-                        <option key={`filter-month-${i + 1}`} value={i + 1}>
-                          {format(new Date(2024, i, 1), 'MMMM')}
-                        </option>
-                      ))}
-                    </select>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Month</label>
+                    <div className="relative">
+                      <select 
+                        value={filterMonth}
+                        onChange={(e) => setFilterMonth(Number(e.target.value))}
+                        className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
+                      >
+                        {Array.from({ length: 12 }).map((_, i) => (
+                          <option key={`filter-month-${i + 1}`} value={i + 1}>
+                            {format(new Date(2024, i, 1), 'MMMM')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Year</label>
-                    <select 
-                      value={filterYear}
-                      onChange={(e) => setFilterYear(Number(e.target.value))}
-                      className="w-full p-3 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                    >
-                      {[2024, 2025, 2026].map(y => (
-                        <option key={`filter-year-${y}`} value={y}>{y}</option>
-                      ))}
-                    </select>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Year</label>
+                    <div className="relative">
+                      <select 
+                        value={filterYear}
+                        onChange={(e) => setFilterYear(Number(e.target.value))}
+                        className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
+                      >
+                        {[2024, 2025, 2026, 2027, 2028].map(y => (
+                          <option key={`filter-year-${y}`} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
                 <button 
@@ -7281,14 +7284,14 @@ export default function App() {
                     setAppliedFilter({ month: filterMonth, year: filterYear });
                     setPaymentMethodFilter('all');
                   }}
-                  className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
+                  className="px-8 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
                 >
                   <Search className="w-4 h-4" /> Show Payments
                 </button>
               </div>
 
               {isAdmin && appliedFilter && (
-                <div className="mt-6 pt-6 border-t border-slate-100 flex flex-wrap gap-4">
+                <div className="mt-6 pt-6 border-t border-indigo-100/90 flex flex-wrap gap-4">
                   {(() => {
                     const filtered = contributions.filter(c => c.month === appliedFilter.month && c.year === appliedFilter.year && c.status === 'paid');
                     const cash = filtered.filter(c => c.paymentMethod === 'cash').length;
@@ -7300,37 +7303,37 @@ export default function App() {
                         <button 
                           onClick={() => setPaymentMethodFilter(prev => prev === 'online' ? 'all' : 'online')}
                           className={cn(
-                            "px-4 py-2 rounded-xl border transition-all text-left active:scale-95",
+                            "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
                             paymentMethodFilter === 'online' 
-                              ? "bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100" 
-                              : "bg-emerald-50 border-emerald-100 text-emerald-600 hover:bg-emerald-100"
+                              ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-200" 
+                              : "bg-emerald-50/90 border-emerald-200/90 text-emerald-700 hover:bg-emerald-100"
                           )}
                         >
-                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'online' ? "text-emerald-50" : "text-emerald-600")}>Online Payments</p>
+                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'online' ? "text-emerald-50" : "text-emerald-800")}>Online Payments</p>
                           <p className={cn("text-lg font-black", paymentMethodFilter === 'online' ? "text-white" : "text-emerald-700")}>{online}</p>
                         </button>
                         <button 
                           onClick={() => setPaymentMethodFilter(prev => prev === 'cash' ? 'all' : 'cash')}
                           className={cn(
-                            "px-4 py-2 rounded-xl border transition-all text-left active:scale-95",
+                            "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
                             paymentMethodFilter === 'cash' 
-                              ? "bg-amber-600 border-amber-600 text-white shadow-lg shadow-amber-100" 
-                              : "bg-amber-50 border-amber-100 text-amber-600 hover:bg-amber-100"
+                              ? "bg-amber-600 border-amber-600 text-white shadow-md shadow-amber-200" 
+                              : "bg-amber-50/90 border-amber-200/90 text-amber-700 hover:bg-amber-100"
                           )}
                         >
-                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'cash' ? "text-amber-50" : "text-amber-600")}>Cash Payments</p>
+                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'cash' ? "text-amber-50" : "text-amber-800")}>Cash Payments</p>
                           <p className={cn("text-lg font-black", paymentMethodFilter === 'cash' ? "text-white" : "text-amber-700")}>{cash}</p>
                         </button>
                         <button 
                           onClick={() => setPaymentMethodFilter('all')}
                           className={cn(
-                            "px-4 py-2 rounded-xl border transition-all text-left active:scale-95",
+                            "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
                             paymentMethodFilter === 'all' 
-                              ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100" 
-                              : "bg-indigo-50 border-indigo-100 text-indigo-600 hover:bg-indigo-100"
+                              ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200" 
+                              : "bg-indigo-50/90 border-indigo-200/90 text-indigo-700 hover:bg-indigo-100"
                           )}
                         >
-                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'all' ? "text-indigo-50" : "text-indigo-600")}>Total Amount</p>
+                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'all' ? "text-indigo-50" : "text-indigo-800")}>Total Amount</p>
                           <p className={cn("text-lg font-black", paymentMethodFilter === 'all' ? "text-white" : "text-indigo-700")}>₹{total.toLocaleString('en-IN')}</p>
                         </button>
                       </>
