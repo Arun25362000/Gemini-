@@ -6685,7 +6685,7 @@ export default function App() {
                 <div className="space-y-6">
                   {/* Top Banner */}
                   <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border-2 border-indigo-200/90">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-indigo-100/80">
+                    <div className={cn("flex flex-col lg:flex-row lg:items-center justify-between gap-4", isMonthlyCollectionSummaryExpanded && "pb-6 border-b border-indigo-100/80")}>
                       <div 
                         onClick={() => setIsMonthlyCollectionSummaryExpanded(!isMonthlyCollectionSummaryExpanded)}
                         className="flex items-center gap-3.5 cursor-pointer group select-none"
@@ -6703,82 +6703,86 @@ export default function App() {
                               Live
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            Total received amount including member contributions &amp; loan repayments (principal + interest)
-                          </p>
+                          {isMonthlyCollectionSummaryExpanded && (
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Total received amount including member contributions &amp; loan repayments (principal + interest)
+                            </p>
+                          )}
                         </div>
                       </div>
 
                       {/* Month / Year Traversable Selector Controls */}
-                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                        <div className="flex items-center bg-white rounded-2xl p-1 border border-slate-200 shadow-xs">
-                          <button 
-                            onClick={() => {
-                              if (collectionMonth === 1) {
-                                setCollectionMonth(12);
-                                setCollectionYear(collectionYear - 1);
-                              } else {
-                                setCollectionMonth(collectionMonth - 1);
-                              }
-                            }}
-                            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"
-                            title="Previous Month"
-                          >
-                            <ChevronLeft className="w-4 h-4" />
-                          </button>
-                          
-                          <select 
-                            value={collectionMonth}
-                            onChange={(e) => setCollectionMonth(Number(e.target.value))}
-                            className="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
-                          >
-                            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                              <option key={`coll-m-${m}`} value={m} className="bg-white text-slate-900">
-                                {format(new Date(2026, m - 1, 1), 'MMMM')}
-                              </option>
-                            ))}
-                          </select>
+                      {isMonthlyCollectionSummaryExpanded && (
+                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                          <div className="flex items-center bg-white rounded-2xl p-1 border border-slate-200 shadow-xs">
+                            <button 
+                              onClick={() => {
+                                if (collectionMonth === 1) {
+                                  setCollectionMonth(12);
+                                  setCollectionYear(collectionYear - 1);
+                                } else {
+                                  setCollectionMonth(collectionMonth - 1);
+                                }
+                              }}
+                              className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"
+                              title="Previous Month"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            
+                            <select 
+                              value={collectionMonth}
+                              onChange={(e) => setCollectionMonth(Number(e.target.value))}
+                              className="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
+                            >
+                              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                                <option key={`coll-m-${m}`} value={m} className="bg-white text-slate-900">
+                                  {format(new Date(2026, m - 1, 1), 'MMMM')}
+                                </option>
+                              ))}
+                            </select>
 
-                          <select 
-                            value={collectionYear}
-                            onChange={(e) => setCollectionYear(Number(e.target.value))}
-                            className="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
-                          >
-                            {[2024, 2025, 2026, 2027, 2028].map(y => (
-                              <option key={`coll-y-${y}`} value={y} className="bg-white text-slate-900">
-                                {y}
-                              </option>
-                            ))}
-                          </select>
+                            <select 
+                              value={collectionYear}
+                              onChange={(e) => setCollectionYear(Number(e.target.value))}
+                              className="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
+                            >
+                              {[2024, 2025, 2026, 2027, 2028].map(y => (
+                                <option key={`coll-y-${y}`} value={y} className="bg-white text-slate-900">
+                                  {y}
+                                </option>
+                              ))}
+                            </select>
 
-                          <button 
-                            onClick={() => {
-                              if (collectionMonth === 12) {
-                                setCollectionMonth(1);
-                                setCollectionYear(collectionYear + 1);
-                              } else {
-                                setCollectionMonth(collectionMonth + 1);
-                              }
-                            }}
-                            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"
-                            title="Next Month"
-                          >
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
+                            <button 
+                              onClick={() => {
+                                if (collectionMonth === 12) {
+                                  setCollectionMonth(1);
+                                  setCollectionYear(collectionYear + 1);
+                                } else {
+                                  setCollectionMonth(collectionMonth + 1);
+                                }
+                              }}
+                              className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all"
+                              title="Next Month"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {(collectionMonth !== (new Date().getMonth() + 1) || collectionYear !== new Date().getFullYear()) && (
+                            <button 
+                              onClick={() => {
+                                setCollectionMonth(new Date().getMonth() + 1);
+                                setCollectionYear(new Date().getFullYear());
+                              }}
+                              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-xs font-bold rounded-2xl text-white transition-all shadow-sm whitespace-nowrap"
+                            >
+                              Current Month
+                            </button>
+                          )}
                         </div>
-
-                        {(collectionMonth !== (new Date().getMonth() + 1) || collectionYear !== new Date().getFullYear()) && (
-                          <button 
-                            onClick={() => {
-                              setCollectionMonth(new Date().getMonth() + 1);
-                              setCollectionYear(new Date().getFullYear());
-                            }}
-                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-xs font-bold rounded-2xl text-white transition-all shadow-sm whitespace-nowrap"
-                          >
-                            Current Month
-                          </button>
-                        )}
-                      </div>
+                      )}
                     </div>
 
                     {/* Collection Metrics Grid */}
@@ -7210,7 +7214,7 @@ export default function App() {
                                         </span>
                                       </div>
 
-                                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
+                                      <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
                                         <div>
                                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Principal</p>
                                           <p className="font-bold text-slate-800 text-xs sm:text-sm mt-0.5">₹{p.principal.toLocaleString('en-IN')}</p>
@@ -7223,9 +7227,9 @@ export default function App() {
                                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
                                           <p className="font-black text-emerald-600 text-xs sm:text-sm mt-0.5">₹{p.total.toLocaleString('en-IN')}</p>
                                         </div>
-                                        <div className="col-span-2 sm:col-span-3 pt-1 border-t border-slate-200/60 flex items-center justify-between">
-                                          <span className="text-[10px] font-bold text-slate-400 uppercase">Payment Date</span>
-                                          <span className="font-bold text-slate-700 text-xs">{p.dateFormatted}</span>
+                                        <div>
+                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Date</p>
+                                          <p className="font-bold text-slate-700 text-xs mt-0.5">{p.dateFormatted}</p>
                                         </div>
                                       </div>
                                     </div>
@@ -7543,7 +7547,7 @@ export default function App() {
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
+                          <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
                             <div>
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Amount</p>
                               <p className="font-black text-emerald-600 text-sm sm:text-base">₹{c.amount.toLocaleString('en-IN')}</p>
@@ -7557,13 +7561,13 @@ export default function App() {
                                 {c.paymentMethod || 'online'}
                               </span>
                             </div>
-                            <div className="col-span-2 sm:col-span-1">
+                            <div>
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Period</p>
                               <p className="font-bold text-slate-700 text-xs mt-0.5">{periodFormatted}</p>
                             </div>
-                            <div className="col-span-2 sm:col-span-3 pt-1 border-t border-slate-200/60 flex items-center justify-between">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">Payment Date</span>
-                              <span className="font-medium text-slate-600 text-xs">{dateFormatted}</span>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Date</p>
+                              <p className="font-medium text-slate-600 text-xs mt-0.5">{dateFormatted}</p>
                             </div>
                           </div>
 

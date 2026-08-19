@@ -935,7 +935,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                             ₹{item.remainingPrincipal.toLocaleString('en-IN')}
                                           </p>
                                         </div>
-                                        <div className="col-span-2 sm:col-span-1 pt-1 border-t border-slate-200/60 sm:border-t-0 sm:pt-0">
+                                        <div>
                                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
                                           <p className="font-bold text-emerald-700 text-sm mt-0.5">₹{(item.repaidPrincipal + item.repaidInterest).toLocaleString('en-IN')}</p>
                                           <div className="flex items-center gap-1 mt-0.5 text-[10px] font-semibold text-slate-500">
@@ -944,7 +944,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                             <span className="text-indigo-700 font-bold">₹{item.repaidInterest.toLocaleString('en-IN')} Int</span>
                                           </div>
                                         </div>
-                                        <div className="col-span-2 sm:col-span-1 pt-1 border-t border-slate-200/60 sm:border-t-0 sm:pt-0">
+                                        <div>
                                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                             {isPaid || item.remainingPrincipal <= 0 ? 'Closed Date' : 'Tenure'}
                                           </p>
