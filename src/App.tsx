@@ -85,6 +85,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
+import { MobileQuickSort } from './components/MobileQuickSort';
 import { format } from 'date-fns';
 import { cn } from './lib/utils';
 import jsPDF from 'jspdf';
@@ -461,7 +462,7 @@ export default function App() {
   const [collectionMonth, setCollectionMonth] = useState(new Date().getMonth() + 1);
   const [collectionYear, setCollectionYear] = useState(new Date().getFullYear());
   const [appliedFilter, setAppliedFilter] = useState<{ month: number; year: number } | null>(null);
-  const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
@@ -660,7 +661,7 @@ export default function App() {
     }
   }, [settlingLoanId, loans, loanPayments]);
 
-  const handleSort = (field: 'member' | 'date' | 'status') => {
+  const handleSort = (field: 'member' | 'amount' | 'date' | 'status') => {
     setSortConfig(prev => ({
       field,
       direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
@@ -958,6 +959,8 @@ export default function App() {
           const nameA = allUsers.find(u => (a.userId && u.uid === a.userId) || (a.userEmail && u.email.toLowerCase() === a.userEmail.toLowerCase()))?.displayName || a.userEmail.split('@')[0];
           const nameB = allUsers.find(u => (b.userId && u.uid === b.userId) || (b.userEmail && u.email.toLowerCase() === b.userEmail.toLowerCase()))?.displayName || b.userEmail.split('@')[0];
           return sortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+        } else if (sortConfig.field === 'amount') {
+          return sortConfig.direction === 'asc' ? a.amount - b.amount : b.amount - a.amount;
         } else if (sortConfig.field === 'date') {
           const dateA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : 0;
           const dateB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : 0;
@@ -4684,6 +4687,19 @@ export default function App() {
 
             {/* Mobile Card View */}
             <div className="lg:hidden space-y-4">
+              <MobileQuickSort
+                options={[
+                  { key: 'name', label: 'Name' },
+                  { key: 'contact', label: 'Contact' },
+                  { key: 'joinDate', label: 'Join Date' },
+                  { key: 'totalPaid', label: 'Total Paid' },
+                  { key: 'status', label: 'Status' }
+                ]}
+                activeField={memberSortConfig.field}
+                direction={memberSortConfig.direction}
+                onSort={handleSortMembers}
+                className="mb-1"
+              />
               {sortedMembers.map((u, idx) => {
                 const userContribs = contributions.filter(c => 
                   ((u.uid && c.userId === u.uid) || 
@@ -5062,6 +5078,20 @@ export default function App() {
 
                           {/* Mobile Card View */}
                           <div className="lg:hidden space-y-4">
+                            <MobileQuickSort
+                              options={[
+                                { key: 'date', label: 'Date' },
+                                { key: 'name', label: 'Member' },
+                                { key: 'amount', label: 'Loan Amount' },
+                                { key: 'details', label: 'Details' },
+                                { key: 'status', label: 'Status' },
+                                { key: 'paymentMode', label: 'Payment Mode' }
+                              ]}
+                              activeField={loanSortConfig.field}
+                              direction={loanSortConfig.direction}
+                              onSort={handleSortLoans}
+                              className="mb-1"
+                            />
                             {loanList.map((l, idx) => {
                               const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                               const isOldestPending = l.id === oldestPendingLoanId;
@@ -5651,6 +5681,18 @@ export default function App() {
 
                           {/* Mobile View Cards */}
                           <div className="lg:hidden space-y-4">
+                            <MobileQuickSort
+                              options={[
+                                { key: 'date', label: 'Date' },
+                                { key: 'name', label: 'Member' },
+                                { key: 'remaining', label: 'Loan Balance' },
+                                { key: 'monthlyStatus', label: 'Monthly Status' }
+                              ]}
+                              activeField={loanSortConfig.field}
+                              direction={loanSortConfig.direction}
+                              onSort={handleSortLoans}
+                              className="mb-1"
+                            />
                             {loanList.map((l, idx) => {
                               const payments = loanPayments.filter(p => p.loanId === l.id);
                               const paidPayments = payments.filter(p => p.status === 'paid');
@@ -6747,6 +6789,19 @@ export default function App() {
 
                               {/* Mobile Card View */}
                               <div className="lg:hidden space-y-4">
+                                <MobileQuickSort
+                                  options={[
+                                    { key: 'sno', label: '#' },
+                                    { key: 'member', label: 'Member' },
+                                    { key: 'amount', label: 'Amount' },
+                                    { key: 'method', label: 'Payment Mode' },
+                                    { key: 'date', label: 'Date' }
+                                  ]}
+                                  activeField={collectionContribSortConfig.field}
+                                  direction={collectionContribSortConfig.direction}
+                                  onSort={handleContribSort}
+                                  className="mb-1"
+                                />
                                 {sortedContribs.map((item, rowIdx) => (
                                   <motion.div 
                                     key={`coll-contrib-card-${item.id}-${rowIdx}`} 
@@ -6943,6 +6998,20 @@ export default function App() {
 
                               {/* Mobile Card View */}
                               <div className="lg:hidden space-y-4">
+                                <MobileQuickSort
+                                  options={[
+                                    { key: 'sno', label: '#' },
+                                    { key: 'borrower', label: 'Borrower' },
+                                    { key: 'principal', label: 'Principal' },
+                                    { key: 'interest', label: 'Interest' },
+                                    { key: 'total', label: 'Total Paid' },
+                                    { key: 'date', label: 'Date' }
+                                  ]}
+                                  activeField={collectionLoanSortConfig.field}
+                                  direction={collectionLoanSortConfig.direction}
+                                  onSort={handleLoanSort}
+                                  className="mb-1"
+                                />
                                 {sortedLoanPayments.map((p, rowIdx) => (
                                   <motion.div 
                                     key={`coll-loan-p-card-${p.id}-${rowIdx}`} 
@@ -7245,6 +7314,18 @@ export default function App() {
 
                 {/* Mobile Card View */}
                 <div className="lg:hidden space-y-4">
+                  <MobileQuickSort
+                    options={[
+                      ...(isAdmin ? [{ key: 'member', label: 'Member' }] : []),
+                      { key: 'amount', label: 'Amount' },
+                      { key: 'status', label: 'Status' },
+                      { key: 'date', label: 'Date' }
+                    ]}
+                    activeField={sortConfig.field}
+                    direction={sortConfig.direction}
+                    onSort={handleSort}
+                    className="mb-1"
+                  />
                   {sortedContributions.map((c, idx) => {
                     const member = allUsers.find(u => 
                       (c.userId && u.uid === c.userId) || 

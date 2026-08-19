@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Loan, LoanPayment, UserProfile } from '../types';
 import { cn } from '../lib/utils';
+import { MobileQuickSort, MobileSortOption } from './MobileQuickSort';
 
 export interface MonthLoanItem {
   loan: Loan;
@@ -870,6 +871,23 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
 
                               {/* Mobile / Tablet Card View */}
                               <div className="block md:hidden p-3.5 space-y-3">
+                                <MobileQuickSort
+                                  options={[
+                                    { key: 'date', label: 'Date' },
+                                    { key: 'member', label: 'Member' },
+                                    { key: 'amount', label: 'Amount' },
+                                    { key: 'totalPaid', label: 'Total Paid' },
+                                    { key: 'balance', label: 'Balance' },
+                                    { key: 'nextDate', label: 'Next Date' },
+                                    { key: 'nextAmount', label: 'Next Amount' },
+                                    { key: 'closedDate', label: 'Closed Date' },
+                                    { key: 'status', label: 'Status' }
+                                  ]}
+                                  activeField={sortConfig.field}
+                                  direction={sortConfig.direction}
+                                  onSort={handleSort}
+                                  className="mb-1"
+                                />
                                 {getSortedMonthLoans(monthGroup.loans).map((item, lIdx) => {
                                   const isPaid = item.status === 'paid';
 
