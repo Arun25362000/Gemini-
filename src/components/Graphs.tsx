@@ -1,6 +1,6 @@
 import React from 'react';
 import { 
-  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList
 } from 'recharts';
 import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp } from 'lucide-react';
 import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
@@ -30,6 +30,35 @@ const isMobileApp = typeof window !== 'undefined' &&
    window.location.protocol === 'file:' || 
    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) &&
   !window.location.hostname.includes('asia-southeast1.run.app');
+
+// Format value for top of bar graphs.
+// When an amount is not an exact clean multiple of 1,000 (e.g. 65,850 or 4,34,150) or has decimal fractions,
+// it displays the exact amount in full (e.g. ₹65,850) so there is zero loss of precision.
+// For clean round multiples of 1,000 (e.g. 50,000 or 1,70,000), it displays concise ₹...k/Cr.
+const formatBarAmountValue = (val: any): string => {
+  const num = Number(val);
+  if (!num || isNaN(num) || num <= 0) return '';
+  
+  // If the number has non-zero hundreds, tens, units or decimals (e.g. 65,850 -> 65850 % 1000 !== 0)
+  if (num % 1000 !== 0) {
+    return `₹${num.toLocaleString('en-IN')}`;
+  }
+  
+  // Exact round Crores (no remainder)
+  if (num >= 10000000 && num % 10000000 === 0) {
+    return `₹${num / 10000000}Cr`;
+  }
+  // Exact round Lakhs (no remainder)
+  if (num >= 100000 && num % 100000 === 0) {
+    return `₹${num / 100000}L`;
+  }
+  // Exact round Thousands (e.g. 50,000 -> ₹50k, 1,70,000 -> ₹170k)
+  if (num >= 1000) {
+    const kVal = num / 1000;
+    return `₹${kVal}k`;
+  }
+  return `₹${num.toLocaleString('en-IN')}`;
+};
 
 const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPayments, financials, userEmail, isAdmin }) => {
   const [isMobileScreen, setIsMobileScreen] = React.useState(false);
@@ -183,15 +212,24 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
   const memberLoans = allUsers
     .filter(u => u.email?.toLowerCase() !== 'unnati.finance2026@gmail.com')
     .map((u, uidx) => {
-      const userLoans = loans.filter(l => l.userEmail?.toLowerCase() === u.email?.toLowerCase() && l.status === 'approved');
-      const totalBorrowed = userLoans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
+      const userApprovedLoans = loans.filter(l => 
+        ((l.userEmail && u.email && l.userEmail.toLowerCase() === u.email.toLowerCase()) || 
+         (l.userId && u.uid && l.userId === u.uid)) && 
+        l.status === 'approved'
+      );
+      const activeLoanCount = userApprovedLoans.length;
+      const totalBorrowed = userApprovedLoans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
       
       const totalRepaid = loanPayments
         .filter(p => {
           const loan = loans.find(l => l.id === p.loanId);
-          return loan?.userEmail?.toLowerCase() === u.email?.toLowerCase() && loan?.status === 'approved' && p.status === 'paid';
+          const isUserLoan = (
+            (loan?.userEmail && u.email && loan.userEmail.toLowerCase() === u.email.toLowerCase()) || 
+            (loan?.userId && u.uid && loan.userId === u.uid)
+          );
+          return isUserLoan && loan?.status === 'approved' && p.status === 'paid';
         })
-        .reduce((sum, p) => sum + p.amount, 0);
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
 
       const baseName = u.displayName || `Member ${uidx + 1}`;
       const uniqueId = `${u.uid || u.email || 'loan-user'}-${uidx}`;
@@ -201,7 +239,9 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
         email: u.email?.toLowerCase(),
         uniqueId: uniqueId,
         borrowed: totalBorrowed,
-        repaid: totalRepaid
+        repaid: totalRepaid,
+        activeLoans: activeLoanCount,
+        displayNameWithActive: `${baseName} (${activeLoanCount})`
       };
     })
     .filter(d => isAdmin ? d.borrowed > 0 : d.email === userEmail.toLowerCase())
@@ -322,11 +362,11 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
         {/* Month-wise Sanctioned Loans & Repayments Chart (Admin Only) */}
         {isAdmin && (
           <div className={cn(
-            "bg-white p-6 sm:p-7 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
+            "bg-gradient-to-b from-indigo-50/30 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-indigo-100/90 shadow-sm hover:shadow-md hover:border-indigo-200/90 lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
             {/* Top-Right Index Badge */}
-            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-indigo-50/90 text-xs font-black text-indigo-700 rounded-bl-2xl border-b border-l border-indigo-200/80 shadow-2xs z-10 select-none">
               #1
             </div>
 
@@ -356,7 +396,7 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                 </div>
               </div>
 
-              {/* KPI Pills (Average Loan Size removed as requested) */}
+              {/* KPI Pills */}
               <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <div className="px-3.5 py-1.5 bg-indigo-50/80 border border-indigo-100/80 rounded-xl flex items-center gap-2">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Sanctioned:</span>
@@ -379,20 +419,20 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
 
             {!collapsedGraphs['sanctions-repayments'] && (
               monthlySanctionedLoansData.length > 0 ? (
-                <div className={cn("h-[360px] w-full mt-2", isAndroid && "h-[290px]")}>
+                <div className={cn("h-[380px] w-full mt-2", isAndroid && "h-[310px]")}>
                   <ResponsiveContainer width="99%" height="100%">
                     <BarChart 
                       data={monthlySanctionedLoansData} 
-                      margin={isAndroid ? { top: 15, right: 10, left: 0, bottom: 40 } : { top: 20, right: 30, left: 20, bottom: 40 }}
+                      margin={isAndroid ? { top: 28, right: 10, left: 0, bottom: 40 } : { top: 32, right: 30, left: 20, bottom: 40 }}
                     >
                       <defs>
                         <linearGradient id="sanctionedBarGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
-                          <stop offset="100%" stopColor="#4338ca" stopOpacity={0.85} />
+                          <stop offset="100%" stopColor="#4338ca" stopOpacity={0.9} />
                         </linearGradient>
                         <linearGradient id="repaidBarGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                          <stop offset="100%" stopColor="#059669" stopOpacity={0.85} />
+                          <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -458,14 +498,28 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                         fill="url(#sanctionedBarGradient)" 
                         radius={[8, 8, 0, 0]} 
                         maxBarSize={45}
-                      />
+                      >
+                        <LabelList 
+                          dataKey="sanctionedAmount" 
+                          position="top" 
+                          formatter={formatBarAmountValue} 
+                          style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#4338ca' }}
+                        />
+                      </Bar>
                       <Bar 
                         dataKey="repaidAmount" 
                         name="Repayment Received" 
                         fill="url(#repaidBarGradient)" 
                         radius={[8, 8, 0, 0]} 
                         maxBarSize={45}
-                      />
+                      >
+                        <LabelList 
+                          dataKey="repaidAmount" 
+                          position="top" 
+                          formatter={formatBarAmountValue} 
+                          style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#059669' }}
+                        />
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -483,11 +537,11 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
         {/* Member-wise Loan Disbursements by Month Chart (Admin Only) */}
         {isAdmin && (
           <div className={cn(
-            "bg-white p-6 sm:p-7 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
+            "bg-gradient-to-b from-violet-50/30 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-violet-100/90 shadow-sm hover:shadow-md hover:border-violet-200/90 lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
             {/* Top-Right Index Badge */}
-            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-violet-50/90 text-xs font-black text-violet-700 rounded-bl-2xl border-b border-l border-violet-200/80 shadow-2xs z-10 select-none">
               #2
             </div>
 
@@ -557,16 +611,16 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
             {!collapsedGraphs['member-disbursements'] && (
               filteredMemberLoansByMonth.length > 0 ? (
                 <>
-                  <div className={cn("h-[360px] w-full mt-2", isAndroid && "h-[290px]")}>
+                  <div className={cn("h-[380px] w-full mt-2", isAndroid && "h-[310px]")}>
                     <ResponsiveContainer width="99%" height="100%">
                       <BarChart 
                         data={filteredMemberLoansByMonth} 
-                        margin={isAndroid ? { top: 15, right: 10, left: 0, bottom: 65 } : { top: 20, right: 30, left: 20, bottom: 65 }}
+                        margin={isAndroid ? { top: 25, right: 10, left: 0, bottom: 65 } : { top: 30, right: 30, left: 20, bottom: 65 }}
                       >
                         <defs>
                           <linearGradient id="memberLoanBarGradient" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#8b5cf6" stopOpacity={1} />
-                            <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.85} />
+                            <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.9} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -629,7 +683,14 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                           fill="url(#memberLoanBarGradient)" 
                           radius={[8, 8, 0, 0]} 
                           maxBarSize={50}
-                        />
+                        >
+                          <LabelList 
+                            dataKey="amount" 
+                            position="top" 
+                            formatter={formatBarAmountValue} 
+                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#6d28d9' }}
+                          />
+                        </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -648,11 +709,11 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
         {/* Personal Contributions for Members */}
         {!isAdmin && (
           <div className={cn(
-            "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
+            "bg-gradient-to-b from-blue-50/30 via-white to-white p-6 rounded-3xl border-2 border-blue-100/90 shadow-sm hover:shadow-md hover:border-blue-200/90 lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
             {/* Top-Right Index Badge */}
-            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-blue-50/90 text-xs font-black text-blue-700 rounded-bl-2xl border-b border-l border-blue-200/80 shadow-2xs z-10 select-none">
               #1
             </div>
 
@@ -664,18 +725,24 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
               )}
             >
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                <h3 className="text-lg font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
                   Your Contribution History
                 </h3>
-                <span className="text-slate-400 group-hover:text-indigo-600 transition-colors">
+                <span className="text-slate-400 group-hover:text-blue-600 transition-colors">
                   {collapsedGraphs['contribution-history'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                 </span>
               </div>
             </div>
             {!collapsedGraphs['contribution-history'] && (
-              <div className={cn("h-[350px] w-full", isAndroid && "h-[280px]")}>
+              <div className={cn("h-[370px] w-full", isAndroid && "h-[300px]")}>
                 <ResponsiveContainer width="99%" height="100%">
-                  <BarChart data={memberContributionsData} margin={isAndroid ? { top: 10, right: 10, left: 0, bottom: 60 } : { top: 20, right: 30, left: 20, bottom: 80 }}>
+                  <BarChart data={memberContributionsData} margin={isAndroid ? { top: 28, right: 10, left: 0, bottom: 60 } : { top: 32, right: 30, left: 20, bottom: 80 }}>
+                    <defs>
+                      <linearGradient id="personalContribGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.9} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis 
                       dataKey="uniqueId" 
@@ -706,12 +773,12 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                             <div className="space-y-2">
                               <div className="flex items-center justify-between gap-3 text-xs">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-indigo-600" />
-                                  <span className="font-bold text-indigo-600">
+                                  <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-blue-600" />
+                                  <span className="font-bold text-blue-600">
                                     Contribution:
                                   </span>
                                 </div>
-                                <span className="font-black text-indigo-600">
+                                <span className="font-black text-blue-600">
                                   ₹{numVal.toLocaleString('en-IN')}
                                 </span>
                               </div>
@@ -720,7 +787,14 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                         );
                       }}
                     />
-                    <Bar dataKey="amount" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="amount" fill="url(#personalContribGradient)" radius={[8, 8, 0, 0]}>
+                      <LabelList 
+                        dataKey="amount" 
+                        position="top" 
+                        formatter={formatBarAmountValue} 
+                        style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#1d4ed8' }}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -731,11 +805,11 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
         {/* Member vs Loan Received vs Paid */}
         {(isAdmin || (memberLoans.length > 0 && memberLoans[0].borrowed > 0)) && (
           <div className={cn(
-            "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
+            "bg-gradient-to-b from-cyan-50/30 via-white to-white p-6 rounded-3xl border-2 border-cyan-100/90 shadow-sm hover:shadow-md hover:border-cyan-200/90 lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
             {/* Top-Right Index Badge */}
-            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-cyan-50/90 text-xs font-black text-cyan-800 rounded-bl-2xl border-b border-l border-cyan-200/80 shadow-2xs z-10 select-none">
               {isAdmin ? '#3' : '#2'}
             </div>
 
@@ -747,18 +821,28 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
               )}
             >
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                <h3 className="text-lg font-bold text-slate-900 group-hover:text-cyan-700 transition-colors">
                   Memberwise Borrowed vs Repaid
                 </h3>
-                <span className="text-slate-400 group-hover:text-indigo-600 transition-colors">
+                <span className="text-slate-400 group-hover:text-cyan-700 transition-colors">
                   {collapsedGraphs['borrowed-repaid'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                 </span>
               </div>
             </div>
             {!collapsedGraphs['borrowed-repaid'] && (
-              <div className={cn("h-[400px] w-full", isAndroid && "h-[300px]")}>
+              <div className={cn("h-[420px] w-full", isAndroid && "h-[320px]")}>
                 <ResponsiveContainer width="99%" height="100%">
-                  <BarChart data={memberLoans} margin={isAndroid ? { top: 10, right: 10, left: 0, bottom: 60 } : { top: 20, right: 30, left: 20, bottom: 80 }}>
+                  <BarChart data={memberLoans} margin={isAndroid ? { top: 28, right: 10, left: 0, bottom: 60 } : { top: 32, right: 30, left: 20, bottom: 80 }}>
+                    <defs>
+                      <linearGradient id="borrowedBarGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#4338ca" stopOpacity={0.9} />
+                      </linearGradient>
+                      <linearGradient id="repaidMemberBarGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis 
                       dataKey="uniqueId" 
@@ -771,8 +855,10 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                         const item = memberLoans.find(d => d.uniqueId === id);
                         let val = item?.name || 'Unknown';
                         val = val.split(/[@(]/)[0].trim();
-                        const limit = isAndroid ? 8 : 12;
-                        return val.length > limit ? val.substring(0, limit - 2) + ".." : val;
+                        const activeCount = item?.activeLoans ?? 0;
+                        const labelWithActive = `${val} (${activeCount})`;
+                        const limit = isAndroid ? 10 : 16;
+                        return labelWithActive.length > limit ? labelWithActive.substring(0, limit - 2) + ".." : labelWithActive;
                       }}
                     />
                     <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} tickFormatter={(val) => Number(val).toLocaleString('en-IN')} />
@@ -781,10 +867,15 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                         if (!active || !payload || !payload.length) return null;
                         const item = memberLoans.find(d => d.uniqueId === label) || payload[0]?.payload;
                         return (
-                          <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xl space-y-2.5 min-w-[220px]">
-                            <p className="text-xs font-bold text-slate-900 border-b border-slate-100 pb-1.5">
-                              Member: {item?.name || label}
-                            </p>
+                          <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xl space-y-2.5 min-w-[240px]">
+                            <div className="border-b border-slate-100 pb-2">
+                              <p className="text-xs font-bold text-slate-900 flex items-center justify-between gap-2">
+                                <span>Member: <span className="text-cyan-800">{item?.name || label}</span></span>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-50 text-cyan-800 border border-cyan-200 shrink-0">
+                                  active loans: {item?.activeLoans ?? 0}
+                                </span>
+                              </p>
+                            </div>
                             <div className="space-y-2">
                               {payload.map((entry: any, index: number) => {
                                 const isBorrowed = entry.dataKey === 'borrowed' || entry.name === 'Borrowed';
@@ -812,8 +903,22 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                       }}
                     />
                     <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
-                    <Bar dataKey="borrowed" name="Borrowed" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="repaid" name="Repaid" fill="#10b981" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="borrowed" name="Borrowed" fill="url(#borrowedBarGradient)" radius={[8, 8, 0, 0]}>
+                      <LabelList 
+                        dataKey="borrowed" 
+                        position="top" 
+                        formatter={formatBarAmountValue} 
+                        style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#4338ca' }}
+                      />
+                    </Bar>
+                    <Bar dataKey="repaid" name="Repaid" fill="url(#repaidMemberBarGradient)" radius={[8, 8, 0, 0]}>
+                      <LabelList 
+                        dataKey="repaid" 
+                        position="top" 
+                        formatter={formatBarAmountValue} 
+                        style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#059669' }}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -821,14 +926,14 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
           </div>
         )}
 
-        {/* Group Financial Health (Area Chart) */}
+        {/* Group Financial Health (Area/Bar Chart) */}
         {isAdmin && (
           <div className={cn(
-            "bg-white p-6 rounded-3xl border border-slate-200 shadow-sm lg:col-span-2 relative overflow-hidden transition-all",
+            "bg-gradient-to-b from-emerald-50/30 via-white to-white p-6 rounded-3xl border-2 border-emerald-100/90 shadow-sm hover:shadow-md hover:border-emerald-200/90 lg:col-span-2 relative overflow-hidden transition-all",
             isAndroid && "p-4 overflow-hidden"
           )}>
             {/* Top-Right Index Badge */}
-            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-100/90 text-xs font-black text-slate-500 rounded-bl-2xl border-b border-l border-slate-200 shadow-xs z-10 select-none">
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-emerald-50/90 text-xs font-black text-emerald-800 rounded-bl-2xl border-b border-l border-emerald-200/80 shadow-2xs z-10 select-none">
               #4
             </div>
 
@@ -840,18 +945,32 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
               )}
             >
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                <h3 className="text-lg font-bold text-slate-900 group-hover:text-emerald-700 transition-colors">
                   Financial Health Overview
                 </h3>
-                <span className="text-slate-400 group-hover:text-indigo-600 transition-colors">
+                <span className="text-slate-400 group-hover:text-emerald-700 transition-colors">
                   {collapsedGraphs['financial-health'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                 </span>
               </div>
             </div>
             {!collapsedGraphs['financial-health'] && (
-              <div className={cn("h-[350px] w-full", isAndroid && "h-[280px]")}>
+              <div className={cn("h-[370px] w-full", isAndroid && "h-[300px]")}>
                 <ResponsiveContainer width="99%" height="100%">
-                  <BarChart data={savingsVsLoans} margin={isAndroid ? { top: 10, right: 10, left: 0, bottom: 20 } : { top: 20, right: 30, left: 20, bottom: 20 }}>
+                  <BarChart data={savingsVsLoans} margin={isAndroid ? { top: 28, right: 10, left: 0, bottom: 20 } : { top: 32, right: 30, left: 20, bottom: 20 }}>
+                    <defs>
+                      <linearGradient id="healthSavingsGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#4338ca" stopOpacity={0.9} />
+                      </linearGradient>
+                      <linearGradient id="healthLoansGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#d97706" stopOpacity={0.9} />
+                      </linearGradient>
+                      <linearGradient id="healthAvailableGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                        <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis dataKey="name" hide />
                     <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} tickFormatter={(val) => Number(val).toLocaleString('en-IN')} />
@@ -905,9 +1024,30 @@ const Graphs: React.FC<GraphsProps> = ({ allUsers, contributions, loans, loanPay
                       }}
                     />
                     <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
-                    <Bar dataKey="savings" name="Savings" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="loans" name="Loans" fill="#f59e0b" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="available" name="Available" fill="#10b981" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="savings" name="Savings" fill="url(#healthSavingsGradient)" radius={[8, 8, 0, 0]}>
+                      <LabelList 
+                        dataKey="savings" 
+                        position="top" 
+                        formatter={formatBarAmountValue} 
+                        style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#4338ca' }}
+                      />
+                    </Bar>
+                    <Bar dataKey="loans" name="Loans" fill="url(#healthLoansGradient)" radius={[8, 8, 0, 0]}>
+                      <LabelList 
+                        dataKey="loans" 
+                        position="top" 
+                        formatter={formatBarAmountValue} 
+                        style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#d97706' }}
+                      />
+                    </Bar>
+                    <Bar dataKey="available" name="Available" fill="url(#healthAvailableGradient)" radius={[8, 8, 0, 0]}>
+                      <LabelList 
+                        dataKey="available" 
+                        position="top" 
+                        formatter={formatBarAmountValue} 
+                        style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#059669' }}
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>

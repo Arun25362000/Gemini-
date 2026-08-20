@@ -44,7 +44,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow create: if isAuthenticated();
-      allow update: if isSuperAdmin() || isOwner(userId) || (isAdmin() && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'displayName', 'phoneNumber', 'joinDate', 'email', 'uid'])));
+      allow update: if isSuperAdmin() || isAdmin() || isOwner(userId);
       allow delete: if isAdmin() || isOwner(userId);
     }
 

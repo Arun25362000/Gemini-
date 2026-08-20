@@ -412,6 +412,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [isBulkAdding, setIsBulkAdding] = useState(false);
+  const [showAddMemberDropdown, setShowAddMemberDropdown] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [originalEditingEmail, setOriginalEditingEmail] = useState<string | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
@@ -439,6 +441,7 @@ export default function App() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingNotification, setPendingNotification] = useState<string | null>(null);
   const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+  const [isSubmittingMember, setIsSubmittingMember] = useState(false);
   const [loginMethod, setLoginMethod] = useState<'google' | 'password'>('google');
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [isLocalAdmin, setIsLocalAdmin] = useState(false);
@@ -550,6 +553,14 @@ export default function App() {
         setAdminManualRepayment(prev => ({ ...prev, isOpen: false }));
         return;
       }
+      if (showAddMemberDropdown) {
+        setShowAddMemberDropdown(false);
+        return;
+      }
+      if (isBulkAdding) {
+        setIsBulkAdding(false);
+        return;
+      }
       if (isAdding) {
         setIsAdding(false);
         return;
@@ -631,6 +642,8 @@ export default function App() {
   }, [
     paymentModal,
     adminManualRepayment,
+    showAddMemberDropdown,
+    isBulkAdding,
     isAdding,
     isAddingMember,
     editingUser,
@@ -751,8 +764,6 @@ export default function App() {
   const [loanActionComment, setLoanActionComment] = useState('');
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
-  const [isBulkAdding, setIsBulkAdding] = useState(false);
-  const [showAddMemberDropdown, setShowAddMemberDropdown] = useState(false);
 
   const [activeNoticeToast, setActiveNoticeToast] = useState<Notice | null>(null);
   const [activeNotificationToast, setActiveNotificationToast] = useState<AppNotification | null>(null);
@@ -815,7 +826,7 @@ export default function App() {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  const isAdmin = !!user && profile?.role === 'admin';
+  const isAdmin = isLocalAdmin || (!!user && (profile?.role === 'admin' || (!!user.email && ADMIN_EMAILS.includes(user.email.toLowerCase()))));
 
   // Safety timeout for loading state
   useEffect(() => {
@@ -1906,47 +1917,77 @@ export default function App() {
   };
 
   const addMember = async () => {
-    if (profile?.role !== 'admin') return;
-    if (!newMember.email || !newMember.name) return;
-
-    // Check if user already exists
-    const existing = allUsers.find(u => u.email.toLowerCase() === newMember.email.toLowerCase());
-    if (existing) {
-      notify('error', "A member with this email already exists.");
+    const isUserAdmin = isAdmin || profile?.role === 'admin' || isLocalAdmin || (!!user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase()));
+    if (!isUserAdmin) {
+      notify('error', "Access Denied: Only administrators can add new members.");
       return;
     }
 
+    const cleanName = (newMember.name || '').trim();
+    const cleanEmail = (newMember.email || '').trim().toLowerCase();
+    const cleanPhone = (newMember.phoneNumber || '').trim();
+    const cleanJoinDate = (newMember.joinDate || '').trim() || format(new Date(), 'yyyy-MM-dd');
+
+    if (!cleanName) {
+      notify('error', "Please enter the member's full name.");
+      return;
+    }
+
+    if (!cleanEmail) {
+      notify('error', "Please enter the member's email address.");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      notify('error', "Please enter a valid email address.");
+      return;
+    }
+
+    // Check if user already exists
+    const existing = allUsers.find(u => u.email && u.email.trim().toLowerCase() === cleanEmail);
+    if (existing) {
+      notify('error', "A member with this email address already exists.");
+      return;
+    }
+
+    setIsSubmittingMember(true);
     try {
-      // Use email as ID for pre-added users
-      await setDoc(doc(db, 'users', newMember.email), {
-        email: newMember.email,
-        displayName: newMember.name,
-        phoneNumber: newMember.phoneNumber,
+      // Use clean email as ID for pre-added users
+      await setDoc(doc(db, 'users', cleanEmail), {
+        uid: null,
+        email: cleanEmail,
+        displayName: cleanName,
+        phoneNumber: cleanPhone,
         role: 'user',
-        joinDate: newMember.joinDate
-      });
+        joinDate: cleanJoinDate
+      }, { merge: true });
+
       setIsAddingMember(false);
       setNewMember({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+      notify('success', `Member "${cleanName}" added successfully!`);
       
-      // Send Welcome Email
+      // Send Welcome Email in background
       try {
         const emailRes = await fetch(`${API_BASE_URL}/api/admin/send-welcome-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: newMember.email, name: newMember.name })
+          body: JSON.stringify({ email: cleanEmail, name: cleanName })
         });
-        const emailData = await emailRes.json();
+        const emailData = await emailRes.json().catch(() => ({}));
         if (emailRes.ok) {
-          notify('success', "Member added and welcome email sent!");
+          notify('success', `Member added and welcome email sent to ${cleanEmail}!`);
         } else {
-          notify('info', `Member added, but welcome email failed: ${emailData.message}`);
+          console.warn('Welcome email not sent:', emailData?.message);
         }
       } catch (err: any) {
-        console.error('Failed to trigger welcome email:', err);
-        notify('info', "Member added, but failed to trigger welcome email.");
+        console.warn('Failed to trigger welcome email:', err);
       }
     } catch (err: any) {
-      handleFirestoreError(err, OperationType.CREATE, `users/${newMember.email}`);
+      console.error("Failed to add member in Firestore:", err);
+      notify('error', `Failed to add member: ${err.message || 'Database error'}`);
+    } finally {
+      setIsSubmittingMember(false);
     }
   };
 
@@ -2172,17 +2213,21 @@ export default function App() {
   };
 
   const updateMember = async () => {
-    if (profile?.role !== 'admin' || !editingUser || !originalEditingEmail) return;
+    const isUserAdmin = isAdmin || profile?.role === 'admin' || isLocalAdmin || (!!user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase()));
+    if (!isUserAdmin || !editingUser || !originalEditingEmail) {
+      notify('error', "Access Denied: Only administrators can update member details.");
+      return;
+    }
     try {
       const userRef = doc(db, 'users', originalEditingEmail);
       
       // If the user hasn't logged in yet (ID is email) and the email is being changed
       if (!editingUser.uid && editingUser.email !== originalEditingEmail) {
         // Create new doc with new email as ID
-        const newRef = doc(db, 'users', editingUser.email);
+        const newRef = doc(db, 'users', editingUser.email.trim().toLowerCase());
         await setDoc(newRef, {
           ...editingUser,
-          email: editingUser.email
+          email: editingUser.email.trim().toLowerCase()
         });
         // Delete old doc
         await deleteDoc(userRef);
@@ -2190,8 +2235,8 @@ export default function App() {
         // Just update existing doc
         await updateDoc(userRef, {
           displayName: editingUser.displayName,
-          phoneNumber: editingUser.phoneNumber,
-          email: editingUser.email,
+          phoneNumber: editingUser.phoneNumber || '',
+          email: editingUser.email.trim().toLowerCase(),
           joinDate: editingUser.joinDate
         });
       }
@@ -2199,7 +2244,8 @@ export default function App() {
       setOriginalEditingEmail(null);
       notify('success', 'Member updated successfully');
     } catch (err: any) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${originalEditingEmail}`);
+      console.error("Failed to update member:", err);
+      notify('error', `Failed to update member: ${err.message || 'Database error'}`);
     }
   };
 
@@ -2772,6 +2818,126 @@ export default function App() {
     } else {
       XLSX.writeFile(wb, fileName);
       notify('success', "Statement exported to Excel");
+    }
+  };
+
+  const exportMonthlyCollectionsExcel = async () => {
+    const wb = XLSX.utils.book_new();
+
+    const monthlyPaidContributions = contributions.filter(c => 
+      c.status === 'paid' && 
+      c.month === collectionMonth && 
+      c.year === collectionYear
+    );
+    const monthlyContributionTotal = monthlyPaidContributions.reduce((acc, c) => acc + (c.amount || 0), 0);
+
+    const monthlyPaidLoanPayments = loanPayments.filter(p => 
+      p.status === 'paid' && 
+      p.month === collectionMonth && 
+      p.year === collectionYear
+    );
+    const monthlyLoanPrincipalCollected = monthlyPaidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+    const monthlyLoanInterestCollected = monthlyPaidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+    const monthlyLoanTotalCollected = monthlyLoanPrincipalCollected + monthlyLoanInterestCollected;
+    const grandTotalMonthlyReceived = monthlyContributionTotal + monthlyLoanTotalCollected;
+
+    const monthLabel = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy');
+    const monthShort = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM');
+
+    // 1. Sheet 1: Monthly Collection Summary
+    const summarySheetData = [
+      { 'Metric': 'Month & Year', 'Value': monthLabel },
+      { 'Metric': 'Total Received (Grand Total)', 'Value': `₹${grandTotalMonthlyReceived.toLocaleString('en-IN')}` },
+      { 'Metric': 'Total Member Subscriptions/Contributions (₹)', 'Value': `₹${monthlyContributionTotal.toLocaleString('en-IN')}` },
+      { 'Metric': 'Total Paid Subscriptions Count', 'Value': monthlyPaidContributions.length },
+      { 'Metric': 'Total Loan Repayments Collected (₹)', 'Value': `₹${monthlyLoanTotalCollected.toLocaleString('en-IN')}` },
+      { 'Metric': 'Total Loan Repayments Count', 'Value': monthlyPaidLoanPayments.length },
+      { 'Metric': 'Loan Principal Collected (₹)', 'Value': `₹${monthlyLoanPrincipalCollected.toLocaleString('en-IN')}` },
+      { 'Metric': 'Loan Interest Collected [0.5%] (₹)', 'Value': `₹${monthlyLoanInterestCollected.toLocaleString('en-IN')}` },
+      { 'Metric': 'Export Generated Date', 'Value': format(new Date(), 'dd-MMM-yyyy HH:mm:ss') }
+    ];
+    const wsSummary = XLSX.utils.json_to_sheet(summarySheetData);
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Monthly Collection Summary");
+
+    // 2. Sheet 2: Member Collection Details
+    const memberCollectionRows = monthlyPaidContributions.map((c, idx) => {
+      const mUser = allUsers.find(u => 
+        (u.uid && c.userId && u.uid === c.userId) || 
+        (u.email && c.userEmail && u.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim())
+      );
+      const memberName = mUser?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : `Member ${idx + 1}`);
+      const userPhone = mUser?.phoneNumber || (mUser as any)?.phone || '';
+      const userEmail = mUser?.email || c.userEmail || '';
+      const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : null;
+      
+      return {
+        'S.No': idx + 1,
+        'Member Name': memberName,
+        'Email Address': userEmail,
+        'Phone Number': userPhone || 'N/A',
+        'Month & Year': monthLabel,
+        'Contribution Amount (₹)': c.amount || 0,
+        'Payment Mode': (c.paymentMethod || 'Online').toUpperCase(),
+        'Payment Date': dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
+        'Status': (c.status || 'PAID').toUpperCase()
+      };
+    });
+    const wsMember = XLSX.utils.json_to_sheet(memberCollectionRows.length > 0 ? memberCollectionRows : [{ 'Message': 'No member contributions found for this month' }]);
+    XLSX.utils.book_append_sheet(wb, wsMember, "Member Collection Details");
+
+    // 3. Sheet 3: Loan Repayments Collected
+    const loanRepaymentRows = monthlyPaidLoanPayments.map((p, idx) => {
+      const parentLoan = loans.find(l => l.id === p.loanId);
+      const borrower = allUsers.find(u => 
+        (u.uid && parentLoan?.userId && u.uid === parentLoan.userId) ||
+        (u.email && parentLoan?.userEmail && u.email.toLowerCase().trim() === parentLoan.userEmail.toLowerCase().trim()) ||
+        (u.uid && p.userId && u.uid === p.userId) ||
+        (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
+      );
+      const borrowerName = borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || `Borrower ${idx + 1}`;
+      const borrowerPhone = borrower?.phoneNumber || (borrower as any)?.phone || '';
+      const borrowerEmail = borrower?.email || parentLoan?.userEmail || p.userEmail || '';
+      const principal = p.amount || 0;
+      const interest = p.interest || 0;
+      const total = principal + interest;
+      const paymentMode = (p.paymentMode || (p as any)?.paymentMethod || 'Online').toUpperCase();
+      const dateObj = p.approvedAt?.toDate ? p.approvedAt.toDate() : p.timestamp?.toDate ? p.timestamp.toDate() : null;
+
+      return {
+        'S.No': idx + 1,
+        'Borrower Name': borrowerName,
+        'Email Address': borrowerEmail,
+        'Phone Number': borrowerPhone || 'N/A',
+        'Month & Year': monthLabel,
+        'Principal Amount (₹)': principal,
+        'Interest Amount (₹)': interest,
+        'Total Repayment Paid (₹)': total,
+        'Payment Mode': paymentMode,
+        'Payment Date': dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
+        'Status': (p.status || 'PAID').toUpperCase()
+      };
+    });
+    const wsLoans = XLSX.utils.json_to_sheet(loanRepaymentRows.length > 0 ? loanRepaymentRows : [{ 'Message': 'No loan repayments found for this month' }]);
+    XLSX.utils.book_append_sheet(wb, wsLoans, "Loan Repayments Collected");
+
+    const fileName = `MonthlyCollections_${monthShort}${collectionYear}.xlsx`;
+    if (isMobileApp) {
+      try {
+        const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+        const res = await downloadFileMobile(fileName, base64Data);
+        if (res.success) {
+          notify('success', `Monthly Collection exported as: ${fileName}`);
+        } else {
+          notify('error', "Could not download file directly. Attempting browser download...");
+          XLSX.writeFile(wb, fileName);
+        }
+      } catch (err: any) {
+        console.error("Monthly collections export failed:", err);
+        notify('error', `Failed to download: ${err.message || 'Unknown error'}`);
+      }
+    } else {
+      XLSX.writeFile(wb, fileName);
+      notify('success', `Exported ${fileName} successfully!`);
     }
   };
 
@@ -4248,6 +4414,17 @@ export default function App() {
                 </div>
               </form>
             )}
+            {isAdmin && activeTab === 'monthlyCollection' && (
+              <button 
+                type="button"
+                onClick={exportMonthlyCollectionsExcel}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs sm:text-xs md:text-sm font-bold tracking-tight whitespace-nowrap transition-all shadow-sm active:scale-95 cursor-pointer"
+                title="Export Monthly Collections Spreadsheet"
+              >
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>Export Monthly Report</span>
+              </button>
+            )}
             {!isAdmin && activeTab === 'contributions' && (
               <button 
                 onClick={() => generateMemberStatement(user!.uid)}
@@ -4338,10 +4515,13 @@ export default function App() {
         {isAdmin && activeTab === 'members' ? (
           <div className="space-y-6">
             {/* Member Management Actions Collapsible Card */}
-            <div className={cn("bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm transition-all overflow-hidden")}>
+            <div className={cn("bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm transition-all relative z-20", isMemberActionsCollapsed ? "overflow-hidden" : "overflow-visible")}>
               <div 
                 onClick={() => setIsMemberActionsCollapsed(!isMemberActionsCollapsed)}
-                className="flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90"
+                className={cn(
+                  "flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90",
+                  isMemberActionsCollapsed ? "rounded-3xl border-b-0" : "rounded-t-3xl"
+                )}
               >
                 <div className="flex items-center gap-3.5">
                   <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
@@ -4365,10 +4545,10 @@ export default function App() {
               </div>
 
               {!isMemberActionsCollapsed && (
-                <div className="px-5 sm:px-6 py-6 bg-white">
+                <div className="px-5 sm:px-6 py-6 bg-white rounded-b-3xl overflow-visible">
                   <div className="flex flex-wrap items-center gap-3">
                     {/* Add Member Dropdown */}
-                    <div className="relative flex-1 sm:flex-none">
+                    <div className="relative flex-1 sm:flex-none z-30">
                       <button 
                         type="button"
                         onClick={(e) => {
@@ -4377,7 +4557,7 @@ export default function App() {
                         }}
                         className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 text-sm cursor-pointer"
                       >
-                        <Plus className="w-4 h-4" /> Add Member <ChevronDown className={cn("w-4 h-4 transition-transform", showAddMemberDropdown && "rotate-180")} />
+                        <Plus className="w-4 h-4" /> Add Member <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", showAddMemberDropdown && "rotate-180")} />
                       </button>
                       
                       {showAddMemberDropdown && (
@@ -4389,7 +4569,7 @@ export default function App() {
                               setShowAddMemberDropdown(false);
                             }}
                           />
-                          <div className="absolute left-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-50">
+                          <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-1.5 z-50 divide-y divide-slate-100/80 animate-in fade-in zoom-in-95 duration-150">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -4397,9 +4577,15 @@ export default function App() {
                                 setIsAddingMember(true);
                                 setShowAddMemberDropdown(false);
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
                             >
-                              <UserPlus className="w-4 h-4 text-indigo-600" /> Individual Add
+                              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                <UserPlus className="w-4 h-4" />
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Add Individual</span>
+                                <span className="text-[11px] text-slate-500 font-medium">Add a single member manually</span>
+                              </div>
                             </button>
                             <button
                               type="button"
@@ -4408,9 +4594,15 @@ export default function App() {
                                 setIsBulkAdding(true);
                                 setShowAddMemberDropdown(false);
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
                             >
-                              <Users className="w-4 h-4 text-indigo-600" /> Bulk Upload (XLS)
+                              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                <FileSpreadsheet className="w-4 h-4" />
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Bulk Upload (XLS)</span>
+                                <span className="text-[11px] text-slate-500 font-medium">Import members from Excel file</span>
+                              </div>
                             </button>
                           </div>
                         </>
@@ -6964,14 +7156,14 @@ export default function App() {
                                 </table>
                               </div>
 
-                              {/* Mobile Card View */}
-                              <div className="lg:hidden space-y-4">
+                              {/* Mobile / Tablet Normal List View */}
+                              <div className="lg:hidden space-y-3">
                                 <MobileQuickSort
                                   options={[
                                     { key: 'sno', label: '#' },
                                     { key: 'member', label: 'Member' },
                                     { key: 'amount', label: 'Amount' },
-                                    { key: 'method', label: 'Payment Mode' },
+                                    { key: 'method', label: 'Mode' },
                                     { key: 'date', label: 'Date' }
                                   ]}
                                   activeField={collectionContribSortConfig.field}
@@ -6979,57 +7171,47 @@ export default function App() {
                                   onSort={handleContribSort}
                                   className="mb-1"
                                 />
-                                {sortedContribs.map((item, rowIdx) => (
-                                  <motion.div 
-                                    key={`coll-contrib-card-${item.id}-${rowIdx}`} 
-                                    initial={{ opacity: 0, y: 15 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: rowIdx * 0.04 }}
-                                    className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden relative"
-                                  >
-                                    <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
-                                      #{rowIdx + 1}
-                                    </div>
-                                    <div className="p-5 flex flex-col gap-4">
-                                      <div className="flex items-center justify-between pr-8">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                          <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-base shrink-0">
-                                            {item.memberName ? item.memberName[0].toUpperCase() : '?'}
-                                          </div>
-                                          <div className="min-w-0">
+                                <div className="divide-y divide-slate-100 bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+                                  {sortedContribs.map((item, rowIdx) => (
+                                    <div 
+                                      key={`coll-contrib-item-${item.id}-${rowIdx}`} 
+                                      className="p-3.5 sm:p-4 hover:bg-slate-50/70 transition-colors flex items-center justify-between gap-3"
+                                    >
+                                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 font-bold text-sm flex items-center justify-center shrink-0 border border-indigo-100/80">
+                                          {item.memberName ? item.memberName[0].toUpperCase() : '?'}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-2 flex-wrap">
                                             <h4 className="font-bold text-slate-900 text-sm truncate">{item.memberName}</h4>
-                                            <p className="text-xs text-slate-500 truncate">
-                                              {item.userPhone || item.userEmail || '-'}
-                                            </p>
+                                            <span className={cn(
+                                              "px-2 py-0.5 rounded-md text-[10px] font-bold uppercase",
+                                              item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                            )}>
+                                              {item.method}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
+                                            <span>{item.dateFormatted}</span>
+                                            {item.userPhone && (
+                                              <>
+                                                <span>•</span>
+                                                <span>{item.userPhone}</span>
+                                              </>
+                                            )}
                                           </div>
                                         </div>
-                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 shrink-0">
+                                      </div>
+
+                                      <div className="text-right shrink-0">
+                                        <p className="font-black text-emerald-600 text-sm sm:text-base">₹{item.amount.toLocaleString('en-IN')}</p>
+                                        <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 mt-0.5">
                                           PAID
                                         </span>
                                       </div>
-
-                                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
-                                        <div>
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Amount</p>
-                                          <p className="font-black text-emerald-600 text-sm sm:text-base">₹{item.amount.toLocaleString('en-IN')}</p>
-                                        </div>
-                                        <div>
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Mode</p>
-                                          <span className={cn(
-                                            "inline-block mt-0.5 px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase",
-                                            item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                          )}>
-                                            {item.method}
-                                          </span>
-                                        </div>
-                                        <div className="col-span-2 sm:col-span-1">
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Paid Date</p>
-                                          <p className="font-bold text-slate-700 text-xs mt-0.5">{item.dateFormatted}</p>
-                                        </div>
-                                      </div>
                                     </div>
-                                  </motion.div>
-                                ))}
+                                  ))}
+                                </div>
                               </div>
                             </>
                           )}
@@ -7169,8 +7351,8 @@ export default function App() {
                                 </table>
                               </div>
 
-                              {/* Mobile Card View */}
-                              <div className="lg:hidden space-y-4">
+                              {/* Mobile / Tablet Normal List View */}
+                              <div className="lg:hidden space-y-3">
                                 <MobileQuickSort
                                   options={[
                                     { key: 'sno', label: '#' },
@@ -7185,56 +7367,44 @@ export default function App() {
                                   onSort={handleLoanSort}
                                   className="mb-1"
                                 />
-                                {sortedLoanPayments.map((p, rowIdx) => (
-                                  <motion.div 
-                                    key={`coll-loan-p-card-${p.id}-${rowIdx}`} 
-                                    initial={{ opacity: 0, y: 15 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: rowIdx * 0.04 }}
-                                    className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden relative"
-                                  >
-                                    <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
-                                      #{rowIdx + 1}
-                                    </div>
-                                    <div className="p-5 flex flex-col gap-4">
-                                      <div className="flex items-center justify-between pr-8">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                          <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center font-bold text-base shrink-0">
+                                <div className="divide-y divide-slate-100 bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+                                  {sortedLoanPayments.map((p, rowIdx) => (
+                                    <div 
+                                      key={`coll-loan-item-${p.id}-${rowIdx}`}
+                                      className="p-3.5 sm:p-4 hover:bg-slate-50/70 transition-colors flex flex-col gap-2.5"
+                                    >
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                                          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-sm flex items-center justify-center shrink-0 border border-emerald-100/80">
                                             {p.borrowerName ? p.borrowerName[0].toUpperCase() : '?'}
                                           </div>
-                                          <div className="min-w-0">
+                                          <div className="min-w-0 flex-1">
                                             <h4 className="font-bold text-slate-900 text-sm truncate">{p.borrowerName}</h4>
-                                            <p className="text-xs text-slate-500 truncate">
-                                              {p.borrowerPhone || p.borrowerEmail || '-'}
-                                            </p>
+                                            <p className="text-xs text-slate-500 truncate">{p.dateFormatted} • {p.paymentMode}</p>
                                           </div>
                                         </div>
-                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 shrink-0">
-                                          COLLECTED
-                                        </span>
+
+                                        <div className="text-right shrink-0">
+                                          <p className="font-black text-emerald-600 text-sm sm:text-base">₹{p.total.toLocaleString('en-IN')}</p>
+                                          <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            COLLECTED
+                                          </span>
+                                        </div>
                                       </div>
 
-                                      <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
+                                      <div className="flex items-center justify-between text-xs bg-slate-50/80 px-3 py-1.5 rounded-xl border border-slate-100 text-slate-600">
                                         <div>
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Principal</p>
-                                          <p className="font-bold text-slate-800 text-xs sm:text-sm mt-0.5">₹{p.principal.toLocaleString('en-IN')}</p>
+                                          <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Principal:</span>
+                                          <span className="font-semibold text-slate-800">₹{p.principal.toLocaleString('en-IN')}</span>
                                         </div>
                                         <div>
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Interest (0.5%)</p>
-                                          <p className="font-bold text-amber-600 text-xs sm:text-sm mt-0.5">₹{p.interest.toLocaleString('en-IN')}</p>
-                                        </div>
-                                        <div>
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
-                                          <p className="font-black text-emerald-600 text-xs sm:text-sm mt-0.5">₹{p.total.toLocaleString('en-IN')}</p>
-                                        </div>
-                                        <div>
-                                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Date</p>
-                                          <p className="font-bold text-slate-700 text-xs mt-0.5">{p.dateFormatted}</p>
+                                          <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Interest (0.5%):</span>
+                                          <span className="font-semibold text-amber-600">₹{p.interest.toLocaleString('en-IN')}</span>
                                         </div>
                                       </div>
                                     </div>
-                                  </motion.div>
-                                ))}
+                                  ))}
+                                </div>
                               </div>
                             </>
                           )}
@@ -8376,15 +8546,24 @@ export default function App() {
                 <div className="flex gap-3 pt-4">
                   <button 
                     onClick={() => setIsAddingMember(false)}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                    disabled={isSubmittingMember}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 disabled:opacity-50 rounded-2xl transition-all"
                   >
                     Cancel
                   </button>
                   <button 
                     onClick={addMember}
-                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                    disabled={isSubmittingMember}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
                   >
-                    Add Member
+                    {isSubmittingMember ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Adding Member...</span>
+                      </>
+                    ) : (
+                      <span>Add Member</span>
+                    )}
                   </button>
                 </div>
               </div>
