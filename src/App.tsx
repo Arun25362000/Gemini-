@@ -2920,7 +2920,7 @@ export default function App() {
     const wsLoans = XLSX.utils.json_to_sheet(loanRepaymentRows.length > 0 ? loanRepaymentRows : [{ 'Message': 'No loan repayments found for this month' }]);
     XLSX.utils.book_append_sheet(wb, wsLoans, "Loan Repayments Collected");
 
-    const fileName = `MonthlyCollections_${monthShort}${collectionYear}.xlsx`;
+    const fileName = `MonthlyReport_${monthShort}${collectionYear}.xlsx`;
     if (isMobileApp) {
       try {
         const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
