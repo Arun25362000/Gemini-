@@ -82,14 +82,17 @@ import {
   Star,
   Phone,
   Percent,
-  Layers
+  Layers,
+  Table,
+  RotateCcw,
+  Filter
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
 import { format } from 'date-fns';
-import { cn } from './lib/utils';
+import { cn, getAppAvailableYears } from './lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -466,8 +469,9 @@ export default function App() {
   const [repaymentYear, setRepaymentYear] = useState(new Date().getFullYear());
   const [collectionMonth, setCollectionMonth] = useState(new Date().getMonth() + 1);
   const [collectionYear, setCollectionYear] = useState(new Date().getFullYear());
-  const [appliedFilter, setAppliedFilter] = useState<{ month: number; year: number } | null>(null);
-  const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
+  const [graphsYear, setGraphsYear] = useState<number>(Math.max(2026, new Date().getFullYear()));
+  const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
@@ -677,7 +681,7 @@ export default function App() {
     }
   }, [settlingLoanId, loans, loanPayments]);
 
-  const handleSort = (field: 'member' | 'amount' | 'date' | 'status') => {
+  const handleSort = (field: 'member' | 'month' | 'amount' | 'date' | 'status') => {
     setSortConfig(prev => ({
       field,
       direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
@@ -943,7 +947,7 @@ export default function App() {
     if (!appliedFilter) return [];
     
     let items = (isAdmin ? contributions : myContributions)
-      .filter(c => c.month === appliedFilter.month && c.year === appliedFilter.year);
+      .filter(c => (appliedFilter.month === 'all' ? true : c.month === appliedFilter.month) && c.year === appliedFilter.year);
 
     if (isAdmin && searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -973,6 +977,8 @@ export default function App() {
           const nameA = allUsers.find(u => (a.userId && u.uid === a.userId) || (a.userEmail && u.email.toLowerCase() === a.userEmail.toLowerCase()))?.displayName || a.userEmail.split('@')[0];
           const nameB = allUsers.find(u => (b.userId && u.uid === b.userId) || (b.userEmail && u.email.toLowerCase() === b.userEmail.toLowerCase()))?.displayName || b.userEmail.split('@')[0];
           return sortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+        } else if (sortConfig.field === 'month') {
+          return sortConfig.direction === 'asc' ? a.month - b.month : b.month - a.month;
         } else if (sortConfig.field === 'amount') {
           return sortConfig.direction === 'asc' ? a.amount - b.amount : b.amount - a.amount;
         } else if (sortConfig.field === 'date') {
@@ -984,6 +990,8 @@ export default function App() {
         }
         return 0;
       });
+    } else if (appliedFilter.month === 'all') {
+      items = [...items].sort((a, b) => a.month - b.month);
     }
     return items;
   }, [contributions, myContributions, isAdmin, appliedFilter, sortConfig, allUsers, searchQuery, paymentMethodFilter]);
@@ -4388,6 +4396,23 @@ export default function App() {
             )}
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
+            {activeTab === 'graphs' && (
+              <div className="flex items-center gap-2 bg-gradient-to-r from-indigo-50/90 to-white px-3 sm:px-4 py-2 rounded-2xl border-2 border-indigo-200/90 shadow-2xs">
+                <Calendar className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider hidden sm:inline">Year:</span>
+                <select
+                  value={graphsYear}
+                  onChange={(e) => setGraphsYear(Number(e.target.value))}
+                  className="bg-transparent text-indigo-950 font-black text-xs sm:text-sm focus:outline-none cursor-pointer pr-1 py-0.5"
+                >
+                  {getAppAvailableYears().map(y => (
+                    <option key={`graphs-header-year-${y}`} value={y} className="bg-white text-slate-900 font-semibold">
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {isAdmin && activeTab !== 'graphs' && (
               <form 
                 onSubmit={(e) => e.preventDefault()}
@@ -6660,6 +6685,7 @@ export default function App() {
             financials={financials}
             userEmail={user?.email || ''}
             isAdmin={isAdmin}
+            selectedYear={graphsYear}
           />
         ) : activeTab === 'notices' ? (
           <div className="space-y-6">
@@ -6939,7 +6965,7 @@ export default function App() {
                               onChange={(e) => setCollectionYear(Number(e.target.value))}
                               className="bg-transparent text-slate-800 font-bold text-xs px-2.5 py-1 focus:outline-none cursor-pointer"
                             >
-                              {[2024, 2025, 2026, 2027, 2028].map(y => (
+                              {getAppAvailableYears().map(y => (
                                 <option key={`coll-y-${y}`} value={y} className="bg-white text-slate-900">
                                   {y}
                                 </option>
@@ -7500,103 +7526,117 @@ export default function App() {
         ) : (
           <div className="space-y-6">
             {/* Filter Section */}
-            <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white p-6 sm:p-7 rounded-3xl shadow-sm border-2 border-indigo-200/90">
-              <div className="flex flex-col md:flex-row md:items-end gap-4">
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Month</label>
-                    <div className="relative">
-                      <select 
-                        value={filterMonth}
-                        onChange={(e) => setFilterMonth(Number(e.target.value))}
-                        className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
-                      >
-                        {Array.from({ length: 12 }).map((_, i) => (
-                          <option key={`filter-month-${i + 1}`} value={i + 1}>
-                            {format(new Date(2024, i, 1), 'MMMM')}
-                          </option>
-                        ))}
-                      </select>
+                <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white p-6 sm:p-7 rounded-3xl shadow-sm border-2 border-indigo-200/90">
+                  <div className="flex flex-col md:flex-row md:items-end gap-4">
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Month</label>
+                        <div className="relative">
+                          <select 
+                            value={filterMonth}
+                            onChange={(e) => setFilterMonth(Number(e.target.value))}
+                            className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
+                          >
+                            {Array.from({ length: 12 }).map((_, i) => (
+                              <option key={`filter-month-${i + 1}`} value={i + 1}>
+                                {format(new Date(2024, i, 1), 'MMMM')}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Year</label>
+                        <div className="relative">
+                          <select 
+                            value={filterYear}
+                            onChange={(e) => setFilterYear(Number(e.target.value))}
+                            className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
+                          >
+                            {getAppAvailableYears().map(y => (
+                              <option key={`filter-year-${y}`} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Year</label>
-                    <div className="relative">
-                      <select 
-                        value={filterYear}
-                        onChange={(e) => setFilterYear(Number(e.target.value))}
-                        className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <button 
+                        onClick={() => {
+                          setAppliedFilter({ month: filterMonth, year: filterYear });
+                          setPaymentMethodFilter('all');
+                        }}
+                        className="px-6 sm:px-8 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
                       >
-                        {[2024, 2025, 2026, 2027, 2028].map(y => (
-                          <option key={`filter-year-${y}`} value={y}>{y}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => {
-                    setAppliedFilter({ month: filterMonth, year: filterYear });
-                    setPaymentMethodFilter('all');
-                  }}
-                  className="px-8 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
-                >
-                  <Search className="w-4 h-4" /> Show Payments
-                </button>
-              </div>
+                        <Search className="w-4 h-4" /> Show Payments
+                      </button>
 
-              {isAdmin && appliedFilter && (
-                <div className="mt-6 pt-6 border-t border-indigo-100/90 flex flex-wrap gap-4">
-                  {(() => {
-                    const filtered = contributions.filter(c => c.month === appliedFilter.month && c.year === appliedFilter.year && c.status === 'paid');
-                    const cash = filtered.filter(c => c.paymentMethod === 'cash').length;
-                    const online = filtered.filter(c => c.paymentMethod === 'online' || !c.paymentMethod).length;
-                    const total = filtered.reduce((acc, c) => acc + c.amount, 0);
-                    
-                    return (
-                      <>
+                      {!isAdmin && (
                         <button 
-                          onClick={() => setPaymentMethodFilter(prev => prev === 'online' ? 'all' : 'online')}
-                          className={cn(
-                            "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
-                            paymentMethodFilter === 'online' 
-                              ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-200" 
-                              : "bg-emerald-50/90 border-emerald-200/90 text-emerald-700 hover:bg-emerald-100"
-                          )}
+                          onClick={() => {
+                            setAppliedFilter({ month: 'all', year: filterYear });
+                            setPaymentMethodFilter('all');
+                          }}
+                          className="px-6 sm:px-8 py-3.5 bg-white text-indigo-700 border-2 border-indigo-200/90 hover:border-indigo-600 hover:bg-indigo-50/70 rounded-2xl font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
                         >
-                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'online' ? "text-emerald-50" : "text-emerald-800")}>Online Payments</p>
-                          <p className={cn("text-lg font-black", paymentMethodFilter === 'online' ? "text-white" : "text-emerald-700")}>{online}</p>
+                          <Layers className="w-4 h-4 text-indigo-600" /> Show All Payments
                         </button>
-                        <button 
-                          onClick={() => setPaymentMethodFilter(prev => prev === 'cash' ? 'all' : 'cash')}
-                          className={cn(
-                            "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
-                            paymentMethodFilter === 'cash' 
-                              ? "bg-amber-600 border-amber-600 text-white shadow-md shadow-amber-200" 
-                              : "bg-amber-50/90 border-amber-200/90 text-amber-700 hover:bg-amber-100"
-                          )}
-                        >
-                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'cash' ? "text-amber-50" : "text-amber-800")}>Cash Payments</p>
-                          <p className={cn("text-lg font-black", paymentMethodFilter === 'cash' ? "text-white" : "text-amber-700")}>{cash}</p>
-                        </button>
-                        <button 
-                          onClick={() => setPaymentMethodFilter('all')}
-                          className={cn(
-                            "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
-                            paymentMethodFilter === 'all' 
-                              ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200" 
-                              : "bg-indigo-50/90 border-indigo-200/90 text-indigo-700 hover:bg-indigo-100"
-                          )}
-                        >
-                          <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'all' ? "text-indigo-50" : "text-indigo-800")}>Total Amount</p>
-                          <p className={cn("text-lg font-black", paymentMethodFilter === 'all' ? "text-white" : "text-indigo-700")}>₹{total.toLocaleString('en-IN')}</p>
-                        </button>
-                      </>
-                    );
-                  })()}
+                      )}
+                    </div>
+                  </div>
+
+                  {isAdmin && appliedFilter && (
+                    <div className="mt-6 pt-6 border-t border-indigo-100/90 flex flex-wrap gap-4">
+                      {(() => {
+                        const filtered = contributions.filter(c => (appliedFilter.month === 'all' ? true : c.month === appliedFilter.month) && c.year === appliedFilter.year && c.status === 'paid');
+                        const cash = filtered.filter(c => c.paymentMethod === 'cash').length;
+                        const online = filtered.filter(c => c.paymentMethod === 'online' || !c.paymentMethod).length;
+                        const total = filtered.reduce((acc, c) => acc + c.amount, 0);
+                        
+                        return (
+                          <>
+                            <button 
+                              onClick={() => setPaymentMethodFilter(prev => prev === 'online' ? 'all' : 'online')}
+                              className={cn(
+                                "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
+                                paymentMethodFilter === 'online' 
+                                  ? "bg-emerald-600 border-emerald-600 text-white shadow-md shadow-emerald-200" 
+                                  : "bg-emerald-50/90 border-emerald-200/90 text-emerald-700 hover:bg-emerald-100"
+                              )}
+                            >
+                              <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'online' ? "text-emerald-50" : "text-emerald-800")}>Online Payments</p>
+                              <p className={cn("text-lg font-black", paymentMethodFilter === 'online' ? "text-white" : "text-emerald-700")}>{online}</p>
+                            </button>
+                            <button 
+                              onClick={() => setPaymentMethodFilter(prev => prev === 'cash' ? 'all' : 'cash')}
+                              className={cn(
+                                "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
+                                paymentMethodFilter === 'cash' 
+                                  ? "bg-amber-600 border-amber-600 text-white shadow-md shadow-amber-200" 
+                                  : "bg-amber-50/90 border-amber-200/90 text-amber-700 hover:bg-amber-100"
+                              )}
+                            >
+                              <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'cash' ? "text-amber-50" : "text-amber-800")}>Cash Payments</p>
+                              <p className={cn("text-lg font-black", paymentMethodFilter === 'cash' ? "text-white" : "text-amber-700")}>{cash}</p>
+                            </button>
+                            <button 
+                              onClick={() => setPaymentMethodFilter('all')}
+                              className={cn(
+                                "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
+                                paymentMethodFilter === 'all' 
+                                  ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200" 
+                                  : "bg-indigo-50/90 border-indigo-200/90 text-indigo-700 hover:bg-indigo-100"
+                              )}
+                            >
+                              <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'all' ? "text-indigo-50" : "text-indigo-800")}>Total Amount</p>
+                              <p className={cn("text-lg font-black", paymentMethodFilter === 'all' ? "text-white" : "text-indigo-700")}>₹{total.toLocaleString('en-IN')}</p>
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
             {appliedFilter ? (
               <>
@@ -7615,6 +7655,21 @@ export default function App() {
                               <div className="flex items-center gap-1.5">
                                 Member
                                 {sortConfig.field === 'member' ? (
+                                  sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                ) : (
+                                  <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
+                                )}
+                              </div>
+                            </th>
+                          )}
+                          {(!isAdmin || appliedFilter.month === 'all') && (
+                            <th 
+                              className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group border-r border-slate-200/60 select-none"
+                              onClick={() => handleSort('month')}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                Month / Period
+                                {sortConfig.field === 'month' ? (
                                   sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                 ) : (
                                   <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />
@@ -7676,6 +7731,13 @@ export default function App() {
                                   </span>
                                 </td>
                               )}
+                              {(!isAdmin || appliedFilter.month === 'all') && (
+                                <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
+                                  <span className="text-sm font-bold text-slate-800">
+                                    {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
+                                  </span>
+                                </td>
+                              )}
                               <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                 <span className="text-sm font-bold text-slate-900">₹{c.amount.toLocaleString('en-IN')}</span>
                               </td>
@@ -7730,8 +7792,8 @@ export default function App() {
                         })}
                         {sortedContributions.length === 0 && (
                           <tr>
-                            <td colSpan={isAdmin ? 5 : 3} className="px-6 py-12 text-center text-slate-400 italic">
-                              No records found for {format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.
+                            <td colSpan={isAdmin ? (appliedFilter.month === 'all' ? 6 : 5) : 5} className="px-6 py-12 text-center text-slate-400 italic">
+                              No records found for {appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.
                             </td>
                           </tr>
                         )}
@@ -7745,6 +7807,7 @@ export default function App() {
                   <MobileQuickSort
                     options={[
                       ...(isAdmin ? [{ key: 'member', label: 'Member' }] : []),
+                      ...(!isAdmin || appliedFilter.month === 'all' ? [{ key: 'month', label: 'Month' }] : []),
                       { key: 'amount', label: 'Amount' },
                       { key: 'status', label: 'Status' },
                       { key: 'date', label: 'Date' }
@@ -7848,7 +7911,7 @@ export default function App() {
                   })}
                   {sortedContributions.length === 0 && (
                     <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
-                      <p className="text-slate-400 italic">No records found for {format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.</p>
+                      <p className="text-slate-400 italic">No records found for {appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.</p>
                     </div>
                   )}
                 </div>
@@ -9079,7 +9142,7 @@ export default function App() {
                       onChange={(e) => setSelectedYear(Number(e.target.value))}
                       className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
                     >
-                      {[2024, 2025, 2026].map(y => (
+                      {getAppAvailableYears().map(y => (
                         <option key={`contrib-reg-year-${y}`} value={y}>{y}</option>
                       ))}
                     </select>

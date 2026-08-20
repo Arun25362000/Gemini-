@@ -11,3 +11,14 @@ export function formatINR(val: number | string | undefined | null): string {
   if (isNaN(num)) return '0';
   return num.toLocaleString('en-IN');
 }
+
+export function getAppAvailableYears(): number[] {
+  const startYear = 2026;
+  const currentYear = new Date().getFullYear();
+  const maxYear = Math.max(2028, currentYear + 2);
+  const years: number[] = [];
+  for (let y = startYear; y <= maxYear; y++) {
+    years.push(y);
+  }
+  return years;
+}
