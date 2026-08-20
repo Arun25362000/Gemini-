@@ -7156,61 +7156,96 @@ export default function App() {
                                 </table>
                               </div>
 
-                              {/* Mobile / Tablet Normal List View */}
-                              <div className="lg:hidden space-y-3">
-                                <MobileQuickSort
-                                  options={[
-                                    { key: 'sno', label: '#' },
-                                    { key: 'member', label: 'Member' },
-                                    { key: 'amount', label: 'Amount' },
-                                    { key: 'method', label: 'Mode' },
-                                    { key: 'date', label: 'Date' }
-                                  ]}
-                                  activeField={collectionContribSortConfig.field}
-                                  direction={collectionContribSortConfig.direction}
-                                  onSort={handleContribSort}
-                                  className="mb-1"
-                                />
-                                <div className="divide-y divide-slate-100 bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-                                  {sortedContribs.map((item, rowIdx) => (
-                                    <div 
-                                      key={`coll-contrib-item-${item.id}-${rowIdx}`} 
-                                      className="p-3.5 sm:p-4 hover:bg-slate-50/70 transition-colors flex items-center justify-between gap-3"
-                                    >
-                                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-700 font-bold text-sm flex items-center justify-center shrink-0 border border-indigo-100/80">
-                                          {item.memberName ? item.memberName[0].toUpperCase() : '?'}
-                                        </div>
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <h4 className="font-bold text-slate-900 text-sm truncate">{item.memberName}</h4>
+                              {/* Mobile / Tablet Columnar Table View */}
+                              <div className="lg:hidden">
+                                <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
+                                  <table className="w-full min-w-[480px] text-left border-collapse whitespace-nowrap text-xs">
+                                    <thead>
+                                      <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
+                                        <th 
+                                          onClick={() => handleContribSort('sno')}
+                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-9 text-center select-none"
+                                        >
+                                          <div className="flex items-center justify-center gap-1">
+                                            #
+                                            {collectionContribSortConfig.field === 'sno' ? (
+                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleContribSort('member')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Member
+                                            {collectionContribSortConfig.field === 'member' ? (
+                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleContribSort('amount')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Amount
+                                            {collectionContribSortConfig.field === 'amount' ? (
+                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleContribSort('method')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Method
+                                            {collectionContribSortConfig.field === 'method' ? (
+                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleContribSort('date')}
+                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Date
+                                            {collectionContribSortConfig.field === 'date' ? (
+                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
+                                      {sortedContribs.map((item, rowIdx) => (
+                                        <tr key={`coll-contrib-mobile-${item.id}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
+                                          <td className="px-2.5 py-2.5 font-bold text-slate-400 border-r border-slate-200/60 text-center">
+                                            {rowIdx + 1}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-200/60">
+                                            {item.memberName}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-bold text-emerald-600 border-r border-slate-200/60">
+                                            ₹{item.amount.toLocaleString('en-IN')}
+                                          </td>
+                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
                                             <span className={cn(
                                               "px-2 py-0.5 rounded-md text-[10px] font-bold uppercase",
                                               item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
                                             )}>
                                               {item.method}
                                             </span>
-                                          </div>
-                                          <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5 flex-wrap">
-                                            <span>{item.dateFormatted}</span>
-                                            {item.userPhone && (
-                                              <>
-                                                <span>•</span>
-                                                <span>{item.userPhone}</span>
-                                              </>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      <div className="text-right shrink-0">
-                                        <p className="font-black text-emerald-600 text-sm sm:text-base">₹{item.amount.toLocaleString('en-IN')}</p>
-                                        <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 mt-0.5">
-                                          PAID
-                                        </span>
-                                      </div>
-                                    </div>
-                                  ))}
+                                          </td>
+                                          <td className="px-3 py-2.5 text-slate-500">
+                                            {item.dateFormatted}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
                                 </div>
                               </div>
                             </>
@@ -7351,59 +7386,105 @@ export default function App() {
                                 </table>
                               </div>
 
-                              {/* Mobile / Tablet Normal List View */}
-                              <div className="lg:hidden space-y-3">
-                                <MobileQuickSort
-                                  options={[
-                                    { key: 'sno', label: '#' },
-                                    { key: 'borrower', label: 'Borrower' },
-                                    { key: 'principal', label: 'Principal' },
-                                    { key: 'interest', label: 'Interest' },
-                                    { key: 'total', label: 'Total Paid' },
-                                    { key: 'date', label: 'Date' }
-                                  ]}
-                                  activeField={collectionLoanSortConfig.field}
-                                  direction={collectionLoanSortConfig.direction}
-                                  onSort={handleLoanSort}
-                                  className="mb-1"
-                                />
-                                <div className="divide-y divide-slate-100 bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-                                  {sortedLoanPayments.map((p, rowIdx) => (
-                                    <div 
-                                      key={`coll-loan-item-${p.id}-${rowIdx}`}
-                                      className="p-3.5 sm:p-4 hover:bg-slate-50/70 transition-colors flex flex-col gap-2.5"
-                                    >
-                                      <div className="flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                                          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-sm flex items-center justify-center shrink-0 border border-emerald-100/80">
-                                            {p.borrowerName ? p.borrowerName[0].toUpperCase() : '?'}
+                              {/* Mobile / Tablet Columnar Table View */}
+                              <div className="lg:hidden">
+                                <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
+                                  <table className="w-full min-w-[540px] text-left border-collapse whitespace-nowrap text-xs">
+                                    <thead>
+                                      <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
+                                        <th 
+                                          onClick={() => handleLoanSort('sno')}
+                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-9 text-center select-none"
+                                        >
+                                          <div className="flex items-center justify-center gap-1">
+                                            #
+                                            {collectionLoanSortConfig.field === 'sno' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
                                           </div>
-                                          <div className="min-w-0 flex-1">
-                                            <h4 className="font-bold text-slate-900 text-sm truncate">{p.borrowerName}</h4>
-                                            <p className="text-xs text-slate-500 truncate">{p.dateFormatted} • {p.paymentMode}</p>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleLoanSort('borrower')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            BORROWER
+                                            {collectionLoanSortConfig.field === 'borrower' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
                                           </div>
-                                        </div>
-
-                                        <div className="text-right shrink-0">
-                                          <p className="font-black text-emerald-600 text-sm sm:text-base">₹{p.total.toLocaleString('en-IN')}</p>
-                                          <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                            COLLECTED
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      <div className="flex items-center justify-between text-xs bg-slate-50/80 px-3 py-1.5 rounded-xl border border-slate-100 text-slate-600">
-                                        <div>
-                                          <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Principal:</span>
-                                          <span className="font-semibold text-slate-800">₹{p.principal.toLocaleString('en-IN')}</span>
-                                        </div>
-                                        <div>
-                                          <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Interest (0.5%):</span>
-                                          <span className="font-semibold text-amber-600">₹{p.interest.toLocaleString('en-IN')}</span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
+                                        </th>
+                                        <th 
+                                          onClick={() => handleLoanSort('principal')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Principal
+                                            {collectionLoanSortConfig.field === 'principal' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleLoanSort('interest')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Interest
+                                            {collectionLoanSortConfig.field === 'interest' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleLoanSort('total')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Total paid
+                                            {collectionLoanSortConfig.field === 'total' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleLoanSort('date')}
+                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Date
+                                            {collectionLoanSortConfig.field === 'date' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
+                                      {sortedLoanPayments.map((p, rowIdx) => (
+                                        <tr key={`coll-loan-mobile-${p.id}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
+                                          <td className="px-2.5 py-2.5 font-bold text-slate-400 border-r border-slate-200/60 text-center">
+                                            {rowIdx + 1}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-200/60">
+                                            {p.borrowerName}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-semibold text-slate-700 border-r border-slate-200/60">
+                                            ₹{p.principal.toLocaleString('en-IN')}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-semibold text-amber-600 border-r border-slate-200/60">
+                                            ₹{p.interest.toLocaleString('en-IN')}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-bold text-emerald-600 border-r border-slate-200/60">
+                                            ₹{p.total.toLocaleString('en-IN')}
+                                          </td>
+                                          <td className="px-3 py-2.5 text-slate-500">
+                                            {p.dateFormatted}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
                                 </div>
                               </div>
                             </>
