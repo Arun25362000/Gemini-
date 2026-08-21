@@ -55,11 +55,11 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
   const [expandedYears, setExpandedYears] = useState<Record<number, boolean>>({});
   const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
   const [sortConfig, setSortConfig] = useState<{
-    field: 'date' | 'member' | 'amount' | 'totalPaid' | 'balance' | 'nextDate' | 'nextAmount' | 'closedDate' | 'status';
+    field: 'date' | 'member' | 'amount' | 'totalPaid' | 'balance' | 'closedDate' | 'status';
     direction: 'asc' | 'desc';
   }>({ field: 'date', direction: 'desc' });
 
-  const handleSort = (field: 'date' | 'member' | 'amount' | 'totalPaid' | 'balance' | 'nextDate' | 'nextAmount' | 'closedDate' | 'status') => {
+  const handleSort = (field: 'date' | 'member' | 'amount' | 'totalPaid' | 'balance' | 'closedDate' | 'status') => {
     setSortConfig(prev => ({
       field,
       direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
@@ -81,12 +81,6 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
           return sortConfig.direction === 'asc' ? totalA - totalB : totalB - totalA;
         case 'balance':
           return sortConfig.direction === 'asc' ? a.remainingPrincipal - b.remainingPrincipal : b.remainingPrincipal - a.remainingPrincipal;
-        case 'nextDate':
-          return sortConfig.direction === 'asc' 
-            ? a.nextPaymentDateStr.localeCompare(b.nextPaymentDateStr) 
-            : b.nextPaymentDateStr.localeCompare(a.nextPaymentDateStr);
-        case 'nextAmount':
-          return sortConfig.direction === 'asc' ? a.nextTotalAmount - b.nextTotalAmount : b.nextTotalAmount - a.nextTotalAmount;
         case 'closedDate':
           return sortConfig.direction === 'asc'
             ? a.closedDateStr.localeCompare(b.closedDateStr)
@@ -464,60 +458,39 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
     <div className={cn("space-y-6", isAndroid && "space-y-4")}>
       {/* Year-wise and Month-wise Accordions */}
       {hierarchyData.length > 0 ? (
-        <div className="space-y-5">
+        <div className="space-y-6">
           {hierarchyData.map((yearGroup) => {
             const isYearExpanded = expandedYears[yearGroup.year] ?? true;
 
             return (
-              <div 
-                key={yearGroup.year} 
-                className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden transition-all"
-              >
-                {/* Year Header Accordion Trigger */}
+              <div key={yearGroup.year}>
+                {/* Year Header Accordion Trigger - Standalone Button */}
                 <button
                   type="button"
                   onClick={() => toggleYear(yearGroup.year)}
-                  className="w-full px-5 sm:px-7 py-4.5 sm:py-5 bg-gradient-to-r from-slate-50/90 to-slate-100/50 hover:from-slate-100 hover:to-slate-150 flex items-center justify-between border-b border-slate-200/80 transition-all text-left group select-none cursor-pointer"
+                  className="flex items-center gap-2.5 px-3.5 py-1.5 bg-gradient-to-r from-indigo-50/80 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 border-2 border-indigo-200/90 rounded-xl transition-all cursor-pointer group text-left select-none shadow-2xs mb-3.5"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
-                      <Calendar className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
-                          Year {yearGroup.year}
-                        </span>
-                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                          {yearGroup.totalLoansCount} Loan{yearGroup.totalLoansCount !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 font-medium">
-                        {yearGroup.months.length} Active Month{yearGroup.months.length !== 1 ? 's' : ''}
-                      </p>
-                    </div>
+                  <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                    <Calendar className="w-3.5 h-3.5" />
                   </div>
-
-                  <div className="flex items-center gap-4">
-                    <div className="text-right hidden sm:block">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Sanctioned</p>
-                      <p className="text-sm font-black text-indigo-700">₹{yearGroup.totalDisbursed.toLocaleString('en-IN')}</p>
-                    </div>
-                    <div className={cn(
-                      "w-8 h-8 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center text-slate-600 group-hover:border-indigo-300 transition-all",
-                      isYearExpanded && "bg-indigo-50 text-indigo-600 border-indigo-200"
-                    )}>
-                      <ChevronDown className={cn(
-                        "w-4 h-4 transition-transform duration-200",
-                        !isYearExpanded && "-rotate-90"
-                      )} />
-                    </div>
-                  </div>
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900 group-hover:text-indigo-700 transition-colors">
+                    Year {yearGroup.year}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 border border-indigo-300/80">
+                    {yearGroup.totalLoansCount} Loan{yearGroup.totalLoansCount !== 1 ? 's' : ''}
+                  </span>
+                  <span className="text-xs text-slate-500 font-medium">
+                    ({yearGroup.months.length} Active Month{yearGroup.months.length !== 1 ? 's' : ''})
+                  </span>
+                  <ChevronDown className={cn(
+                    "w-4 h-4 text-indigo-600 group-hover:text-indigo-700 transition-transform duration-200",
+                    !isYearExpanded && "-rotate-90"
+                  )} />
                 </button>
 
                 {/* Year Body: Month List */}
                 {isYearExpanded && (
-                  <div className="p-2 sm:p-6 space-y-3 sm:space-y-4 bg-slate-50/40">
+                  <div className="space-y-3 sm:space-y-4">
                     {yearGroup.months.map((monthGroup) => {
                       const isMonthExpanded = expandedMonths[monthGroup.monthKey] ?? true;
 
@@ -563,14 +536,13 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                           {isMonthExpanded && (
                             <div className="p-0 sm:p-0">
                               {/* Desktop Table View */}
-                              <div className="hidden md:block overflow-x-auto w-full touch-pan-x overscroll-x-contain">
-                                <table className="w-full min-w-[850px] text-left border-collapse whitespace-nowrap">
+                              <div className="hidden md:block overflow-x-auto w-full touch-pan-x overscroll-x-contain pb-2 scrollbar-thin">
+                                <table className="w-full min-w-[680px] text-left border-collapse whitespace-nowrap">
                                   <thead>
                                     <tr className="bg-slate-50/75 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                                       <th 
-                                        rowSpan={2} 
                                         onClick={() => handleSort('date')}
-                                        className="px-4 py-3 w-10 text-center border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-3 py-2.5 w-10 sm:w-12 text-center border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center justify-center gap-1">
                                           #
@@ -582,9 +554,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </th>
                                       <th 
-                                        rowSpan={2} 
                                         onClick={() => handleSort('member')}
-                                        className="px-4 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-3.5 py-2.5 min-w-[160px] border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1.5">
                                           Member
@@ -596,9 +567,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </th>
                                       <th 
-                                        rowSpan={2} 
                                         onClick={() => handleSort('amount')}
-                                        className="px-4 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-3 sm:px-3.5 py-2.5 w-28 sm:w-32 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1.5">
                                           Loan Amount
@@ -610,9 +580,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </th>
                                       <th 
-                                        rowSpan={2} 
                                         onClick={() => handleSort('totalPaid')}
-                                        className="px-4 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-3 sm:px-3.5 py-2.5 w-36 sm:w-40 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1.5">
                                           Total Paid
@@ -624,9 +593,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </th>
                                       <th 
-                                        rowSpan={2} 
                                         onClick={() => handleSort('balance')}
-                                        className="px-4 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-2.5 sm:px-3 py-2.5 w-24 sm:w-28 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1.5">
                                           Loan Balance
@@ -637,11 +605,9 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                           )}
                                         </div>
                                       </th>
-                                      <th colSpan={2} className="px-4 py-2 text-center border-b border-r border-slate-200 bg-indigo-50/60 text-indigo-700">Next Payment</th>
                                       <th 
-                                        rowSpan={2} 
                                         onClick={() => handleSort('closedDate')}
-                                        className="px-3.5 py-3 text-center border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-2 sm:px-2.5 py-2.5 w-24 sm:w-28 text-center border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center justify-center gap-1.5">
                                           Closed Date
@@ -653,9 +619,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </th>
                                       <th 
-                                        rowSpan={2} 
                                         onClick={() => handleSort('status')}
-                                        className="px-4 py-3 text-center cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-2 sm:px-2.5 py-2.5 w-24 sm:w-26 text-center cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center justify-center gap-1.5">
                                           Status
@@ -667,34 +632,6 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </th>
                                     </tr>
-                                    <tr className="bg-slate-50/75 border-b border-slate-200/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                      <th 
-                                        onClick={() => handleSort('nextDate')}
-                                        className="px-3 py-2 bg-indigo-50/30 text-indigo-900 border-r border-slate-200/60 text-center cursor-pointer hover:bg-indigo-100/50 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center justify-center gap-1">
-                                          Date
-                                          {sortConfig.field === 'nextDate' ? (
-                                            sortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 text-indigo-600" />
-                                          ) : (
-                                            <ArrowUpDown className="w-2.5 h-2.5 text-indigo-300 group-hover:text-indigo-400" />
-                                          )}
-                                        </div>
-                                      </th>
-                                      <th 
-                                        onClick={() => handleSort('nextAmount')}
-                                        className="px-3 py-2 bg-indigo-50/30 text-indigo-900 border-r border-slate-200/60 text-center cursor-pointer hover:bg-indigo-100/50 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center justify-center gap-1">
-                                          Principal + Interest
-                                          {sortConfig.field === 'nextAmount' ? (
-                                            sortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 text-indigo-600" />
-                                          ) : (
-                                            <ArrowUpDown className="w-2.5 h-2.5 text-indigo-300 group-hover:text-indigo-400" />
-                                          )}
-                                        </div>
-                                      </th>
-                                    </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
                                     {getSortedMonthLoans(monthGroup.loans).map((item, lIdx) => {
@@ -702,82 +639,57 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
 
                                       return (
                                         <tr key={item.loan.id || lIdx} className="hover:bg-slate-50/70 transition-colors">
-                                          <td className="px-4 py-3 text-center font-bold text-slate-400 border-r border-slate-200/60">
+                                          <td className="px-3 py-2.5 w-10 sm:w-12 text-center font-bold text-slate-400 border-r border-slate-200/60">
                                             {lIdx + 1}
                                           </td>
-                                          <td className="px-4 py-3 border-r border-slate-200/60">
-                                            <div className="flex items-center gap-3">
-                                              <div className="w-8 h-8 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">
+                                          <td className="px-3.5 py-2.5 min-w-[160px] border-r border-slate-200/60">
+                                            <div className="flex items-center gap-2.5">
+                                              <div className="w-7 h-7 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs shrink-0">
                                                 {item.memberName.charAt(0).toUpperCase()}
                                               </div>
-                                              <div>
-                                                <p className="font-bold text-slate-900">{item.memberName}</p>
-                                                <p className="text-[11px] text-slate-400 font-normal">{item.memberPhone || item.memberEmail}</p>
+                                              <div className="min-w-0">
+                                                <p className="font-bold text-slate-900 truncate">{item.memberName}</p>
+                                                <p className="text-[10.5px] text-slate-400 font-normal truncate">{item.memberPhone || item.memberEmail}</p>
                                               </div>
                                             </div>
                                           </td>
-                                          <td className="px-4 py-3 border-r border-slate-200/60">
-                                            <span className="text-sm font-black text-slate-900">
+                                          <td className="px-3 sm:px-3.5 py-2.5 w-28 sm:w-32 border-r border-slate-200/60">
+                                            <span className="text-xs sm:text-sm font-black text-slate-900">
                                               ₹{item.amount.toLocaleString('en-IN')}
                                             </span>
                                           </td>
-                                          <td className="px-4 py-3 border-r border-slate-200/60">
+                                          <td className="px-3 sm:px-3.5 py-2.5 w-36 sm:w-40 border-r border-slate-200/60">
                                             <div className="flex flex-col">
-                                              <span className="text-sm font-bold text-emerald-700">
+                                              <span className="text-xs sm:text-sm font-bold text-emerald-700">
                                                 ₹{(item.repaidPrincipal + item.repaidInterest).toLocaleString('en-IN')}
                                               </span>
-                                              <div className="flex items-center gap-1 mt-0.5 text-[11px] font-semibold">
+                                              <div className="flex items-center gap-1 mt-0.5 text-[10.5px] font-semibold">
                                                 <span className="text-emerald-700">₹{item.repaidPrincipal.toLocaleString('en-IN')}</span>
                                                 <span className="text-slate-400 font-normal">+</span>
                                                 <span className="text-indigo-700">₹{item.repaidInterest.toLocaleString('en-IN')} Int</span>
                                               </div>
                                             </div>
                                           </td>
-                                          <td className="px-4 py-3 border-r border-slate-200/60">
+                                          <td className="px-2.5 sm:px-3 py-2.5 w-24 sm:w-28 border-r border-slate-200/60">
                                             <span className={cn(
-                                              "font-bold",
+                                              "font-bold text-xs",
                                               item.remainingPrincipal > 0 ? "text-amber-700" : "text-slate-400"
                                             )}>
                                               ₹{item.remainingPrincipal.toLocaleString('en-IN')}
                                             </span>
                                           </td>
-                                          <td className="px-3 py-3 text-center border-r border-slate-200/60">
-                                            {item.nextPaymentDateStr === '-' ? (
-                                              <span className="text-slate-400 font-medium">-</span>
-                                            ) : (
-                                              <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md text-[11px]">
-                                                {item.nextPaymentDateStr}
-                                              </span>
-                                            )}
-                                          </td>
-                                          <td className="px-3 py-3 text-center border-r border-slate-200/60">
-                                            {item.status === 'paid' || item.remainingPrincipal <= 0 ? (
-                                              <span className="text-slate-400 font-medium">-</span>
-                                            ) : (
-                                              <div className="flex flex-col items-center">
-                                                <span className="font-black text-slate-900 text-xs">
-                                                  ₹{item.nextTotalAmount.toLocaleString('en-IN')}
-                                                </span>
-                                                <div className="flex items-center gap-1 mt-0.5 text-[10.5px] font-semibold">
-                                                  <span className="text-slate-700">₹{item.nextPrincipal.toLocaleString('en-IN')}</span>
-                                                  <span className="text-slate-400 font-normal">+</span>
-                                                  <span className="text-indigo-700">₹{item.nextInterest.toLocaleString('en-IN')} Int</span>
-                                                </div>
-                                              </div>
-                                            )}
-                                          </td>
-                                          <td className="px-3.5 py-3 text-center border-r border-slate-200/60">
+                                          <td className="px-2 sm:px-2.5 py-2.5 w-24 sm:w-28 text-center border-r border-slate-200/60">
                                             {isPaid || item.remainingPrincipal <= 0 ? (
-                                              <span className="font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md text-[11px]">
+                                              <span className="font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 sm:px-2 py-0.5 rounded-md text-[10.5px]">
                                                 {item.closedDateStr}
                                               </span>
                                             ) : (
-                                              <span className="text-slate-400 font-medium">-</span>
+                                              <span className="text-slate-400 font-medium text-xs">-</span>
                                             )}
                                           </td>
-                                          <td className="px-4 py-3 text-center">
+                                          <td className="px-2 sm:px-2.5 py-2.5 w-24 sm:w-26 text-center">
                                             <span className={cn(
-                                              "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border",
+                                              "inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold border",
                                               isPaid 
                                                 ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
                                                 : "bg-amber-50 text-amber-700 border-amber-200"
@@ -803,16 +715,13 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                               </div>
 
                               {/* Mobile / Tablet Card View */}
-                              <div className="block md:hidden p-3 space-y-3.5">
+                              <div className="block md:hidden p-3 space-y-3.5 overflow-x-auto w-full touch-pan-x overscroll-x-contain pb-2 scrollbar-thin">
                                 <MobileQuickSort
                                   options={[
-                                    { key: 'date', label: 'Date' },
                                     { key: 'member', label: 'Member' },
                                     { key: 'amount', label: 'Amount' },
                                     { key: 'totalPaid', label: 'Total Paid' },
                                     { key: 'balance', label: 'Balance' },
-                                    { key: 'nextDate', label: 'Next Date' },
-                                    { key: 'nextAmount', label: 'Next Amount' },
                                     { key: 'closedDate', label: 'Closed Date' },
                                     { key: 'status', label: 'Status' }
                                   ]}
@@ -889,30 +798,6 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                             )}
                                           </p>
                                         </div>
-                                      </div>
-
-                                      {/* Next Payment Card Section */}
-                                      <div className="p-3 bg-slate-50/80 rounded-2xl border border-slate-100 space-y-1.5">
-                                        <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Next Payment</p>
-                                        {isPaid || item.remainingPrincipal <= 0 ? (
-                                          <p className="text-xs text-slate-400 font-medium">No upcoming payments (Settled)</p>
-                                        ) : (
-                                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 rounded-xl border border-indigo-100/80">
-                                            <div>
-                                              <p className="text-[10px] text-slate-400 font-bold uppercase">Due Date</p>
-                                              <p className="text-xs font-bold text-slate-800">{item.nextPaymentDateStr}</p>
-                                            </div>
-                                            <div className="sm:text-right border-t sm:border-t-0 pt-1 sm:pt-0 border-slate-100">
-                                              <p className="text-[10px] text-slate-400 font-bold uppercase">Next Installment</p>
-                                              <p className="text-xs font-black text-slate-900">
-                                                ₹{item.nextTotalAmount.toLocaleString('en-IN')}
-                                              </p>
-                                              <p className="text-[10px] text-slate-500 font-semibold">
-                                                (₹{item.nextPrincipal.toLocaleString('en-IN')} + <span className="text-indigo-700 font-bold">₹{item.nextInterest.toLocaleString('en-IN')} Int</span>)
-                                              </p>
-                                            </div>
-                                          </div>
-                                        )}
                                       </div>
                                     </div>
                                   );
