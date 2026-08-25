@@ -34,7 +34,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { UserProfile, Contribution, Loan, LoanPayment } from './types';
-import { read, utils } from 'xlsx';
+import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
   LogOut, 
@@ -95,7 +95,7 @@ import { format } from 'date-fns';
 import { cn, getAppAvailableYears } from './lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Notice, AppNotification } from './types';
@@ -2564,11 +2564,130 @@ export default function App() {
       };
     });
 
+    // Palette of soft pastel colors for member row identification
+    const MEMBER_PALETTE = [
+      'DBEAFE', // Soft Sky Blue
+      'D1FAE5', // Soft Mint Green
+      'FEF3C7', // Soft Warm Amber
+      'FCE7F3', // Soft Rose Pink
+      'E0E7FF', // Soft Indigo
+      'F3E8FF', // Soft Purple
+      'CCFBF1', // Soft Teal
+      'FFEDD5', // Soft Peach Orange
+      'CFFAFE', // Soft Cyan
+      'ECFCCB', // Soft Lime
+      'EDE9FE', // Soft Violet
+      'FAE8FF', // Soft Fuchsia
+      'FFE4E6', // Soft Coral Rose
+      'FEF9C3', // Soft Lemon
+      'E2E8F0', // Soft Slate
+      'D5F5E3', // Soft Mint
+      'FCF3CF', // Soft Gold
+      'E8DAEF', // Soft Lavender
+      'FADBD8', // Soft Salmon
+      'D4EFDF', // Soft Meadow Green
+      'D6EAF8', // Soft Ice Blue
+      'FDEDEC', // Soft Blush
+      'EAECEE', // Warm Neutral
+      'C8E6C9', // Gentle Green
+      'B3E5FC', // Gentle Blue
+      'DCEDC8', // Gentle Lime
+      'F8BBD0', // Gentle Rose
+      'E1BEE7', // Gentle Violet
+      'D1C4E9', // Gentle Deep Purple
+      'C5CAE9', // Gentle Indigo
+      'B2EBF2', // Gentle Cyan
+      'B2DFDB', // Gentle Teal
+      'FFE0B2', // Gentle Orange
+      'FFCCBC', // Gentle Deep Orange
+    ];
+
+    // Collect and sort all distinct member display names / emails deterministically
+    const allKnownNames = Array.from(new Set([
+      ...allUsers.map(u => u.displayName || u.email?.split('@')[0] || ''),
+      ...contributions.map(c => {
+        const u = allUsers.find(user => (c.userId && user.uid === c.userId) || (c.userEmail && user.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim()));
+        return u?.displayName || c.userEmail?.split('@')[0] || '';
+      }),
+      ...loans.map(l => {
+        const u = allUsers.find(user => (l.userId && user.uid === l.userId) || (l.userEmail && user.email.toLowerCase().trim() === l.userEmail.toLowerCase().trim()));
+        return u?.displayName || l.userEmail?.split('@')[0] || '';
+      }),
+      ...loanPayments.map(p => {
+        const u = allUsers.find(user => (p.userId && user.uid === p.userId) || (p.userEmail && user.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim()));
+        return u?.displayName || p.userEmail?.split('@')[0] || '';
+      })
+    ].map(n => n.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+
+    const memberColorMap = new Map<string, string>();
+    allKnownNames.forEach((name, idx) => {
+      memberColorMap.set(name.toLowerCase(), MEMBER_PALETTE[idx % MEMBER_PALETTE.length]);
+    });
+
+    let extraColorCounter = allKnownNames.length;
+    const getMemberColor = (name: string): string => {
+      const cleanName = (name || '').trim().toLowerCase();
+      if (!cleanName || cleanName === 'n/a') return 'FFFFFF';
+      if (!memberColorMap.has(cleanName)) {
+        memberColorMap.set(cleanName, MEMBER_PALETTE[extraColorCounter % MEMBER_PALETTE.length]);
+        extraColorCounter++;
+      }
+      return memberColorMap.get(cleanName)!;
+    };
+
+    const applyMemberRowStyles = (ws: any, rowsData: any[], memberKey: string) => {
+      if (!ws || !ws['!ref']) return;
+      const range = XLSX.utils.decode_range(ws['!ref']);
+
+      // Header row formatting (r = 0)
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r: 0, c });
+        if (ws[cellRef]) {
+          ws[cellRef].s = {
+            font: { bold: true, color: { rgb: "0F172A" }, sz: 11 },
+            fill: { fgColor: { rgb: "E2E8F0" } },
+            border: {
+              top: { style: "thin", color: { rgb: "94A3B8" } },
+              bottom: { style: "medium", color: { rgb: "64748B" } },
+              left: { style: "thin", color: { rgb: "94A3B8" } },
+              right: { style: "thin", color: { rgb: "94A3B8" } }
+            },
+            alignment: { vertical: "center", horizontal: "center" }
+          };
+        }
+      }
+
+      // Data rows formatting (r = 1 to range.e.r)
+      for (let r = 1; r <= range.e.r; r++) {
+        const rowItem = rowsData[r - 1];
+        const memberName = rowItem ? rowItem[memberKey] : '';
+        const rowColorHex = getMemberColor(memberName);
+
+        for (let c = range.s.c; c <= range.e.c; c++) {
+          const cellRef = XLSX.utils.encode_cell({ r, c });
+          if (!ws[cellRef]) {
+            ws[cellRef] = { v: '', t: 's' };
+          }
+          ws[cellRef].s = {
+            fill: { fgColor: { rgb: rowColorHex } },
+            font: { sz: 11, color: { rgb: "0F172A" } },
+            border: {
+              top: { style: "thin", color: { rgb: "CBD5E1" } },
+              bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+              left: { style: "thin", color: { rgb: "CBD5E1" } },
+              right: { style: "thin", color: { rgb: "CBD5E1" } }
+            },
+            alignment: { vertical: "center" }
+          };
+        }
+      }
+    };
+
     const masterWS = XLSX.utils.json_to_sheet(masterReport);
     XLSX.utils.book_append_sheet(wb, masterWS, "Master Report");
 
     // 2. All Contributions (Subscriptions)
-    const contribsWS = XLSX.utils.json_to_sheet(contributions.map(c => {
+    const contribsData = contributions.map(c => {
       const u = allUsers.find(user => 
         (c.userId && user.uid === c.userId) || 
         (c.userEmail && user.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim())
@@ -2589,11 +2708,13 @@ export default function App() {
         'Payment Method': c.paymentMethod ? c.paymentMethod.toUpperCase() : 'ONLINE',
         'Payment Date': dateStr
       };
-    }));
+    });
+    const contribsWS = XLSX.utils.json_to_sheet(contribsData);
+    applyMemberRowStyles(contribsWS, contribsData, 'Member Name');
     XLSX.utils.book_append_sheet(wb, contribsWS, "All Contributions");
 
     // 3. All Loans (Individual Loan Sanctions)
-    const loansWS = XLSX.utils.json_to_sheet(loans.map((l, idx) => {
+    const loansData = loans.map((l, idx) => {
       const u = allUsers.find(user => 
         (l.userId && user.uid === l.userId) || 
         (l.userEmail && user.email.toLowerCase().trim() === l.userEmail.toLowerCase().trim())
@@ -2640,11 +2761,13 @@ export default function App() {
         'Closed Date': closedDate,
         'Purpose': l.details || 'N/A'
       };
-    }));
+    });
+    const loansWS = XLSX.utils.json_to_sheet(loansData);
+    applyMemberRowStyles(loansWS, loansData, 'Member Name');
     XLSX.utils.book_append_sheet(wb, loansWS, "All Loans");
 
     // 4. All Loan Repayments (Individual Repayment Transactions)
-    const repaymentsWS = XLSX.utils.json_to_sheet(loanPayments.map((p, idx) => {
+    const repaymentsData = loanPayments.map((p, idx) => {
       const u = allUsers.find(user => 
         (p.userId && user.uid === p.userId) || 
         (p.userEmail && user.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
@@ -2670,13 +2793,14 @@ export default function App() {
         'Payment Method': (p.paymentMethod || 'ONLINE').toUpperCase(),
         'Payment Date & Time': paymentDate
       };
-    }));
+    });
+    const repaymentsWS = XLSX.utils.json_to_sheet(repaymentsData);
+    applyMemberRowStyles(repaymentsWS, repaymentsData, 'Member Name');
     XLSX.utils.book_append_sheet(wb, repaymentsWS, "All Loan Repayments");
 
     // 5. Group Financial Summary
     const totalGroupSavings = contributions.filter(c => c.status === 'paid').reduce((sum, c) => sum + (c.amount || 0), 0);
     const totalSanctionedAll = loans.filter(l => l.status === 'approved' || l.status === 'paid').reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
-    const totalActiveLoansSanctioned = loans.filter(l => l.status === 'approved').reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
     const totalPrincipalRepaidAll = loanPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + (p.amount || 0), 0);
     const totalInterestEarnedAll = loanPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + (p.interest || 0), 0);
     const totalActivePendingPrincipal = loans.filter(l => l.status === 'approved').reduce((sum, l) => {
@@ -2690,7 +2814,6 @@ export default function App() {
       { 'Financial Metric': 'Total Registered Members', 'Value': allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length },
       { 'Financial Metric': 'Total Group Subscriptions / Savings (₹)', 'Value': totalGroupSavings },
       { 'Financial Metric': 'Total Loans Disbursed / Sanctioned (₹)', 'Value': totalSanctionedAll },
-      { 'Financial Metric': 'Total Active Loans Disbursed (₹)', 'Value': totalActiveLoansSanctioned },
       { 'Financial Metric': 'Total Loan Principal Repaid (₹)', 'Value': totalPrincipalRepaidAll },
       { 'Financial Metric': 'Total Active Loan Pending Principal (₹)', 'Value': totalActivePendingPrincipal },
       { 'Financial Metric': 'Total Interest Earned from Loans (₹)', 'Value': totalInterestEarnedAll },
@@ -4508,7 +4631,7 @@ export default function App() {
               )}
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
-              Applications
+              Loan Applications
             </button>
             <button 
               onClick={() => setLoanSubTab('repayments')}
@@ -4532,7 +4655,7 @@ export default function App() {
               )}
             >
               <Layers className="w-3.5 h-3.5" />
-              Payment Summary
+              Loan Summary
             </button>
           </div>
         )}
@@ -4961,7 +5084,7 @@ export default function App() {
                     key={`mobile-member-${u.id || u.uid || u.email.toLowerCase() || 'mob'}-${idx}`}
                     className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden"
                   >
-                    <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                    <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-xl border-b border-l border-slate-300/80 shadow-2xs select-none">
                       #{idx + 1}
                     </div>
                     <div className="flex items-start justify-between mb-4">
@@ -5350,8 +5473,8 @@ export default function App() {
                                   )}
                                 >
                                   <div className={cn(
-                                    "absolute top-0 right-0 px-3 py-1 text-[10px] font-bold rounded-bl-xl border-b border-l transition-colors",
-                                    isOldestPending ? "bg-indigo-600 text-white border-indigo-700" : "bg-slate-100 text-slate-400 border-slate-200"
+                                    "absolute top-0 right-0 px-3 py-1 text-[10px] font-black rounded-bl-xl border-b border-l transition-colors shadow-2xs select-none",
+                                    isOldestPending ? "bg-indigo-600 text-white border-indigo-700" : "bg-slate-100 text-slate-800 border-slate-300/80"
                                   )}>
                                     {isOldestPending ? 'FCFS PRIORITY' : `#${idx + 1}`}
                                   </div>
@@ -5511,7 +5634,7 @@ export default function App() {
                             const uniqueKey = `pending-repayment-${p.id || 'repay'}-${p.userId || 'user'}-${idx}`;
                             return (
                               <div key={uniqueKey} className="bg-white p-4 rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 px-2 py-0.5 bg-amber-50 text-[8px] font-bold text-amber-400 rounded-bl-lg border-b border-l border-amber-100 z-10">
+                                <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-amber-100 text-[10px] font-black text-amber-900 rounded-bl-lg border-b border-l border-amber-300 shadow-2xs z-10 select-none">
                                   #{idx + 1}
                                 </div>
                                 <div className="flex items-center gap-3">
@@ -6064,7 +6187,7 @@ export default function App() {
                                   transition={{ delay: idx * 0.04 }}
                                   className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden relative"
                                 >
-                                  <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                                  <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-xl border-b border-l border-slate-300/80 shadow-2xs select-none">
                                     #{idx + 1}
                                   </div>
                                   <div className="p-5 flex flex-col gap-4">
@@ -6198,7 +6321,7 @@ export default function App() {
 
                                             return (
                                               <div key={`admin-loan-schedule-mob-${l.id || 'loan'}-${idx}-${i}`} className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col gap-2.5 relative overflow-hidden">
-                                                <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-lg border-b border-l border-slate-200">
+                                                <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-lg border-b border-l border-slate-300/80 shadow-2xs select-none">
                                                   #{installmentNum}
                                                 </div>
                                                 <div className="flex items-center justify-between pr-8">
@@ -6479,7 +6602,7 @@ export default function App() {
                                        isFuture ? "bg-white border-slate-100 opacity-50" : "bg-white border-slate-200"
                                      )}
                                    >
-                                     <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                                     <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-xl border-b border-l border-slate-300/80 shadow-2xs select-none">
                                        #{installmentNum}
                                      </div>
 
@@ -6630,7 +6753,7 @@ export default function App() {
                         return dateB - dateA;
                       }).map((l, idx) => (
                         <div key={`loan-history-${l.id || 'loan-hist'}-${idx}`} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 relative overflow-hidden">
-                          <div className="absolute top-0 right-0 px-3 py-1 bg-slate-200/70 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                          <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-xl border-b border-l border-slate-300/80 shadow-2xs select-none">
                             #{idx + 1}
                           </div>
                           <div className="flex items-center justify-between mb-2 pr-8">
@@ -6701,7 +6824,7 @@ export default function App() {
                     notice.priority === 'high' ? "border-red-200" : "border-slate-200"
                   )}
                 >
-                  <div className="absolute top-0 right-0 px-3 py-1 bg-slate-50 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                  <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-xl border-b border-l border-slate-300/80 shadow-2xs select-none">
                     #{idx + 1}
                   </div>
                   {notice.priority === 'high' && (
@@ -7837,7 +7960,7 @@ export default function App() {
                         key={`mobile-contrib-${idx}-${c.id || 'cont-m'}`}
                         className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden relative"
                       >
-                        <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-400 rounded-bl-xl border-b border-l border-slate-200">
+                        <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-xl border-b border-l border-slate-300/80 shadow-2xs select-none">
                           #{idx + 1}
                         </div>
                         <div className="p-5 flex flex-col gap-4">

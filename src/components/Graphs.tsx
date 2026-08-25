@@ -253,7 +253,7 @@ const Graphs: React.FC<GraphsProps> = ({
         const closedLoanCount = userApprovedLoans.filter(l => l.status === 'paid').length;
         const totalBorrowed = userApprovedLoans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
         
-        const totalRepaid = loanPayments
+        const userYearPaidPayments = loanPayments
           .filter(p => {
             const loan = loans.find(l => l.id === p.loanId);
             const isUserLoan = (
@@ -262,8 +262,11 @@ const Graphs: React.FC<GraphsProps> = ({
             );
             const pYear = p.year || (p.timestamp?.toDate ? p.timestamp.toDate().getFullYear() : new Date().getFullYear());
             return isUserLoan && (loan?.status === 'approved' || loan?.status === 'paid') && p.status === 'paid' && pYear === selectedYear;
-          })
-          .reduce((sum, p) => sum + (p.amount || 0), 0);
+          });
+
+        const totalPrincipalRepaid = userYearPaidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const totalInterestPaid = userYearPaidPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
+        const totalRepaid = totalPrincipalRepaid + totalInterestPaid;
 
         const baseName = u.displayName || `Member ${uidx + 1}`;
         const uniqueId = `${u.uid || u.email || 'loan-user'}-${uidx}`;
@@ -273,6 +276,9 @@ const Graphs: React.FC<GraphsProps> = ({
           email: u.email?.toLowerCase(),
           uniqueId: uniqueId,
           borrowed: totalBorrowed,
+          repaidPrincipal: totalPrincipalRepaid,
+          interestPaid: totalInterestPaid,
+          totalRepaid: totalRepaid,
           repaid: totalRepaid,
           totalLoans: totalLoansCount,
           activeLoans: activeLoanCount,
@@ -280,7 +286,7 @@ const Graphs: React.FC<GraphsProps> = ({
           displayNameWithActive: `${baseName} (${totalLoansCount})`
         };
       })
-      .filter(d => isAdmin ? (d.borrowed > 0 || d.repaid > 0) : d.email === userEmail.toLowerCase())
+      .filter(d => isAdmin ? (d.borrowed > 0 || d.totalRepaid > 0) : d.email === userEmail.toLowerCase())
       .sort((a, b) => b.borrowed - a.borrowed);
   }, [allUsers, loans, loanPayments, selectedYear, isAdmin, userEmail]);
 
@@ -421,12 +427,54 @@ const Graphs: React.FC<GraphsProps> = ({
       paidInterestInYear,
       chartData: [
         {
-          name: `${selectedYear} Financial Overview`,
-          totalFunds: totalGroupFunds,
-          loansSanctioned: loansSanctioned,
-          loansRepaid: loansRepaid,
-          outstandingLoans: outstandingLoans,
-          availableBalance: availableBalance
+          key: 'totalFunds',
+          category: 'Total Group Funds',
+          baseAmount: paidContributionsInYear,
+          interestAmount: paidInterestInYear,
+          totalAmount: totalGroupFunds,
+          fill: 'url(#healthTotalFundsGradient)',
+          color: '#4f46e5',
+          subtitle: 'Savings + Interest'
+        },
+        {
+          key: 'loansSanctioned',
+          category: 'Loans Sanctioned',
+          baseAmount: loansSanctioned,
+          interestAmount: 0,
+          totalAmount: loansSanctioned,
+          fill: 'url(#healthLoansSanctionedGradient)',
+          color: '#8b5cf6',
+          subtitle: 'Approved Principal'
+        },
+        {
+          key: 'loansRepaid',
+          category: 'Loans Repaid',
+          baseAmount: loansRepaid,
+          interestAmount: 0,
+          totalAmount: loansRepaid,
+          fill: 'url(#healthLoansRepaidGradient)',
+          color: '#10b981',
+          subtitle: 'Principal Recovered'
+        },
+        {
+          key: 'outstandingLoans',
+          category: 'Outstanding Loans',
+          baseAmount: outstandingLoans,
+          interestAmount: 0,
+          totalAmount: outstandingLoans,
+          fill: 'url(#healthOutstandingGradient)',
+          color: '#f43f5e',
+          subtitle: 'Active Balance Due'
+        },
+        {
+          key: 'availableBalance',
+          category: 'Available Balance',
+          baseAmount: availableBalance,
+          interestAmount: 0,
+          totalAmount: availableBalance,
+          fill: 'url(#healthAvailableGradient)',
+          color: '#06b6d4',
+          subtitle: 'Net Pool Liquidity'
         }
       ]
     };
@@ -515,6 +563,10 @@ const Graphs: React.FC<GraphsProps> = ({
                             <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
                             <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
                           </linearGradient>
+                          <linearGradient id="monthInterestBarGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
+                            <stop offset="100%" stopColor="#d97706" stopOpacity={0.95} />
+                          </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis 
@@ -530,40 +582,68 @@ const Graphs: React.FC<GraphsProps> = ({
                         <Tooltip 
                           content={({ active, payload, label }) => {
                             if (!active || !payload || !payload.length) return null;
-                            return (
-                              <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xl space-y-2.5 min-w-[220px]">
-                                <p className="text-xs font-bold text-slate-900 border-b border-slate-100 pb-1.5">
-                                  Month: {label}
-                                </p>
-                                <div className="space-y-2">
-                                  {payload.map((entry: any, index: number) => {
-                                    const isSanctioned = entry.dataKey === 'sanctionedAmount' || entry.name === 'Sanctioned Loan';
-                                    const numVal = Number(entry.value) || 0;
-                                    const colorClass = isSanctioned ? 'text-indigo-600' : 'text-emerald-600';
-                                    const dotColor = isSanctioned ? 'bg-indigo-600' : 'bg-emerald-500';
-                                    const countText = isSanctioned
-                                      ? `${entry.payload.sanctionCount || 0} loan${entry.payload.sanctionCount !== 1 ? 's' : ''}`
-                                      : `${entry.payload.repaymentCount || 0} payment${entry.payload.repaymentCount !== 1 ? 's' : ''}`;
+                            const item = monthlySanctionedLoansData.find(d => d.name === label) || payload[0]?.payload;
+                            const sanctionedVal = item?.sanctionedAmount || 0;
+                            const principalVal = item?.repaymentPrincipal || 0;
+                            const interestVal = item?.repaymentInterest || 0;
+                            const totalRepaidVal = item?.repaidAmount || 0;
+                            const sanctionCount = item?.sanctionCount || 0;
+                            const repaymentCount = item?.repaymentCount || 0;
 
-                                    return (
-                                      <div key={`item-${index}`} className="flex items-center justify-between gap-3 text-xs">
-                                        <div className="flex items-center gap-1.5">
-                                          <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", dotColor)} />
-                                          <span className={cn("font-bold", colorClass)}>
-                                            {isSanctioned ? 'Sanctioned Loan' : 'Repayment Received'}:
-                                          </span>
-                                        </div>
-                                        <div className="text-right">
-                                          <span className={cn("font-black block", colorClass)}>
-                                            ₹{numVal.toLocaleString('en-IN')}
-                                          </span>
-                                          <span className="text-[10px] text-slate-400 font-normal">
-                                            ({countText})
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
+                            return (
+                              <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xl space-y-2.5 min-w-[250px]">
+                                <div className="border-b border-slate-100 pb-1.5 flex items-center justify-between gap-2">
+                                  <p className="text-xs font-bold text-slate-900">
+                                    Month: <span className="text-indigo-800">{label}</span>
+                                  </p>
+                                </div>
+                                <div className="space-y-1.5 text-xs">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-indigo-600" />
+                                      <span className="font-bold text-indigo-600">Sanctioned Loan:</span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="font-black text-indigo-600 block">
+                                        ₹{sanctionedVal.toLocaleString('en-IN')}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-normal">
+                                        ({sanctionCount} loan{sanctionCount !== 1 ? 's' : ''})
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-emerald-500" />
+                                      <span className="font-bold text-emerald-700">Principal Repaid:</span>
+                                    </div>
+                                    <span className="font-black text-emerald-700">
+                                      ₹{principalVal.toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-amber-500" />
+                                      <span className="font-bold text-amber-700">Interest Collected (0.5%):</span>
+                                    </div>
+                                    <span className="font-black text-amber-700">
+                                      ₹{interestVal.toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+
+                                  <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between font-black">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-slate-700">Total Repayment:</span>
+                                      <span className="text-[10px] text-slate-400 font-normal">
+                                        ({repaymentCount} payment{repaymentCount !== 1 ? 's' : ''})
+                                      </span>
+                                    </div>
+                                    <span className="text-emerald-800">
+                                      ₹{totalRepaidVal.toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -588,9 +668,18 @@ const Graphs: React.FC<GraphsProps> = ({
                           />
                         </Bar>
                         <Bar 
-                          dataKey="repaidAmount" 
-                          name="Repayment Received" 
+                          dataKey="repaymentPrincipal" 
+                          name="Principal Repaid" 
+                          stackId="repaymentStack"
                           fill="url(#repaidBarGradient)" 
+                          radius={[8, 8, 0, 0]} 
+                          maxBarSize={45}
+                        />
+                        <Bar 
+                          dataKey="repaymentInterest" 
+                          name="Interest Collected (0.5%)" 
+                          stackId="repaymentStack"
+                          fill="url(#monthInterestBarGradient)" 
                           radius={[8, 8, 0, 0]} 
                           maxBarSize={45}
                         >
@@ -979,6 +1068,10 @@ const Graphs: React.FC<GraphsProps> = ({
                             <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
                             <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
                           </linearGradient>
+                          <linearGradient id="memberInterestPaidGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
+                            <stop offset="100%" stopColor="#d97706" stopOpacity={0.95} />
+                          </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis 
@@ -1004,7 +1097,7 @@ const Graphs: React.FC<GraphsProps> = ({
                             if (!active || !payload || !payload.length) return null;
                             const item = memberLoans.find(d => d.uniqueId === label) || payload[0]?.payload;
                             return (
-                              <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xl space-y-2.5 min-w-[240px]">
+                              <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xl space-y-2.5 min-w-[250px]">
                                 <div className="border-b border-slate-100 pb-2">
                                   <p className="text-xs font-bold text-slate-900 flex items-center justify-between gap-2">
                                     <span>Member: <span className="text-cyan-800">{item?.name || label}</span></span>
@@ -1013,34 +1106,39 @@ const Graphs: React.FC<GraphsProps> = ({
                                     </span>
                                   </p>
                                 </div>
-                                <div className="space-y-2">
-                                  {payload.map((entry: any, index: number) => {
-                                    const isBorrowed = entry.dataKey === 'borrowed' || entry.name === 'Borrowed';
-                                    const numVal = Number(entry.value) || 0;
-                                    const colorClass = isBorrowed ? 'text-indigo-600' : 'text-emerald-600';
-                                    const dotColor = isBorrowed ? 'bg-indigo-600' : 'bg-emerald-500';
-
-                                    return (
-                                      <div key={`item-${index}`} className="flex items-center justify-between gap-3 text-xs">
-                                        <div className="flex items-center gap-1.5">
-                                          <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", dotColor)} />
-                                          <span className={cn("font-bold", colorClass)}>
-                                            {isBorrowed ? 'Borrowed (All Loans)' : 'Repaid (This Year)'}:
-                                          </span>
-                                        </div>
-                                        <span className={cn("font-black", colorClass)}>
-                                          ₹{numVal.toLocaleString('en-IN')}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
+                                <div className="space-y-1.5 text-xs">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-indigo-600" />
+                                      <span className="font-bold text-indigo-600">Borrowed (All Loans):</span>
+                                    </div>
+                                    <span className="font-black text-indigo-600">₹{(item?.borrowed || 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-emerald-500" />
+                                      <span className="font-bold text-emerald-700">Principal Repaid:</span>
+                                    </div>
+                                    <span className="font-black text-emerald-700">₹{(item?.repaidPrincipal || 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-amber-500" />
+                                      <span className="font-bold text-amber-700">Interest Paid (0.5%):</span>
+                                    </div>
+                                    <span className="font-black text-amber-700">₹{(item?.interestPaid || 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                  <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between font-black">
+                                    <span className="text-slate-700">Total Repaid:</span>
+                                    <span className="text-emerald-800">₹{(item?.totalRepaid || 0).toLocaleString('en-IN')}</span>
+                                  </div>
                                 </div>
                               </div>
                             );
                           }}
                         />
                         <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
-                        <Bar dataKey="borrowed" name="Borrowed (All Loans)" fill="url(#borrowedBarGradient)" radius={[8, 8, 0, 0]}>
+                        <Bar dataKey="borrowed" name="Borrowed (All Loans)" fill="url(#borrowedBarGradient)" radius={[8, 8, 0, 0]} maxBarSize={45}>
                           <LabelList 
                             dataKey="borrowed" 
                             position="top" 
@@ -1048,9 +1146,10 @@ const Graphs: React.FC<GraphsProps> = ({
                             style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#4338ca' }}
                           />
                         </Bar>
-                        <Bar dataKey="repaid" name="Repaid" fill="url(#repaidMemberBarGradient)" radius={[8, 8, 0, 0]}>
+                        <Bar dataKey="repaidPrincipal" name="Principal Repaid" stackId="repaidStack" fill="url(#repaidMemberBarGradient)" radius={[8, 8, 0, 0]} maxBarSize={45} />
+                        <Bar dataKey="interestPaid" name="Interest Paid (0.5%)" stackId="repaidStack" fill="url(#memberInterestPaidGradient)" radius={[8, 8, 0, 0]} maxBarSize={45}>
                           <LabelList 
-                            dataKey="repaid" 
+                            dataKey="totalRepaid" 
                             position="top" 
                             formatter={formatBarAmountValue} 
                             style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#059669' }}
@@ -1188,12 +1287,12 @@ const Graphs: React.FC<GraphsProps> = ({
                 <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain pb-2 scrollbar-thin">
                   <div 
                     style={{ minWidth: `${getDynamicChartWidth(financialHealthData.chartData.length)}px`, width: '100%' }} 
-                    className={cn("h-[380px]", isAndroid && "h-[320px]")}
+                    className={cn("h-[400px]", isAndroid && "h-[330px]")}
                   >
                     <ResponsiveContainer width="99%" height="100%">
                       <BarChart 
                         data={financialHealthData.chartData} 
-                        margin={isAndroid ? { top: 28, right: 10, left: 0, bottom: 20 } : { top: 32, right: 30, left: 20, bottom: 20 }}
+                        margin={isAndroid ? { top: 28, right: 10, left: 0, bottom: 50 } : { top: 32, right: 30, left: 20, bottom: 40 }}
                       >
                         <defs>
                           <linearGradient id="healthTotalFundsGradient" x1="0" y1="0" x2="0" y2="1">
@@ -1216,120 +1315,139 @@ const Graphs: React.FC<GraphsProps> = ({
                             <stop offset="0%" stopColor="#06b6d4" stopOpacity={1} />
                             <stop offset="100%" stopColor="#0e7490" stopOpacity={0.95} />
                           </linearGradient>
+                          <linearGradient id="healthInterestGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
+                            <stop offset="100%" stopColor="#d97706" stopOpacity={1} />
+                          </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="name" hide />
+                        <XAxis 
+                          dataKey="category" 
+                          interval={0} 
+                          angle={isAndroid ? -30 : 0} 
+                          textAnchor={isAndroid ? "end" : "middle"} 
+                          height={isAndroid ? 60 : 40}
+                          tick={{ fontSize: isAndroid ? 10 : 11, fill: '#334155', fontWeight: 700 }}
+                          tickFormatter={(cat) => {
+                            if (isAndroid && cat.length > 15) {
+                              return cat.replace('Total Group Funds', 'Total Funds').replace('Outstanding Loans', 'Outstanding');
+                            }
+                            return cat;
+                          }}
+                        />
                         <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} tickFormatter={(val) => Number(val).toLocaleString('en-IN')} />
                         <Tooltip 
                           content={({ active, payload }) => {
                             if (!active || !payload || !payload.length) return null;
+                            const data = payload[0]?.payload;
+                            const isTotalFunds = data?.key === 'totalFunds';
+
                             return (
-                              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xl space-y-3 min-w-[260px]">
-                                <div className="border-b border-slate-100 pb-2">
-                                  <p className="text-xs font-black text-slate-900">
-                                    Financial Health Overview ({selectedYear})
-                                  </p>
-                                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                                    Dynamic Group Financial Summary
-                                  </p>
+                              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xl space-y-2.5 min-w-[250px]">
+                                <div className="border-b border-slate-100 pb-2 flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-xs font-black text-slate-900">
+                                      {data?.category}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 font-semibold">
+                                      {data?.subtitle}
+                                    </p>
+                                  </div>
+                                  <span className="text-xs font-black px-2 py-0.5 rounded-lg" style={{ color: data?.color, backgroundColor: `${data?.color}15` }}>
+                                    ₹{(data?.totalAmount || 0).toLocaleString('en-IN')}
+                                  </span>
                                 </div>
-                                <div className="space-y-2">
-                                  {payload.map((entry: any, index: number) => {
-                                    const key = entry.dataKey || entry.name;
-                                    const numVal = Number(entry.value) || 0;
-                                    let labelName = entry.name;
-                                    let colorClass = 'text-indigo-600';
-                                    let dotColor = 'bg-indigo-600';
-
-                                    if (key === 'totalFunds') {
-                                      labelName = 'Total Group Funds';
-                                      colorClass = 'text-indigo-600';
-                                      dotColor = 'bg-indigo-600';
-                                    } else if (key === 'loansSanctioned') {
-                                      labelName = 'Loans Sanctioned';
-                                      colorClass = 'text-violet-600';
-                                      dotColor = 'bg-violet-600';
-                                    } else if (key === 'loansRepaid') {
-                                      labelName = 'Loans Repaid';
-                                      colorClass = 'text-emerald-600';
-                                      dotColor = 'bg-emerald-600';
-                                    } else if (key === 'outstandingLoans') {
-                                      labelName = 'Outstanding Loans';
-                                      colorClass = 'text-rose-600';
-                                      dotColor = 'bg-rose-600';
-                                    } else if (key === 'availableBalance') {
-                                      labelName = 'Available Balance';
-                                      colorClass = 'text-cyan-600';
-                                      dotColor = 'bg-cyan-600';
-                                    }
-
-                                    return (
-                                      <div key={`health-item-${index}`} className="flex items-center justify-between gap-3 text-xs">
+                                <div className="space-y-1.5 text-xs">
+                                  {isTotalFunds ? (
+                                    <>
+                                      <div className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-1.5">
-                                          <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", dotColor)} />
-                                          <span className={cn("font-bold", colorClass)}>
-                                            {labelName}:
-                                          </span>
+                                          <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-indigo-600" />
+                                          <span className="font-bold text-indigo-700">Member Savings:</span>
                                         </div>
-                                        <span className={cn("font-black", colorClass)}>
-                                          ₹{numVal.toLocaleString('en-IN')}
-                                        </span>
+                                        <span className="font-black text-indigo-700">₹{(data?.baseAmount || 0).toLocaleString('en-IN')}</span>
                                       </div>
-                                    );
-                                  })}
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-amber-500" />
+                                          <span className="font-bold text-amber-700">Interest Received (0.5%):</span>
+                                        </div>
+                                        <span className="font-black text-amber-700">₹{(data?.interestAmount || 0).toLocaleString('en-IN')}</span>
+                                      </div>
+                                      <div className="pt-1 border-t border-slate-100 flex items-center justify-between font-black">
+                                        <span className="text-slate-700">Total Group Funds:</span>
+                                        <span className="text-indigo-900">₹{(data?.totalAmount || 0).toLocaleString('en-IN')}</span>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: data?.color }} />
+                                        <span className="font-bold" style={{ color: data?.color }}>{data?.category}:</span>
+                                      </div>
+                                      <span className="font-black" style={{ color: data?.color }}>
+                                        ₹{(data?.totalAmount || 0).toLocaleString('en-IN')}
+                                      </span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
                           }}
                         />
-                        <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
                         
-                        <Bar dataKey="totalFunds" name="Total Group Funds" fill="url(#healthTotalFundsGradient)" radius={[8, 8, 0, 0]}>
-                          <LabelList 
-                            dataKey="totalFunds" 
-                            position="top" 
-                            formatter={formatBarAmountValue} 
-                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#4f46e5' }}
-                          />
+                        <Bar dataKey="baseAmount" name="Base Amount" stackId="healthStack" radius={[8, 8, 0, 0]} maxBarSize={55}>
+                          {financialHealthData.chartData.map((entry, index) => (
+                            <Cell 
+                              key={`cell-health-base-${entry.key || index}`} 
+                              fill={entry.fill} 
+                            />
+                          ))}
                         </Bar>
-                        
-                        <Bar dataKey="loansSanctioned" name="Loans Sanctioned" fill="url(#healthLoansSanctionedGradient)" radius={[8, 8, 0, 0]}>
+                        <Bar dataKey="interestAmount" name="Interest Received" stackId="healthStack" fill="url(#healthInterestGradient)" radius={[8, 8, 0, 0]} maxBarSize={55}>
+                          {financialHealthData.chartData.map((entry, index) => (
+                            <Cell 
+                              key={`cell-health-interest-${entry.key || index}`} 
+                              fill={entry.key === 'totalFunds' ? "url(#healthInterestGradient)" : "transparent"} 
+                            />
+                          ))}
                           <LabelList 
-                            dataKey="loansSanctioned" 
+                            dataKey="totalAmount" 
                             position="top" 
                             formatter={formatBarAmountValue} 
-                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#8b5cf6' }}
-                          />
-                        </Bar>
-
-                        <Bar dataKey="loansRepaid" name="Loans Repaid" fill="url(#healthLoansRepaidGradient)" radius={[8, 8, 0, 0]}>
-                          <LabelList 
-                            dataKey="loansRepaid" 
-                            position="top" 
-                            formatter={formatBarAmountValue} 
-                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#10b981' }}
-                          />
-                        </Bar>
-
-                        <Bar dataKey="outstandingLoans" name="Outstanding Loans" fill="url(#healthOutstandingGradient)" radius={[8, 8, 0, 0]}>
-                          <LabelList 
-                            dataKey="outstandingLoans" 
-                            position="top" 
-                            formatter={formatBarAmountValue} 
-                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#f43f5e' }}
-                          />
-                        </Bar>
-
-                        <Bar dataKey="availableBalance" name="Available Balance" fill="url(#healthAvailableGradient)" radius={[8, 8, 0, 0]}>
-                          <LabelList 
-                            dataKey="availableBalance" 
-                            position="top" 
-                            formatter={formatBarAmountValue} 
-                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#06b6d4' }}
+                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#1e293b' }}
                           />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
+                  </div>
+
+                  {/* Summary Indicator Legend */}
+                  <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 pt-3 text-xs font-bold select-none border-t border-slate-100 mt-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-indigo-600 shadow-2xs" />
+                      <span className="text-slate-700">Total Group Funds</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-amber-500 shadow-2xs" />
+                      <span className="text-amber-800">Interest Received (0.5%)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-violet-600 shadow-2xs" />
+                      <span className="text-slate-700">Loans Sanctioned</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-emerald-500 shadow-2xs" />
+                      <span className="text-slate-700">Loans Repaid</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-rose-500 shadow-2xs" />
+                      <span className="text-slate-700">Outstanding Loans</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded-md bg-cyan-500 shadow-2xs" />
+                      <span className="text-slate-700">Available Balance</span>
+                    </div>
                   </div>
                 </div>
               </div>
