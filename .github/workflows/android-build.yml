@@ -17,11 +17,13 @@ jobs:
         with:
           java-version: '21'
           distribution: 'zulu'
+          cache: 'gradle'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
       - name: Install Dependencies
         run: npm install
@@ -32,15 +34,15 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: 8.14.3
+      - name: Set up Android SDK & Accept Licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
-      - name: Build APK
+      - name: Build APK with Gradle
         run: |
           cd android
-          gradle assembleDebug --no-daemon
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
