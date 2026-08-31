@@ -31,11 +31,11 @@ export const MobileQuickSort = <T extends string>({
         <span>{label}</span>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
-        {options.map((opt, idx) => {
+        {options.map((opt) => {
           const isActive = activeField === opt.key;
           return (
             <button
-              key={`${opt.key}-${idx}`}
+              key={opt.key}
               type="button"
               onClick={() => onSort(opt.key)}
               className={cn(

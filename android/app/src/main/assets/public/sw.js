@@ -1,5 +1,5 @@
-// Service Worker Version: 5001.0.0
-const CACHE_NAME = 'unnati-v5001';
+// Service Worker Version: 5000.0.0
+const CACHE_NAME = 'unnati-v5000';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

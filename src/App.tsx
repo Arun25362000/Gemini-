@@ -88,10 +88,6 @@ import {
   Filter
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AdminManualRepaymentModal } from './components/AdminManualRepaymentModal';
-import { AddContributionModal } from './components/AddContributionModal';
-import { EditContributionModal } from './components/EditContributionModal';
-import { AdminLoanModal } from './components/AdminLoanModal';
 import Graphs from './components/Graphs';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
@@ -478,7 +474,7 @@ export default function App() {
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
-  const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'mode' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
+  const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [isContribListExpanded, setIsContribListExpanded] = useState<boolean>(true);
   const [isLoanListExpanded, setIsLoanListExpanded] = useState<boolean>(true);
   const [isMonthlyCollectionSummaryExpanded, setIsMonthlyCollectionSummaryExpanded] = useState<boolean>(true);
@@ -1900,20 +1896,6 @@ export default function App() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'contributions');
     }
-  };
-
-  const handleContributionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const finalAmount = MONTHLY_AMOUNT + (isLatePaymentDate ? 100 : 0);
-    await addContribution(
-      selectedMonth, 
-      selectedYear, 
-      selectedUserId || undefined, 
-      isAdmin ? 'paid' : 'pending',
-      paymentDate,
-      finalAmount,
-      paymentMethod
-    );
   };
 
   const approveContribution = async (id: string) => {
@@ -4719,23 +4701,25 @@ export default function App() {
 
         {isAdmin && activeTab === 'members' ? (
           <div className="space-y-6">
-            {/* Section 1: Member Management Actions */}
-            <div className="space-y-3">
+            {/* Member Management Actions Collapsible Card */}
+            <div className={cn("bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm transition-all relative z-20", isMemberActionsCollapsed ? "overflow-hidden" : "overflow-visible")}>
               <div 
                 onClick={() => setIsMemberActionsCollapsed(!isMemberActionsCollapsed)}
-                className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
-                title={isMemberActionsCollapsed ? "Click to expand" : "Click to collapse"}
+                className={cn(
+                  "flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90",
+                  isMemberActionsCollapsed ? "rounded-3xl border-b-0" : "rounded-t-3xl"
+                )}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
                     <UserPlus className="w-5 h-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                         Member Management Actions
-                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberActionsCollapsed && "-rotate-90")} />
-                      </h4>
+                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMemberActionsCollapsed && "-rotate-180")} />
+                      </h3>
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300/80">
                         Admin
                       </span>
@@ -4748,21 +4732,19 @@ export default function App() {
               </div>
 
               {!isMemberActionsCollapsed && (
-                <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200/90 relative z-30">
-                  <div className="flex flex-wrap items-center gap-2.5">
+                <div className="px-5 sm:px-6 py-6 bg-white rounded-b-3xl overflow-visible">
+                  <div className="flex flex-wrap items-center gap-3">
                     {/* Add Member Dropdown */}
-                    <div className="relative z-30">
+                    <div className="relative flex-1 sm:flex-none z-30">
                       <button 
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowAddMemberDropdown(prev => !prev);
                         }}
-                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap"
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 text-sm cursor-pointer"
                       >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        <span>Add Member</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showAddMemberDropdown && "rotate-180")} />
+                        <Plus className="w-4 h-4" /> Add Member <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", showAddMemberDropdown && "rotate-180")} />
                       </button>
                       
                       {showAddMemberDropdown && (
@@ -4774,7 +4756,7 @@ export default function App() {
                               setShowAddMemberDropdown(false);
                             }}
                           />
-                          <div className="absolute left-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-1.5 z-50 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150">
+                          <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-1.5 z-50 divide-y divide-slate-100/80 animate-in fade-in zoom-in-95 duration-150">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -4782,14 +4764,14 @@ export default function App() {
                                 setIsAddingMember(true);
                                 setShowAddMemberDropdown(false);
                               }}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
                             >
-                              <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                                <UserPlus className="w-3.5 h-3.5" />
+                              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                <UserPlus className="w-4 h-4" />
                               </div>
                               <div className="flex flex-col min-w-0">
                                 <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Add Individual</span>
-                                <span className="text-[10px] text-slate-400 font-normal">Add a single member manually</span>
+                                <span className="text-[11px] text-slate-500 font-medium">Add a single member manually</span>
                               </div>
                             </button>
                             <button
@@ -4799,14 +4781,14 @@ export default function App() {
                                 setIsBulkAdding(true);
                                 setShowAddMemberDropdown(false);
                               }}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left group"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
                             >
-                              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                                <FileSpreadsheet className="w-3.5 h-3.5" />
+                              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                <FileSpreadsheet className="w-4 h-4" />
                               </div>
                               <div className="flex flex-col min-w-0">
                                 <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Bulk Upload (XLS)</span>
-                                <span className="text-[10px] text-slate-400 font-normal">Import members from Excel file</span>
+                                <span className="text-[11px] text-slate-500 font-medium">Import members from Excel file</span>
                               </div>
                             </button>
                           </div>
@@ -4817,63 +4799,63 @@ export default function App() {
                     {/* Export All Button */}
                     <button 
                       onClick={exportAllDataToExcel}
-                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 whitespace-nowrap"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-teal-100 active:scale-95 text-sm"
                       title="Export all member contributions and financial data to Excel"
                     >
-                      <FileSpreadsheet className="w-3.5 h-3.5" />
-                      <span>Export All</span>
+                      <FileSpreadsheet className="w-4 h-4" /> Export All
                     </button>
 
                     {/* Send Reminders Button */}
                     <button 
                       onClick={() => setShowReminderConfirm(true)}
                       disabled={isTriggeringReminders || isSendingReport}
-                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 disabled:opacity-50 text-sm"
                       title="Send monthly reminders to members who haven't paid"
                     >
                       {isTriggeringReminders ? (
-                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       ) : (
-                        <Mail className="w-3.5 h-3.5" />
+                        <Mail className="w-4 h-4" />
                       )}
-                      <span>{isTriggeringReminders ? 'Sending...' : 'Send Reminders'}</span>
+                      {isTriggeringReminders ? 'Sending...' : 'Send Reminders'}
                     </button>
 
                     {/* Send Backup Now Button */}
                     <button 
                       onClick={triggerFullBackupReport}
                       disabled={isSendingReport || isTriggeringReminders}
-                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 text-sm"
                       title="Send full financial backup report to jpvenu2000@gmail.com"
                     >
                       {isSendingReport ? (
-                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       ) : (
-                        <FileDown className="w-3.5 h-3.5" />
+                        <FileDown className="w-4 h-4" />
                       )}
-                      <span>{isSendingReport ? 'Generating Backup...' : 'Send Backup Now'}</span>
+                      {isSendingReport ? 'Generating Backup...' : 'Send Backup Now'}
                     </button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Section 2: Member Details */}
-            <div className="space-y-4">
+            {/* Member Details Collapsible Card */}
+            <div className="bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm overflow-hidden transition-all">
               <div 
                 onClick={() => setIsMemberDetailsCollapsed(!isMemberDetailsCollapsed)}
-                className="flex items-center justify-between p-4 bg-gradient-to-r from-slate-50/90 via-indigo-50/40 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
-                title={isMemberDetailsCollapsed ? "Click to expand" : "Click to collapse"}
+                className="flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
                     <Users className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
-                      Member Details
-                      <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberDetailsCollapsed && "-rotate-90")} />
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                        Member Details
+                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMemberDetailsCollapsed && "-rotate-180")} />
+                      </h3>
+                    </div>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
                       Overview of registered group members, payment status, contact details, and administration controls
                     </p>
@@ -4881,14 +4863,14 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="px-3.5 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs sm:text-sm font-bold shadow-2xs">
+                  <span className="px-3.5 py-1.5 bg-indigo-100 text-indigo-800 rounded-full text-xs font-bold border border-indigo-300/80 shadow-2xs">
                     {sortedMembers.length} Members
                   </span>
                 </div>
               </div>
 
               {!isMemberDetailsCollapsed && (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
+                <div className="border-t border-slate-100">
                   {/* Desktop Table View */}
                   <div className="hidden lg:block w-full max-w-full overflow-hidden">
                     <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
@@ -5262,11 +5244,11 @@ export default function App() {
                 );
               })}
             </div>
-                </div>
-              )}
-            </div>
           </div>
-        ) : activeTab === 'loans' ? (
+        )}
+      </div>
+    </div>
+  ) : activeTab === 'loans' ? (
           <div className="space-y-6">
             {isAdmin ? (
               <>
@@ -7164,12 +7146,11 @@ export default function App() {
                 if (field === 'principal') return (a.principal - b.principal) * factor;
                 if (field === 'interest') return (a.interest - b.interest) * factor;
                 if (field === 'total') return (a.total - b.total) * factor;
-                if (field === 'mode') return a.paymentMode.localeCompare(b.paymentMode) * factor;
                 if (field === 'date') return (a.timeMs - b.timeMs) * factor;
                 return 0;
               });
 
-              const handleLoanSort = (field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'mode' | 'date') => {
+              const handleLoanSort = (field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date') => {
                 if (collectionLoanSortConfig.field === field) {
                   setCollectionLoanSortConfig({
                     field,
@@ -7182,33 +7163,29 @@ export default function App() {
 
               return (
                 <div className="space-y-6">
-                  {/* 1. Monthly Collection Summary Card */}
-                  <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-5 sm:p-6 shadow-sm border-2 border-indigo-200/90 transition-all">
-                    <div className={cn("flex flex-col lg:flex-row lg:items-center justify-between gap-4", isMonthlyCollectionSummaryExpanded && "pb-5 border-b border-indigo-100/80")}>
+                  {/* Top Banner */}
+                  <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border-2 border-indigo-200/90">
+                    <div className={cn("flex flex-col lg:flex-row lg:items-center justify-between gap-4", isMonthlyCollectionSummaryExpanded && "pb-6 border-b border-indigo-100/80")}>
                       <div 
                         onClick={() => setIsMonthlyCollectionSummaryExpanded(!isMonthlyCollectionSummaryExpanded)}
                         className="flex items-center gap-3.5 cursor-pointer group select-none"
                       >
-                        <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                          <IndianRupee className="w-5 h-5" />
+                        <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center border border-indigo-200 text-indigo-600 shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                          <IndianRupee className="w-6 h-6" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-lg text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                            <h3 className="font-bold text-xl text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                               Monthly Collection Summary
-                              <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMonthlyCollectionSummaryExpanded && "-rotate-90")} />
+                              <ChevronDown className={cn("w-5 h-5 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMonthlyCollectionSummaryExpanded && "-rotate-90")} />
                             </h3>
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                               Live
                             </span>
                           </div>
-                          {isMonthlyCollectionSummaryExpanded ? (
+                          {isMonthlyCollectionSummaryExpanded && (
                             <p className="text-xs text-slate-500 mt-0.5">
-                              Total received including member contributions &amp; loan repayments for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} ‚Ä¢ ‚Çπ{grandTotalMonthlyReceived.toLocaleString("en-IN")} Total
+                              Total received amount including member contributions &amp; loan repayments (principal + interest)
                             </p>
                           )}
                         </div>
@@ -7255,7 +7232,7 @@ export default function App() {
                               >
                                 {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                                   <option key={`coll-m-${m}`} value={m} className="bg-white text-slate-900">
-                                    {format(new Date(2026, m - 1, 1), "MMMM")}
+                                    {format(new Date(2026, m - 1, 1), 'MMMM')}
                                   </option>
                                 ))}
                               </select>
@@ -7312,112 +7289,88 @@ export default function App() {
                       })()}
                     </div>
 
-                    {/* Collection Metrics Grid - Smart & Compact */}
+                    {/* Collection Metrics Grid */}
                     {isMonthlyCollectionSummaryExpanded && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
-                        {/* Card 1: Total Received */}
-                        <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/30 to-white border border-emerald-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-emerald-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
-                              Total Received
-                            </span>
-                            <div className="w-6 h-6 rounded-lg bg-emerald-100/80 text-emerald-700 flex items-center justify-center font-bold">
-                              <IndianRupee className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                          <p className="text-2xl font-black text-emerald-700 tracking-tight">
-                            ‚Çπ{grandTotalMonthlyReceived.toLocaleString("en-IN")}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+                        <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white border-2 border-emerald-200/90 rounded-2xl p-5 relative overflow-hidden shadow-xs">
+                          <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1">
+                            Total Received ({format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM yyyy')})
                           </p>
-                          <p className="text-[11px] text-emerald-600 font-medium mt-1">
-                            Contributions + Loans
+                          <p className="text-3xl font-black text-emerald-700">
+                            ‚Çπ{grandTotalMonthlyReceived.toLocaleString('en-IN')}
+                          </p>
+                          <p className="text-[10px] text-emerald-600 font-semibold mt-1.5">
+                            Contributions + Loan Repayments
                           </p>
                         </div>
 
-                        {/* Card 2: Member Contributions */}
-                        <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/30 to-white border border-indigo-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-indigo-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider">
-                              Member Contributions
-                            </span>
-                            <div className="w-6 h-6 rounded-lg bg-indigo-100/80 text-indigo-700 flex items-center justify-center font-bold">
-                              <Wallet className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                          <p className="text-2xl font-black text-indigo-950 tracking-tight">
-                            ‚Çπ{monthlyContributionTotal.toLocaleString("en-IN")}
+                        <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white border-2 border-indigo-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider mb-1">
+                            Member Contributions
                           </p>
-                          <p className="text-[11px] text-indigo-600 font-medium mt-1">
+                          <p className="text-2xl font-black text-indigo-950">
+                            ‚Çπ{monthlyContributionTotal.toLocaleString('en-IN')}
+                          </p>
+                          <p className="text-[10px] text-indigo-600 font-semibold mt-1.5">
                             {monthlyPaidContributions.length} Paid Members
                           </p>
                         </div>
 
-                        {/* Card 3: Total Loan Repayments */}
-                        <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/30 to-white border border-purple-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-purple-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider">
-                              Loan Repayments
-                            </span>
-                            <div className="w-6 h-6 rounded-lg bg-purple-100/80 text-purple-700 flex items-center justify-center font-bold">
-                              <IndianRupee className="w-3.5 h-3.5" />
-                            </div>
-                          </div>
-                          <p className="text-2xl font-black text-purple-950 tracking-tight">
-                            ‚Çπ{monthlyLoanTotalCollected.toLocaleString("en-IN")}
+                        <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white border-2 border-purple-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-[10px] font-bold text-purple-800 uppercase tracking-wider mb-1">
+                            Total Loan Repayments
                           </p>
-                          <p className="text-[11px] text-purple-600 font-medium mt-1">
-                            {monthlyPaidLoanPayments.length} Collected
+                          <p className="text-2xl font-black text-purple-950">
+                            ‚Çπ{monthlyLoanTotalCollected.toLocaleString('en-IN')}
+                          </p>
+                          <p className="text-[10px] text-purple-600 font-semibold mt-1.5">
+                            {monthlyPaidLoanPayments.length} Collected Repayments
                           </p>
                         </div>
 
-                        {/* Card 4: Principal & Interest Split */}
-                        <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/30 to-white border border-amber-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-amber-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
-                              Principal &amp; Interest
-                            </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                              Split
-                            </span>
+                        <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white border-2 border-amber-200/90 rounded-2xl p-5 shadow-xs">
+                          <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mb-1">
+                            Principal &amp; Interest Split
+                          </p>
+                          <div className="text-lg font-black text-slate-900">
+                            ‚Çπ{monthlyLoanPrincipalCollected.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-700">‚Çπ{monthlyLoanInterestCollected.toLocaleString('en-IN')}</span>
                           </div>
-                          <div className="text-base sm:text-lg font-black text-slate-900 truncate">
-                            ‚Çπ{monthlyLoanPrincipalCollected.toLocaleString("en-IN")} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-700 font-bold">‚Çπ{monthlyLoanInterestCollected.toLocaleString("en-IN")}</span>
-                          </div>
-                          <p className="text-[11px] text-amber-700 font-medium mt-1">
-                            Principal + Interest
+                          <p className="text-[10px] text-amber-700 font-semibold mt-1.5">
+                            Principal + Interest Portion
                           </p>
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Detailed Sections: Member Contributions and Loan Repayments */}
+                  {/* Detailed Tables Section */}
                   <div className="flex flex-col gap-6">
-                    {/* Section 2: Paid Member Contributions */}
-                    <div className="space-y-4">
+                    {/* Table 1: Paid Member Contributions */}
+                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
                       <div 
                         onClick={() => setIsContribListExpanded(!isContribListExpanded)}
-                        className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
+                        className="flex items-center justify-between p-3.5 bg-gradient-to-r from-indigo-50/80 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-2xs"
                         title={isContribListExpanded ? "Click to collapse" : "Click to expand"}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                            <Wallet className="w-5 h-5" />
+                          <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                            <Wallet className="w-4 h-4" />
                           </div>
                           <div>
                             <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                               Member Contributions
                               <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isContribListExpanded && "-rotate-90")} />
                             </h4>
-                            <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} ‚Ä¢ {monthlyPaidContributions.length} Members</p>
+                            <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
                           </div>
                         </div>
-                        <span className="px-3.5 py-1.5 bg-indigo-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs">
-                          ‚Çπ{monthlyContributionTotal.toLocaleString("en-IN")}
+                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-bold shadow-2xs">
+                          ‚Çπ{monthlyContributionTotal.toLocaleString('en-IN')}
                         </span>
                       </div>
 
                       {isContribListExpanded && (
-                        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/90 space-y-4">
+                        <>
                           {sortedContribs.length === 0 ? (
                             <p className="text-slate-400 text-xs italic py-8 text-center">
                               {searchQuery && searchQuery.trim() ? "No contributions match your search." : "No paid contributions recorded for this month."}
@@ -7488,7 +7441,7 @@ export default function App() {
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
                                     {sortedContribs.map((item, rowIdx) => (
-                                      <tr key={`coll-contrib-${item.id || 'id'}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
+                                      <tr key={`coll-contrib-${item.id}`} className="hover:bg-slate-50/70 transition-colors">
                                         <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-400 border-r border-slate-200/60">
                                           {rowIdx + 1}
                                         </td>
@@ -7609,36 +7562,36 @@ export default function App() {
                               </div>
                             </>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
 
-                    {/* Section 3: Loan Repayments Collected */}
-                    <div className="space-y-4">
+                    {/* Table 2: Loan Repayments Collected */}
+                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
                       <div 
                         onClick={() => setIsLoanListExpanded(!isLoanListExpanded)}
-                        className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50/90 via-slate-50 to-white hover:from-emerald-100 hover:to-emerald-50/60 border-2 border-emerald-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
+                        className="flex items-center justify-between p-3.5 bg-gradient-to-r from-emerald-50/80 via-slate-50 to-white hover:from-emerald-100 hover:to-emerald-50/50 border-2 border-emerald-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-2xs"
                         title={isLoanListExpanded ? "Click to collapse" : "Click to expand"}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                            <IndianRupee className="w-5 h-5" />
+                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                            <IndianRupee className="w-4 h-4" />
                           </div>
                           <div>
                             <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-emerald-700 transition-colors flex items-center gap-2">
                               Loan Repayments Collected
                               <ChevronDown className={cn("w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-transform duration-200", !isLoanListExpanded && "-rotate-90")} />
                             </h4>
-                            <p className="text-xs text-slate-500">Principal + Interest for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} ‚Ä¢ {monthlyPaidLoanPayments.length} Repayments</p>
+                            <p className="text-xs text-slate-500">Principal + Interest for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
                           </div>
                         </div>
-                        <span className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs">
-                          ‚Çπ{monthlyLoanTotalCollected.toLocaleString("en-IN")}
+                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-bold shadow-2xs">
+                          ‚Çπ{monthlyLoanTotalCollected.toLocaleString('en-IN')}
                         </span>
                       </div>
 
                       {isLoanListExpanded && (
-                        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/90 space-y-4">
+                        <>
                           {sortedLoanPayments.length === 0 ? (
                             <p className="text-slate-400 text-xs italic py-8 text-center">
                               {searchQuery && searchQuery.trim() ? "No loan repayments match your search." : "No loan repayments collected for this month."}
@@ -7652,10 +7605,10 @@ export default function App() {
                                     <tr className="bg-slate-50/75 border-b border-slate-200/80 text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
                                       <th 
                                         onClick={() => handleLoanSort('sno')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-14"
+                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-10"
                                       >
                                         <div className="flex items-center gap-1">
-                                          Sl no
+                                          #
                                           {collectionLoanSortConfig.field === 'sno' ? (
                                             collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                           ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
@@ -7666,37 +7619,48 @@ export default function App() {
                                         className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1">
-                                          BORROWER
+                                          Borrower
                                           {collectionLoanSortConfig.field === 'borrower' ? (
                                             collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                           ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
                                         </div>
                                       </th>
                                       <th 
-                                        onClick={() => handleLoanSort('total')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-44 sm:w-52"
+                                        onClick={() => handleLoanSort('principal')}
+                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1">
-                                          Total paid
+                                          Principal
+                                          {collectionLoanSortConfig.field === 'principal' ? (
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                        </div>
+                                      </th>
+                                      <th 
+                                        onClick={() => handleLoanSort('interest')}
+                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                      >
+                                        <div className="flex items-center gap-1">
+                                          Interest
+                                          {collectionLoanSortConfig.field === 'interest' ? (
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                        </div>
+                                      </th>
+                                      <th 
+                                        onClick={() => handleLoanSort('total')}
+                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                      >
+                                        <div className="flex items-center gap-1">
+                                          Total Paid
                                           {collectionLoanSortConfig.field === 'total' ? (
                                             collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                           ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
                                         </div>
                                       </th>
                                       <th 
-                                        onClick={() => handleLoanSort('mode')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-28 sm:w-32"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          Mode
-                                          {collectionLoanSortConfig.field === 'mode' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
-                                      <th 
                                         onClick={() => handleLoanSort('date')}
-                                        className="px-3 sm:px-3.5 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-32 sm:w-36"
+                                        className="px-3 sm:px-3.5 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1">
                                           Date
@@ -7709,32 +7673,21 @@ export default function App() {
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
                                     {sortedLoanPayments.map((p, rowIdx) => (
-                                      <tr key={`coll-loan-p-${p.id || 'id'}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
+                                      <tr key={`coll-loan-p-${p.id}`} className="hover:bg-slate-50/70 transition-colors">
                                         <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-400 border-r border-slate-200/60">
                                           {rowIdx + 1}
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-900 border-r border-slate-200/60">
                                           {p.borrowerName}
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
-                                          <div className="flex flex-col">
-                                            <span className="font-bold text-emerald-600">
-                                              ‚Çπ{p.total.toLocaleString('en-IN')}
-                                            </span>
-                                            <span className="text-[10px] text-slate-500 font-medium">
-                                              ‚Çπ{p.principal.toLocaleString('en-IN')} (P) + ‚Çπ{p.interest.toLocaleString('en-IN')} (I)
-                                            </span>
-                                          </div>
+                                        <td className="px-3 sm:px-3.5 py-3 font-semibold text-slate-700 border-r border-slate-200/60">
+                                          ‚Çπ{p.principal.toLocaleString('en-IN')}
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
-                                          <span className={cn(
-                                            "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase inline-block",
-                                            p.paymentMode.toLowerCase() === 'cash' 
-                                              ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                                              : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                          )}>
-                                            {p.paymentMode}
-                                          </span>
+                                        <td className="px-3 sm:px-3.5 py-3 font-semibold text-amber-600 border-r border-slate-200/60">
+                                          ‚Çπ{p.interest.toLocaleString('en-IN')}
+                                        </td>
+                                        <td className="px-3 sm:px-3.5 py-3 font-bold text-emerald-600 border-r border-slate-200/60">
+                                          ‚Çπ{p.total.toLocaleString('en-IN')}
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 text-slate-500">
                                           {p.dateFormatted}
@@ -7748,15 +7701,15 @@ export default function App() {
                               {/* Mobile / Tablet Columnar Table View */}
                               <div className="lg:hidden">
                                 <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
-                                  <table className="w-full min-w-[500px] text-left border-collapse whitespace-nowrap text-xs">
+                                  <table className="w-full min-w-[540px] text-left border-collapse whitespace-nowrap text-xs">
                                     <thead>
                                       <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
                                         <th 
                                           onClick={() => handleLoanSort('sno')}
-                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-12 text-center select-none"
+                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-9 text-center select-none"
                                         >
                                           <div className="flex items-center justify-center gap-1">
-                                            Sl no
+                                            #
                                             {collectionLoanSortConfig.field === 'sno' ? (
                                               collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                             ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
@@ -7774,8 +7727,30 @@ export default function App() {
                                           </div>
                                         </th>
                                         <th 
+                                          onClick={() => handleLoanSort('principal')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Principal
+                                            {collectionLoanSortConfig.field === 'principal' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
+                                          onClick={() => handleLoanSort('interest')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Interest
+                                            {collectionLoanSortConfig.field === 'interest' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
                                           onClick={() => handleLoanSort('total')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none w-36"
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
                                         >
                                           <div className="flex items-center gap-1">
                                             Total paid
@@ -7785,19 +7760,8 @@ export default function App() {
                                           </div>
                                         </th>
                                         <th 
-                                          onClick={() => handleLoanSort('mode')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none w-24"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Mode
-                                            {collectionLoanSortConfig.field === 'mode' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
                                           onClick={() => handleLoanSort('date')}
-                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none w-28"
+                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
                                         >
                                           <div className="flex items-center gap-1">
                                             Date
@@ -7817,25 +7781,14 @@ export default function App() {
                                           <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-200/60">
                                             {p.borrowerName}
                                           </td>
-                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
-                                            <div className="flex flex-col">
-                                              <span className="font-bold text-emerald-600">
-                                                ‚Çπ{p.total.toLocaleString('en-IN')}
-                                              </span>
-                                              <span className="text-[10px] text-slate-500 font-medium">
-                                                ‚Çπ{p.principal.toLocaleString('en-IN')} (P) + ‚Çπ{p.interest.toLocaleString('en-IN')} (I)
-                                              </span>
-                                            </div>
+                                          <td className="px-3 py-2.5 font-semibold text-slate-700 border-r border-slate-200/60">
+                                            ‚Çπ{p.principal.toLocaleString('en-IN')}
                                           </td>
-                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
-                                            <span className={cn(
-                                              "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase inline-block",
-                                              p.paymentMode.toLowerCase() === 'cash' 
-                                                ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                                                : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                            )}>
-                                              {p.paymentMode}
-                                            </span>
+                                          <td className="px-3 py-2.5 font-semibold text-amber-600 border-r border-slate-200/60">
+                                            ‚Çπ{p.interest.toLocaleString('en-IN')}
+                                          </td>
+                                          <td className="px-3 py-2.5 font-bold text-emerald-600 border-r border-slate-200/60">
+                                            ‚Çπ{p.total.toLocaleString('en-IN')}
                                           </td>
                                           <td className="px-3 py-2.5 text-slate-500">
                                             {p.dateFormatted}
@@ -7848,11 +7801,12 @@ export default function App() {
                               </div>
                             </>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
                   </div>
-                </div>              );
+                </div>
+              );
             })()}
           </div>
         ) : (
@@ -9154,67 +9108,197 @@ export default function App() {
           </motion.div>
         )}
 
-        <AdminLoanModal 
-          isOpen={isAddingLoan}
-          onClose={() => setIsAddingLoan(false)}
-          allUsers={allUsers}
-          selectedLoanUserId={selectedLoanUserId}
-          setSelectedLoanUserId={setSelectedLoanUserId}
-          adminLoanAmount={adminLoanAmount}
-          setAdminLoanAmount={setAdminLoanAmount}
-          adminLoanDetails={adminLoanDetails}
-          setAdminLoanDetails={setAdminLoanDetails}
-          adminLoanStatus={adminLoanStatus}
-          setAdminLoanStatus={setAdminLoanStatus}
-          adminLoanPaymentMode={adminLoanPaymentMode}
-          setAdminLoanPaymentMode={setAdminLoanPaymentMode}
-          addAdminLoan={addAdminLoan}
-          isSubmittingAdminLoan={isSubmittingAdminLoan}
-        />
-        <EditContributionModal 
-          editingContribution={editingContribution}
-          setEditingContribution={setEditingContribution}
-          allUsers={allUsers}
-          updateContribution={updateContribution}
-        />
-        <AddContributionModal 
-          isOpen={isAdding}
-          onClose={() => setIsAdding(false)}
-          isAdmin={isAdmin}
-          selectedUserId={selectedUserId}
-          setSelectedUserId={setSelectedUserId}
-          allUsers={allUsers}
-          SYSTEM_ADMIN_EMAIL={SYSTEM_ADMIN_EMAIL}
-          selectedMonth={selectedMonth}
-          setSelectedMonth={setSelectedMonth}
-          selectedYear={selectedYear}
-          setSelectedYear={setSelectedYear}
-          paymentDate={paymentDate}
-          setPaymentDate={setPaymentDate}
-          paymentMethod={paymentMethod}
-          setPaymentMethod={setPaymentMethod}
-          MONTHLY_AMOUNT={MONTHLY_AMOUNT}
-          isLatePaymentDate={isLatePaymentDate}
-          isSubmitting={false}
-          handleSubmit={handleContributionSubmit}
-        />
-        <AdminManualRepaymentModal 
-          isOpen={adminManualRepayment.isOpen}
-          loan={adminManualRepayment.loan}
-          month={adminManualRepayment.month}
-          year={adminManualRepayment.year}
-          amount={adminManualRepayment.amount}
-          interest={adminManualRepayment.interest}
-          method={adminManualRepayment.method === 'cash' ? 'Cash' : 'Online'}
-          paymentDate={adminManualRepayment.paymentDate}
-          onClose={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
-          setAmount={(amt) => setAdminManualRepayment(prev => ({ ...prev, amount: amt }))}
-          setInterest={(int) => setAdminManualRepayment(prev => ({ ...prev, interest: int }))}
-          setPaymentDate={(d) => setAdminManualRepayment(prev => ({ ...prev, paymentDate: d }))}
-          setMethod={(m) => setAdminManualRepayment(prev => ({ ...prev, method: m === 'Cash' ? 'cash' : 'online' }))}
-          submitRepayment={submitAdminManualRepayment}
-        />
-      </AnimatePresence>
-    </>
-  );
-}
+        {isAddingLoan && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              key="modal-record-loan-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAddingLoan(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="modal-record-loan-content"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Record Loan</h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Select Member</label>
+                  <select 
+                    value={selectedLoanUserId || ''}
+                    onChange={(e) => setSelectedLoanUserId(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="">Select a member...</option>
+                    {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, uidx) => (
+                      <option key={`admin-loan-member-${u.id || u.uid || 'member'}-${uidx}`} value={u.uid || u.email}>
+                        {u.displayName || u.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Amount (‚Çπ)</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[10000, 25000, 50000].map(amt => (
+                      <button
+                        key={`admin-loan-quick-amt-${amt}`}
+                        onClick={() => setAdminLoanAmount(amt)}
+                        className={cn(
+                          "py-3 rounded-xl text-sm font-bold transition-all border",
+                          adminLoanAmount === amt 
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
+                            : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
+                        )}
+                      >
+                        ‚Çπ{amt.toLocaleString('en-IN')}
+                      </button>
+                    ))}
+                  </div>
+                  <input 
+                    type="number" 
+                    value={adminLoanAmount}
+                    onChange={(e) => setAdminLoanAmount(Number(e.target.value))}
+                    className="w-full mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="Enter custom amount"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Details / Purpose</label>
+                  <textarea 
+                    value={adminLoanDetails}
+                    onChange={(e) => setAdminLoanDetails(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[100px]"
+                    placeholder="e.g. Personal emergency, Business expansion..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Date</label>
+                  <input 
+                    type="date"
+                    value={loanDate}
+                    onChange={(e) => setLoanDate(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Payment Mode</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAdminLoanPaymentMode('Online')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
+                        adminLoanPaymentMode === 'Online' 
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
+                      )}
+                    >
+                      <Zap className="w-4 h-4" /> Online
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdminLoanPaymentMode('Cash')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
+                        adminLoanPaymentMode === 'Cash' 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                      )}
+                    >
+                      <Banknote className="w-4 h-4" /> Cash
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Initial Status</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setAdminLoanStatus('approved')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        adminLoanStatus === 'approved' 
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
+                      )}
+                    >
+                      Approved
+                    </button>
+                    <button
+                      onClick={() => setAdminLoanStatus('pending')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        adminLoanStatus === 'pending' 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                      )}
+                    >
+                      Pending
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setIsAddingLoan(false)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={isSubmittingAdminLoan || !selectedLoanUserId}
+                    onClick={addAdminLoan}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingAdminLoan ? (
+                      <>
+                        <Clock className="w-5 h-5 animate-spin" /> Recording...
+                      </>
+                    ) : (
+                      'Record Loan'
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {editingContribution && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              key="modal-edit-contrib-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingContribution(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="modal-edit-contrib-content"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Edit Contribution</h2>
+              <div className="space-y-6">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Member</p>
+                  <p className="font-bold text-slate-900">
+                    {allUsers.find(u => 
+                      (editingContribution.userId && u.uid === editingContribution.userId) || 
+                      (editingContribution.userEmail && u.email.toLowerCase() === editingContribution.userEmail.toLowerCase())
+                    )?.displayName || editingContribution.userEmail.splitxú‘ñÕR€0«Ôyäù\íÃ†ÿhß©ìñazeò·ÿÈA∂7éä,y,9¿ óæU_á'©lŸ¡çeùv⁄˙íH+ÌÆ˛˚”«xÙq4˘Ïy@ÁºlŸÈºòmñÉn’Ìp¬ià"Nï:ß).Ü!ó—hº—D•∞íBìPÚ∏Ó·T#yÎ˚êÜd6\û¶≤∆èﬂæOØÚÂå¬DVhpX Ùmf¢ä"1:Gl(/pqá1”L$g&£úÖÖfRL©ç£ëK# )Œ÷T$f˛'∞XÇB˝©Îi|”È‘‚ lå9úW)éq™iû†ûViM‡a‚‹íÙö¨
+Œ!#«&µÜ'>‰∆oå1ô›pec^ˇ‘CfFÊñÍÔL≥*Gj“, “DÖöÁ&_2k7òàY"M d°9HÑË“÷˚Î ]j™ı:&n€˚ä„$4+';uL›¥N[Cõ‚¶≠BÜ≥Ë Ûk¿®jMseî≈£^@⁄à‹Eb‹3†Z39ÑÏñm°1Ã8$Œ©P¨ÃÇPﬁ@5<ËıÏ⁄R6{X,ızg|Ä°SÃ)è…õÜ◊Î5”ÿ∞‹∂™5çÂ5·IÛØ1˙~_5 o^≈±n[ï.;;f-7òœwÇœ˙˝˜T«¿ÖëƒÕùg©˙˜©Ds@à‰ˇ≥^√ãl“ÚÃÓ!Û…÷·“ö˛ï÷˚od“™Òj,Î≥æß€y8è‚#»49vû«5˜Ó´?§Öπ;_æcüP<ﬁ-∆ÜuzÓ‡ü!u’∆]Ä3*"‰N}ü—~/aä,6â∂ÂÿOàô"‹ævv@{ŸyÍIÂ5Ω≥s;;•j∂
+–H≥ŒUDπy≠ú@≈áâñ*°–ÊyÛµPö≠nõ¶Ω∆˜÷˘ínÏkNΩJm'ÁéŒ¿Keu‘ÏXvÜnaºS¡RS†ãÏò†zVMﬁ?   ˇˇ Ö
+=

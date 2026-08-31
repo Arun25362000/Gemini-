@@ -638,7 +638,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                       const isPaid = item.status === 'paid';
 
                                       return (
-                                        <tr key={`loan-breakdown-desktop-${monthGroup.monthKey}-${item.loan.id || 'no-id'}-${lIdx}`} className="hover:bg-slate-50/70 transition-colors">
+                                        <tr key={item.loan.id || lIdx} className="hover:bg-slate-50/70 transition-colors">
                                           <td className="px-3 py-2.5 w-10 sm:w-12 text-center font-bold text-slate-400 border-r border-slate-200/60">
                                             {lIdx + 1}
                                           </td>
@@ -735,7 +735,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
 
                                   return (
                                     <div 
-                                      key={`loan-breakdown-mobile-${monthGroup.monthKey}-${item.loan.id || 'no-id'}-${lIdx}`}
+                                      key={item.loan.id || lIdx}
                                       className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-5 space-y-4 relative overflow-hidden"
                                     >
                                       <div className="absolute top-0 right-0 px-3 py-1 bg-slate-900 text-[10.5px] font-black text-white rounded-bl-xl border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
