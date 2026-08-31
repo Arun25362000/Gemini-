@@ -88,6 +88,10 @@ import {
   Filter
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { AdminManualRepaymentModal } from './components/AdminManualRepaymentModal';
+import { AddContributionModal } from './components/AddContributionModal';
+import { EditContributionModal } from './components/EditContributionModal';
+import { AdminLoanModal } from './components/AdminLoanModal';
 import Graphs from './components/Graphs';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
@@ -1896,6 +1900,20 @@ export default function App() {
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'contributions');
     }
+  };
+
+  const handleContributionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const finalAmount = MONTHLY_AMOUNT + (isLatePaymentDate ? 100 : 0);
+    await addContribution(
+      selectedMonth, 
+      selectedYear, 
+      selectedUserId || undefined, 
+      isAdmin ? 'paid' : 'pending',
+      paymentDate,
+      finalAmount,
+      paymentMethod
+    );
   };
 
   const approveContribution = async (id: string) => {
@@ -7470,7 +7488,7 @@ export default function App() {
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
                                     {sortedContribs.map((item, rowIdx) => (
-                                      <tr key={`coll-contrib-${item.id}`} className="hover:bg-slate-50/70 transition-colors">
+                                      <tr key={`coll-contrib-${item.id || 'id'}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
                                         <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-400 border-r border-slate-200/60">
                                           {rowIdx + 1}
                                         </td>
@@ -7691,7 +7709,7 @@ export default function App() {
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
                                     {sortedLoanPayments.map((p, rowIdx) => (
-                                      <tr key={`coll-loan-p-${p.id}`} className="hover:bg-slate-50/70 transition-colors">
+                                      <tr key={`coll-loan-p-${p.id || 'id'}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
                                         <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-400 border-r border-slate-200/60">
                                           {rowIdx + 1}
                                         </td>
@@ -9136,179 +9154,67 @@ export default function App() {
           </motion.div>
         )}
 
-        {isAddingLoan && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              key="modal-record-loan-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAddingLoan(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              key="modal-record-loan-content"
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
-            >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">Record Loan</h2>
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Select Member</label>
-                  <select 
-                    value={selectedLoanUserId || ''}
-                    onChange={(e) => setSelectedLoanUserId(e.target.value)}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="">Select a member...</option>
-                    {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, uidx) => (
-                      <option key={`admin-loan-member-${u.id || u.uid || 'member'}-${uidx}`} value={u.uid || u.email}>
-                        {u.displayName || u.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Amount (â‚¹)</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[10000, 25000, 50000].map(amt => (
-                      <button
-                        key={`admin-loan-quick-amt-${amt}`}
-                        onClick={() => setAdminLoanAmount(amt)}
-                        className={cn(
-                          "py-3 rounded-xl text-sm font-bold transition-all border",
-                          adminLoanAmount === amt 
-                            ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
-                            : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
-                        )}
-                      >
-                        â‚¹{amt.toLocaleString('en-IN')}
-                      </button>
-                    ))}
-                  </div>
-                  <input 
-                    type="number" 
-                    value={adminLoanAmount}
-                    onChange={(e) => setAdminLoanAmount(Number(e.target.value))}
-                    className="w-full mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="Enter custom amount"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Details / Purpose</label>
-                  <textarea 
-                    value={adminLoanDetails}
-                    onChange={(e) => setAdminLoanDetails(e.target.value)}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[100px]"
-                    placeholder="e.g. Personal emergency, Business expansion..."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Date</label>
-                  <input 
-                    type="date"
-                    value={loanDate}
-                    onChange={(e) => setLoanDate(e.target.value)}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Payment Mode</label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setAdminLoanPaymentMode('Online')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
-                        adminLoanPaymentMode === 'Online' 
-                          ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
-                      )}
-                    >
-                      <Zap className="w-4 h-4" /> Online
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAdminLoanPaymentMode('Cash')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
-                        adminLoanPaymentMode === 'Cash' 
-                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
-                      )}
-                    >
-                      <Banknote className="w-4 h-4" /> Cash
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Initial Status</label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setAdminLoanStatus('approved')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
-                        adminLoanStatus === 'approved' 
-                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
-                      )}
-                    >
-                      Approved
-                    </button>
-                    <button
-                      onClick={() => setAdminLoanStatus('pending')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
-                        adminLoanStatus === 'pending' 
-                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
-                      )}
-                    >
-                      Pending
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button 
-                    onClick={() => setIsAddingLoan(false)}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
-                  >
-                    Cancel
-                  </button>
-xœì=ÙrÜF’ïþŠcfØm}ñ°D“ÔÒ’«Qf˜rÌÎj6Ø(²1Â5 Zd»Å—yÛÿØŸ˜ß™/ÙÌ* ª ôAR”!±»Ô‘•wefR¾/¦qì{ä›Ê¸,;2/jÍíè|záÚql{W'–k{¯}Ó#Ÿ>‘'uè8¦þðkDÃWÖ­´-ß{áØãGsÓ²²äŽ3ŠÞ˜.=Ú¸tè1"ÁÌØ%W†íYö•oì$¦7±q=±cJBêYÔ2F7¹ô½Ø¸ð‹Lü4<È_ú_
-M/²cÛ÷ÓqH41-ÿÚp®ÒOÉ£CxÔÇöGzM‡Ïö2Xø9¶ã™±7ÈãOák8`ƒr#cL½˜†äïÓ(¶/gé×+30F’yKa¡€üsÒ‘>*o‡Ýzáøã"x¯=2¦g»fL(°½Ò?&¿Ð±ZÐe¯×SuÔ—÷Ô%ÊÁmòv	ÎaSþ¶%ûK«ö-ûcùgÉ‡}×Çeï•î”zŸSËF˜¿ „
-mèÞ&ùKaj‡ðr[íjÛ‹hlÈÆ;Àˆ÷õ(»¥áæ£-Sæ:;Úp}Ët¡1æã3.Ìñ+ôƒ2jÙLÃtŽæs’`îÛ2˜é×=“‘p§KŽŽ	ÌòÇ*Œ:ÞÔq*«( É¼ˆ|g
-d›Â	H4rûžý]øžÌÄ¸p¦¡¹Åõ—†þÀ7Ô6a¤ŸzÏö¶	ü4’ &!ŸÂ«ÃìÕ!{¯Ì›u' 3¤ 9àSDÎ¯KX âš7ÆµáZsÜ¹ÉøòÉÀxZ@…ˆ&#±#Æn‹–ý”­q/ŒýcÄ"âÃa2ª´]¢› @¾_¥p	³ßƒÊðn"ùèvatÓ  áØŒ(Žs¸q|JÝöƒú¶U3–¯9H„QïÄIgŠ¤¢`‡	éM™EV3íMm‹õs]Âm›ÿÑ5m‡÷@ñc/ö_û×4|ðAÚÖôøcõù®œ‘?šŒÇœ!q”ú&áQ;îlþÇf÷Ýà½\HÖJÊÿ×†4g4´}kI¤™_ú!p‹ŽG¯ÉKøUºJ3j†ÛRˆ¹ðeB2ìn“ÍS¸È®Íî­>Íä˜Ô'rÁt>	Wªï8õ6ŽO\à6ñaŸµ"m¿Dù)ÿRÐÒ!pO*<zƒNƒ˜öGÄ`šÍŒýPZÉlÜÇÿþç¿ûØ®¢KÛ¦±Š¤âY £ð¦È<dJ^Mg
-²@¶x&ƒ\ëeòubzWðn‡ê$ìœ€V&i~›ðöÈ6ÀíÅfxEãR—ÜJµ+¼
-:! c<%A0N•oMP{E}ûÔ9PaøŸä‘QªžçÂ!Ç›K<B:èõÂ—DõÞƒ‡ýiìØ5<ß£r KUO/¸[8Íxµ ¦r«@‘:­©V¦Æ™ˆø€l¦mm6Â‘ùØSiø„p›mˆh³“¡JAqHp¦hŒml+[”Q5UÉÀ•¯°–6 ©KCÓ±ÊÖc‚ºâÝŠ]˜Þ}~C×Ñëˆ·+`¶Y¡Ä>-ö7TlE±.*sï€"G'¥1ÅîÞ²QÍËÏßÒ±×¢œ‰lXpù½
-ºñ[kC6Þü
-QÃ£5¶-À°¥Œs‡qÅ„NÞÑ¡óö,¿ÊŽª!—•¥Å¸¤¤¢´„Ÿ]D/LoLVn“¦€™TÇçã±kÀsh®zE÷ì}ÊÝOvtb!U=0Ÿ“iY«r9I½&+ñLÍ++Ðy• ´si:í~/{æ<qfsG6'ýòƒ:wÌ}ø¶ÄùêÚZ£k+ñ]¯Ò¹Å¨Üµ+Že±-…ž¶¤•Â¤^0¥±‚&8ToìFÂAoÏæf3·Dx%Ãµ…Õº"SÕpê®ÆXU©M‡~À687²E1‰Ë–tèÃ>FÕ„èkt€­socâÕ{^rë=Ýõüoço<ýíäåé«7¿ýxzòêuÉ—×sÍ Ó™n“©mÝ°ÕQkÞéÍOyPH¯¸aüi®"»±y‹A?·¿ß¦ˆÄ}žðHòò­z;¦?-ûÓ·Ôc®hWl‡}Žâ-ôXQœg–˜ÃU³Åÿ€u; ê³
-Uv]¼à=Š+ä¬½EˆŸ½Ø‘û®)˜Ÿ„¡9ë]†¾V³C½«xbuf1§Äß¶‰½02_1Ð˜M¶ÈP 2þ]KYe'õh0Ú…¡lç~çMå’Ü)•­‘0þFÍUÊFln²À÷¾0ª€žÁÉG`å`ˆ:œ"f‹n© -Ì:˜ÝÃ¿;DÖ¦®‡ ÎÌ™¶#=4Ø1A7BÍ~IÀûÃîÚPÉYþÚãRÛìqÜœÒx‚{Ÿ:Dh‚Åª]ŽÌ%¥$íª».ZgÓ÷¤:¹ÔÐ¥LÈó_ÉÝT%—TÇF‘_)4þgBqbÜéœLNóRêtÎ°,í«ìƒ¾küiý=¥˜_ÜÿœÑL@†EÙÍ]ÐWùêæ•K¨	nûo3(­/P÷.™ ßÜÖ Æ“#@e§Æ~cÔÙ½•Ó"¿~fÍ¨PZ»×²”›Ñä‘"<›Ztç»9–ö\šl³|n¨þƒé}ðü˜%Çu®‚>YSÕbg9='õí,"•êP­ÚQ…nõ¿%?`¸O!èó'›|ÛWhJÁ[#zUG{…À# ½ñÔ®m„Æ!õö”"”óéE4m®wþýÏÉ£³p‰4’¼u {E¬³Ó>X'e5µA;¬{¦†jÈ¸Iì^‰>zúó›·ÿùúo¿œþüë›·j›‡Ék‘Æ×|‡ñ5;¸U6êíånna»îù`õ’Œ§aä‡ð9Fþí_SK=}%÷P² 5µã…$uN3„±%Áhúä5ûLé2”%Û–Ê¢_SêÕSÎÊ‰UÓ©€BGªµÄZ¥½:iÏ¦ðîYpó>™—#'ÁÂr <T3#Ž–Z¹nG8CÁFÓ4¤=äßK?øuTQ×ñ\$á¬u’Ug8aÛÐ¤s<Ä“.Ó%_yfòã¿ÿ÷ÿøÏ:ß™ŽÏiÈp%L»qóô*o‡'Ï$M€Á±¸ŽÚe»!›˜þ±ï2b? ©ø6ª›Øâ5ö½(ÆžÉ95ãIÏ5o:ƒmUäç§Od Ùò/0.^d£íÀ{MŸçA¿¢¼$[¤®‰Êæ¯xå©gO*pÕ½×“—U’¸*€klãÈ2¼*ÓÑ>]ä‰ý½'Ü\’+rÇÞ×R¿Ê|S§w #m£Xh,¼@t¦áÑ†f Kè'Ê’;¨¶¼õc /ŽÝÀç, ÆµB_)óÞ ¹cÀ¸
-I¦°”uQQëØY/ª.LÄ—4Gµî"™}dªæV¼PÃ©÷ÜSªLvªAŸçäwàø*)ílã£NÎc$ƒÎ&õŒWo6»·ÜÊÛ"ìœG«Ÿg¼ƒ1µÄ¼Dõ’Iñßõá™‰w¦›ê½ôCšô¤¢E2ŠžJ¨ÊYˆ}5‰Õ¾Y9j9ÔJ¼hêô(¼ .óª¼èÔÐnW	?%|4©kòj¬:0U¥	4	jËžlÚÆ/…\þŒƒ]çZ÷¯\Kh¯VÖ¸¢vi{¦sâÆ¨­-‚÷j=Ê¾Ä²(²b VW¯Eöû„¿¦éÞ„ƒ%õÇ‚·bg¦kÅ´¬BÀt!d›ˆÛßÛ¥ñm'É™ƒg¿Ak;[& n	Ô×O4kË¡¿ž½J€¬cÚ½®SÅ¥Nû#¤—(V ‰j+îÃd%Ø~
-›+0€ÊÔGÛ$°&
-Þ¬&gu…Ï…h— å¨ƒ£@?)é?OÓ „Ü5Uñm#Õø@bi¢Kówš p¶Qs7,ß^ahœân{œ­ÂtÙ ò,ÀÌeÁR<¼H2kË#ÐÆ­7NhœÐ,A@¶•ú² !UžÏê¢û%Æk{H5£_8nñÈý5ÅîËÈTj¿$øÈCõØç×Æp(þK¼+È^
-«õÝÃœ‚e]Êu|èômœvTì÷)tû”›-ƒ}Z&0l3\§¬î9	 ï¹,õP5æó7Æ(ž·;büäíØô€a‚ÅŠ¢ÉCšœÀbÃûþØ†·¬LŸ„wb?œÁHCcŽèÚÆ§ÈÇBê‚„°z­ëˆ#V£Á"»<•Z#Ì1#ßë¿ð]œXD:?³=WÓéêr¿±Q3¤¦[?2‚ä„Á5i\YP«÷ºüj³¸‚óíG†Ü!›['.I€KõzrA*ÙÜ¼áuvH5l¢ê+Ø…YT:/^VsÐ²?JýŸ‚‡t¯ª]„4²ÿHšœ£]Ùœ$äØÞø_EBj3UZ„ÏÍ<_…/„!)E0uŠšÏ6©Ð“ÎM"¸æñ*Ámªôê†n•\§N·>›kÔé6@>Š»…3fÁx¹´C—p±Òj¹Z¯\Å•<^QsÇÀ!¾ê¹Ù%ã!}UtUàüÝÜ’^¹ªû_J-7sÜ…ž;fþËU*º'!%3J¢iòáÚä[bVÒY®ÈšBäíÔá ÇÔ[ÐlAE¶/íÏEµeº_Æ;ŸR›Lì¡jµiXsU¯Íî,¢ÙxêS;”F+> µ·‘È*-Ó£Ò{… ˜
-íôâÐv;
-€4V˜óJ4æ¸[«Ì’Åº'ù¾üÐÚêÐÍÂdê4í±"ÏänTm¬TÂm–,óC«JƒC3knQ¾[/À0Ù³hådrP~YÕdðÃÄx÷lôqòž o¸R5f\ñUjñû$rÖUq†aSW_ÖVIy¹Ñ_}"ëœš7á³7ØZoè]ƒUi¾wP°êhºÚ@ü+*È­ËÃ¾ÎÞêð(`Ûë°ÞT‘À­J¬©l;v/iÒc
-ñ¦¶ëÅÂt´Çþ0¿gåLP$¨	H Ié1?€¦tàÿ[eäŸLÀè ï®&/41zFbX´Ä¤lc:‹ÄB—‹ÚÛ†.›c¿šlY“Ï¡¸¥U„!¶;ÔåSÊ©ða0~IcÓvÚnhÉ1\àmI³íÌþä¥~Á‡½·±òïµî;#Ñ’_ñöT ÚIÚÙåÆŽ ¶G°±ÎÎ?qh¿°Ã±#Ÿ©¦d,>ÌÓ6èí©üƒÒªýBSO¡)‡šßtL´=ê£Ì_'»ÐÇ4;"ÑôâïXÎô½+€K@LZìÅ¾L¼z=ò
-Å„e4Â[µD¨5sú3aU˜œ4z^vœÎRþÀ5”Ámd§ðë±º_òãªê³ªäGd¥§c	¢îðH•ÿõ CC%­JÎ«ÚÌfÌâù/¢›^Z3ò¾êïž™¢·C<çì!x?îÝŸ¡(²›C­I¡]öÜÃ-³û¸]O÷t®ŽQÙÕ±Ë]ûí])£‚Ï¡©pw€>ÁHëšÄŠÉÜ¥¯˜¥÷01ri‡ ‘§†@#RÄÀîX¼Y5WoÞQ¡/úNzÈãÞI€wV`5ÀwƒžÃ£Ð~CÏ¶$øîÐ˜x0aÝíÕ`Ä7<Õ«)FÌUj± ôÒxÒ{'1VaMÂÔO$t0¼>«û(™N¿Ÿ/a
-!‚¡ï’xBÙ$¸Æ“$Ê¥
-–bðìý0q*=Ð÷yEÐ.–«ì’?c]Ì-ô„¦ –ú	ðŸÕQÄ¶”Ýàr‡ ¡a¿¯ÄÛ:[OP†ÕcL$ðæ}Æ˜yêòØà"úQa ½ZÓ1ítÌñx›Éá#Ì7HÎÚ–æ$ðæÇÓ0„V~Áò¹¸—“õTÊ/—ãkþ	1$£”A­²¢¼­¾‡?‡¤S„ONÃ*RÃQÛÚ’'4ñ)¸ˆA>mA»†qÒWgH7úlñSôÃŽ´Å>Ì2ëcA°‰>Ø¦fI„t3"&[*ÌêL’3R>#i3ºž¤l¨ù.M±‰Ó"‹ËÑgÆ°¾Ï˜J"Á'^ =½¤ÛUe‡‰¼Ê•oÌ	¼j&â"¤æÙ­ªŠ'©“œÐ™€„<·&C-Û©y– -“f5vbu0ØÓ“RZöÆVÖ‡³COCOYË]æªWÔÈ-÷ŠÝ¤pK5¸êTí1"…Dq$»,š°qüJ»‰ßF™œ¬°bå5{ò*PJ'<=¹d¦Î€¤ÞuMq¥U_ _JÛ%Iì[Y¡—ÚjkeFGµà¬­×„}&ýØvS#YtK7*V·ÍÃ¯¦Å`2§g‰aéŠ_È /Š´-Í¯‚ rnÔ….¹	²³Ú êÍÊbtónÞÏá—¦ˆ¡ž0–¦ÎÎVM(™×°ƒ.Áî²ÜG8¬nãx·(a—Š'u­„rž æÅëV^èDbÅÆ³½A±lIk(³Æœ+UQ‹ýdÇxÎ”‚ÕCWWGO}j$l‹ëË*«¹[ã¬èæžÂõ¾žüÒÔ„’zšsRÍ‚v›øš…Ìz—3^j$RºžñjXÿw%kÃkÀâ°0¼\+VOd›äŠJ¦ÞngÚíjVéÝè½PàRïÐnëÏN—p¡¤pÔ†÷ˆ¹jõëå6²†¡Tj°š¼BíƒÔ-hS œ¬Âÿz!j[Á¦êeí–ÃH›ûÊÓs q”êŠœzçøèñ9ÇÛ¡"aþêÓþ<Â÷©6«
-Á«7ƒ[ëÀŽ2£GåRø+°MY&í/›¨£Öi&;ê²a2kš‘Mw­ª#JŠ@ª€ÿ„ÅOì?[ð®	i;
-7…>§ò³Z”/Æð*,w¥N6‘úp(1l°KáPÊìÊ
-¡H@#VrÅ¶Cl¡X§f9OÕ
-ë,¨5ñ’ÜUÈJ4ëb¡ÔõdëÙYQˆý5NùaQ…Û9Ö“ê”B~­IO+ºK¼bl(!º;”J»l‹Qé{_ª´2¡ø*59¨«—Ôgt0I]YEÍOçZæÂ1¿âNáh/ßÒ"ŽÒõ”z“«ª†ZwÞmò3“6·É&žH³ùž˜ßnK½tµ'^ÖšÄBêÝ6aó‰ðLŠ„4`«ˆ/ú©V?•G›ìk÷x„=7‡€IY{¬BIÅÎ”MÖ°ö¥BïÕ‹xGÑõKN72ãjmÉ¦ÙP
-ng·fÜ õ’²£ÞaÞØYÎ;|–úÊ;%•–l‘¢F²È6EÓ¬™ñ!DQ»±ñTf‚¬ÙÀ»ƒði(þkMÐ­…`ègI¼Ë§O¤Œ	‡òˆèF>oá$ÑWvåYVƒ^q’+v%®„Â©!7N7 {ÒE}@ìÌ:òý
-©ü³OL_¸ ªµ$X ¬¶ý‚i4’Œ‘Ôa¶§pKiê¿˜ÐñžŽ2jêÅPÈ*él6ÓŸ’˜v¡oâÈzã_³`wL“E“/gº’`÷Jñ§ö1íie´,|ó«·¾\hO ÍW—ý:]ö`—©Kc¡ÒU;×¼´¬ká$±E_IýùÊú®Î"×NÚùÇ³MVÎ5CÖç2W¹²´Õ>oçiRÃ••§âUWYwÚÍ`sÐÓhÌn2{a:¨5ôˆ¶¬Ä­ÞªjP+…«1ýâ%Õºvˆ.ËX¿G-d‚Þ³
-V‚L^3LG"ZBIS™r%…)›MQ|òŽdè"¢s­5pøR?èú7/3Ø=ÙZ…à—Uö¦i}Ê:VÞ 6å=”`_¦ »ÊÉ°hñõ_˜<UT¢\¾àººJ%ëívÅs­Ãt<U1ÝÖe¢H<_H‚9î©¬.œ“›FàxPµ£¥ÐÓ×^³èfåNMoj:™îÓ³£ŸÊ2º¥·…Ò½‡ÒF>‘ ¨„ô#Û­™“^¯‡ßðP"„éaáÁä¶êÿjD?8ù½TL›Tô¶–“\@òº,gê$pÖ¸D\ºú 0?$•L-)ÉÏXD´ô–«ÎåRWp©üÜF*®ŽæJ˜õåÄ“ÉrÊî|«=ÛôH«$ÞAä…MMAY Gcä¨N W`ä">²=É–±BBšš4Ñ cT’i<à(;6“«X­cÏšs½¤éÇ‹vbªßç…xixÑÚãÒ¤H'}¹¼Z? Eœ»C”[<¶í‘òº#Ú®BÛ"øŸ1ö ¥ÎÂÀb°üøÔüpb^	Ö]:fíw—a˜Ø	z.ÌÃøÓÜmW¶1»ì<ìâb Ÿù”­Dd¼ZTEüÖGô&¨>*#ãØì˜åmh#âäºz~Øw£Ø¸Œ$ÒÑ”“…,àÚ8¹RŠ½|_)×¹Ë¤þèÃèr`«ãè„ê„‹É5‘2L+1r±Ÿøm5ÁhònœJd\ÒO§QÐÉ–«Oî¿Çz¢«5b¿€¢£«Œ)[3€¼ööÞ?„2¢‹ŸÏ­ˆBmÐ•y™Ï”%¶î§¤h4ñ¯Ï& –…¾Ä­ÝÊ£‡^E´±[w¿ìÖu­µ¹uWíÕ]È;ûnÔÛ©û¾è¢òLå‰mY ÇZùl3 ãÉ~Æ ÃÔ)×UhZ6ê’±o„¬N£¨ü´M#˜†Ã=¦ðL€¹÷¤[¢M<ÈŒý€]DÑÒæ°4¼º²9k6Áÿ¤êÂN£íácŸ0{ç))š=˜ª eÏ§4ŠÌ+zþ©–*˜q<C‰2¸ÜÞñŽDS(VFÍm1mŸÇæ¹œÇêz<i¹£\*NT®œ.…Ë<Ë=‚¹…ûË!ùëÄŒ±P8á~!T•B:¦H¶øaŒÐ¼ú4@#>b±dyxH7Ðó¢jEôæ[ÒèÐ±É+IÍy”_YoŒÓÞ¶9GJÚl29J,o–Sdà2QøL›3èG¬ôÈkbµI¾È­ˆ\~³áÌÒË8žØÞˆ¯%ƒÕ£ã­gÃÖÉD[6»nbª¨¨£9„ †Ä ïhãÝÀxö~>ÜjÝ?.ô+JsGÏYöNÉcØãÏ‘èôÿçeÿ
-lüÍn/¥ŒbñÓá@¥‘Îžxöô»ý½ÝÑPaÇIOÚîãQ;û¨´íÕœ?Œ=©·…K˜XÛ²æ¸æd)Œ©¨*d4
-è!x‰vå.£þ°tfEIA€!î&í,ïNR+Ïß¸Þ,ëELMaüÃø	XÔzõ®â	y‚•€¥Ù)’ÅKV¬©š³yX™¾Ý6gC®ŸçûÁIÓ#­!-Ö)ªñï@‰zú¾qÊGºÊ„Š¸çuH|ÜM?ðÄÂÌ)S+[årDTžÆtÏM|s¡¦°›Ú4aSS±½aŠÚji"üEU¬X,¥(A”•^¥²éœŽ1àì/X'ã£)é‘ÈrÛËÛSýo³sžù.}òÒŽ.€@àó)†tê¿Ïy¹ê$ì'?Sh-¶`ˆDK†ì>-›|7Î×H¹­¸Sµ[ó(Œ§râw‰.£æ‰å´LNŒL|–*ÐæFß(9K"ã­Òcöª‚ÁšX@¼˜b!O7iXIûüx+íX–S³vÒÍ¨]¥ÙÜ.+™W‚ÌàÂè:-ÇP1¤ÜæÑþ‰ÍðÌÂ°[±ã£Øæ‰dçåì“Á«vdV··³ž]	ÐØšêµŠ{m‹ÃsÑ#wUóT(?•’™:eImŠÖV
-Þ8æ3So¤ÊÕZhŒ:ù<)Œ]O_YUŒB	Œk„º‚_6qqPŠ0[#eý`zÀL¤wD^8·zâjÐa73“‰ËŠÃÖÊ.^Š½G]îhn[‰Î€‡œ<šìƒpù«O"í`!÷…Ô b¡-ÇfPB+~¬l[ù°Â-3L†âÏpS¿ûý7·ßü?   ÿÿ smA
+        <AdminLoanModal 
+          isOpen={isAddingLoan}
+          onClose={() => setIsAddingLoan(false)}
+          allUsers={allUsers}
+          selectedLoanUserId={selectedLoanUserId}
+          setSelectedLoanUserId={setSelectedLoanUserId}
+          adminLoanAmount={adminLoanAmount}
+          setAdminLoanAmount={setAdminLoanAmount}
+          adminLoanDetails={adminLoanDetails}
+          setAdminLoanDetails={setAdminLoanDetails}
+          adminLoanStatus={adminLoanStatus}
+          setAdminLoanStatus={setAdminLoanStatus}
+          adminLoanPaymentMode={adminLoanPaymentMode}
+          setAdminLoanPaymentMode={setAdminLoanPaymentMode}
+          addAdminLoan={addAdminLoan}
+          isSubmittingAdminLoan={isSubmittingAdminLoan}
+        />
+        <EditContributionModal 
+          editingContribution={editingContribution}
+          setEditingContribution={setEditingContribution}
+          allUsers={allUsers}
+          updateContribution={updateContribution}
+        />
+        <AddContributionModal 
+          isOpen={isAdding}
+          onClose={() => setIsAdding(false)}
+          isAdmin={isAdmin}
+          selectedUserId={selectedUserId}
+          setSelectedUserId={setSelectedUserId}
+          allUsers={allUsers}
+          SYSTEM_ADMIN_EMAIL={SYSTEM_ADMIN_EMAIL}
+          selectedMonth={selectedMonth}
+          setSelectedMonth={setSelectedMonth}
+          selectedYear={selectedYear}
+          setSelectedYear={setSelectedYear}
+          paymentDate={paymentDate}
+          setPaymentDate={setPaymentDate}
+          paymentMethod={paymentMethod}
+          setPaymentMethod={setPaymentMethod}
+          MONTHLY_AMOUNT={MONTHLY_AMOUNT}
+          isLatePaymentDate={isLatePaymentDate}
+          isSubmitting={false}
+          handleSubmit={handleContributionSubmit}
+        />
+        <AdminManualRepaymentModal 
+          isOpen={adminManualRepayment.isOpen}
+          loan={adminManualRepayment.loan}
+          month={adminManualRepayment.month}
+          year={adminManualRepayment.year}
+          amount={adminManualRepayment.amount}
+          interest={adminManualRepayment.interest}
+          method={adminManualRepayment.method === 'cash' ? 'Cash' : 'Online'}
+          paymentDate={adminManualRepayment.paymentDate}
+          onClose={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+          setAmount={(amt) => setAdminManualRepayment(prev => ({ ...prev, amount: amt }))}
+          setInterest={(int) => setAdminManualRepayment(prev => ({ ...prev, interest: int }))}
+          setPaymentDate={(d) => setAdminManualRepayment(prev => ({ ...prev, paymentDate: d }))}
+          setMethod={(m) => setAdminManualRepayment(prev => ({ ...prev, method: m === 'Cash' ? 'cash' : 'online' }))}
+          submitRepayment={submitAdminManualRepayment}
+        />
+      </AnimatePresence>
+    </>
+  );
+}

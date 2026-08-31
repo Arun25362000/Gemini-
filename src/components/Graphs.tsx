@@ -780,11 +780,11 @@ const Graphs: React.FC<GraphsProps> = ({
                     >
                       All Months ({memberLoansByMonth.length})
                     </button>
-                    {availableLoanMonths.map(monthLabel => {
+                    {availableLoanMonths.map((monthLabel, idx) => {
                       const count = memberLoansByMonth.filter(l => l.monthLabel === monthLabel).length;
                       return (
                         <button
-                          key={monthLabel}
+                          key={`month-filter-${monthLabel}-${idx}`}
                           type="button"
                           onClick={() => setSelectedLoanMonthFilter(monthLabel)}
                           className={cn(
@@ -897,7 +897,7 @@ const Graphs: React.FC<GraphsProps> = ({
                         >
                           {filteredMemberLoansByMonth.map((entry, index) => (
                             <Cell 
-                              key={`cell-disburse-${entry.id || index}`} 
+                              key={`cell-disburse-${entry.id || 'loan'}-${index}`} 
                               fill={entry.status === 'paid' ? "url(#closedLoanBarGradient)" : "url(#memberLoanBarGradient)"} 
                             />
                           ))}
@@ -1415,7 +1415,7 @@ const Graphs: React.FC<GraphsProps> = ({
                         <Bar dataKey="baseAmount" name="Base Amount" stackId="healthStack" radius={[8, 8, 0, 0]} maxBarSize={55}>
                           {financialHealthData.chartData.map((entry, index) => (
                             <Cell 
-                              key={`cell-health-base-${entry.key || index}`} 
+                              key={`cell-health-base-${entry.key || 'base'}-${index}`} 
                               fill={entry.fill} 
                             />
                           ))}
@@ -1423,7 +1423,7 @@ const Graphs: React.FC<GraphsProps> = ({
                         <Bar dataKey="interestAmount" name="Interest Received" stackId="healthStack" fill="url(#healthInterestGradient)" radius={[8, 8, 0, 0]} maxBarSize={55}>
                           {financialHealthData.chartData.map((entry, index) => (
                             <Cell 
-                              key={`cell-health-interest-${entry.key || index}`} 
+                              key={`cell-health-interest-${entry.key || 'int'}-${index}`} 
                               fill={entry.key === 'totalFunds' ? "url(#healthInterestGradient)" : "transparent"} 
                             />
                           ))}
