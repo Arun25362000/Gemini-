@@ -268,6 +268,14 @@ const Graphs: React.FC<GraphsProps> = ({
         const totalInterestPaid = userYearPaidPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
         const totalRepaid = totalPrincipalRepaid + totalInterestPaid;
 
+        const balancePrincipal = userApprovedLoans.reduce((sum, l) => {
+          if (l.status === 'paid') return sum;
+          const paidForThisLoan = loanPayments
+            .filter(p => p.loanId === l.id && p.status === 'paid')
+            .reduce((acc, p) => acc + (p.amount || 0), 0);
+          return sum + Math.max(0, (l.approvedAmount || l.amount || 0) - paidForThisLoan);
+        }, 0);
+
         const baseName = u.displayName || `Member ${uidx + 1}`;
         const uniqueId = `${u.uid || u.email || 'loan-user'}-${uidx}`;
         
@@ -280,6 +288,7 @@ const Graphs: React.FC<GraphsProps> = ({
           interestPaid: totalInterestPaid,
           totalRepaid: totalRepaid,
           repaid: totalRepaid,
+          balancePrincipal: balancePrincipal,
           totalLoans: totalLoansCount,
           activeLoans: activeLoanCount,
           closedLoans: closedLoanCount,
@@ -1120,6 +1129,13 @@ const Graphs: React.FC<GraphsProps> = ({
                                       <span className="font-bold text-emerald-700">Principal Repaid:</span>
                                     </div>
                                     <span className="font-black text-emerald-700">₹{(item?.repaidPrincipal || 0).toLocaleString('en-IN')}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-rose-500" />
+                                      <span className="font-bold text-rose-700">Balance Principal:</span>
+                                    </div>
+                                    <span className="font-black text-rose-700">₹{(item?.balancePrincipal ?? Math.max(0, (item?.borrowed || 0) - (item?.repaidPrincipal || 0))).toLocaleString('en-IN')}</span>
                                   </div>
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="flex items-center gap-1.5">

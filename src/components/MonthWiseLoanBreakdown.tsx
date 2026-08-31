@@ -738,7 +738,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                       key={item.loan.id || lIdx}
                                       className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-5 space-y-4 relative overflow-hidden"
                                     >
-                                      <div className="absolute top-0 right-0 px-3 py-1 bg-slate-100 text-[10px] font-black text-slate-800 rounded-bl-xl border-b border-l border-slate-300/80 shadow-2xs select-none">
+                                      <div className="absolute top-0 right-0 px-3 py-1 bg-slate-900 text-[10.5px] font-black text-white rounded-bl-xl border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
                                         #{lIdx + 1}
                                       </div>
                                       <div className="flex items-start justify-between gap-2 pr-8">
