@@ -474,7 +474,7 @@ export default function App() {
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
-  const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
+  const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'mode' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [isContribListExpanded, setIsContribListExpanded] = useState<boolean>(true);
   const [isLoanListExpanded, setIsLoanListExpanded] = useState<boolean>(true);
   const [isMonthlyCollectionSummaryExpanded, setIsMonthlyCollectionSummaryExpanded] = useState<boolean>(true);
@@ -4701,25 +4701,23 @@ export default function App() {
 
         {isAdmin && activeTab === 'members' ? (
           <div className="space-y-6">
-            {/* Member Management Actions Collapsible Card */}
-            <div className={cn("bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm transition-all relative z-20", isMemberActionsCollapsed ? "overflow-hidden" : "overflow-visible")}>
+            {/* Section 1: Member Management Actions */}
+            <div className="space-y-3">
               <div 
                 onClick={() => setIsMemberActionsCollapsed(!isMemberActionsCollapsed)}
-                className={cn(
-                  "flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90",
-                  isMemberActionsCollapsed ? "rounded-3xl border-b-0" : "rounded-t-3xl"
-                )}
+                className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
+                title={isMemberActionsCollapsed ? "Click to expand" : "Click to collapse"}
               >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
                     <UserPlus className="w-5 h-5" />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                      <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                         Member Management Actions
-                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMemberActionsCollapsed && "-rotate-180")} />
-                      </h3>
+                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberActionsCollapsed && "-rotate-90")} />
+                      </h4>
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300/80">
                         Admin
                       </span>
@@ -4732,19 +4730,21 @@ export default function App() {
               </div>
 
               {!isMemberActionsCollapsed && (
-                <div className="px-5 sm:px-6 py-6 bg-white rounded-b-3xl overflow-visible">
-                  <div className="flex flex-wrap items-center gap-3">
+                <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200/90 relative z-30">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     {/* Add Member Dropdown */}
-                    <div className="relative flex-1 sm:flex-none z-30">
+                    <div className="relative z-30">
                       <button 
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowAddMemberDropdown(prev => !prev);
                         }}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 text-sm cursor-pointer"
+                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap"
                       >
-                        <Plus className="w-4 h-4" /> Add Member <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", showAddMemberDropdown && "rotate-180")} />
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>Add Member</span>
+                        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showAddMemberDropdown && "rotate-180")} />
                       </button>
                       
                       {showAddMemberDropdown && (
@@ -4756,7 +4756,7 @@ export default function App() {
                               setShowAddMemberDropdown(false);
                             }}
                           />
-                          <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-1.5 z-50 divide-y divide-slate-100/80 animate-in fade-in zoom-in-95 duration-150">
+                          <div className="absolute left-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-1.5 z-50 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -4764,14 +4764,14 @@ export default function App() {
                                 setIsAddingMember(true);
                                 setShowAddMemberDropdown(false);
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
                             >
-                              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                                <UserPlus className="w-4 h-4" />
+                              <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                <UserPlus className="w-3.5 h-3.5" />
                               </div>
                               <div className="flex flex-col min-w-0">
                                 <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Add Individual</span>
-                                <span className="text-[11px] text-slate-500 font-medium">Add a single member manually</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Add a single member manually</span>
                               </div>
                             </button>
                             <button
@@ -4781,14 +4781,14 @@ export default function App() {
                                 setIsBulkAdding(true);
                                 setShowAddMemberDropdown(false);
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left group"
                             >
-                              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                                <FileSpreadsheet className="w-4 h-4" />
+                              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                <FileSpreadsheet className="w-3.5 h-3.5" />
                               </div>
                               <div className="flex flex-col min-w-0">
                                 <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Bulk Upload (XLS)</span>
-                                <span className="text-[11px] text-slate-500 font-medium">Import members from Excel file</span>
+                                <span className="text-[10px] text-slate-400 font-normal">Import members from Excel file</span>
                               </div>
                             </button>
                           </div>
@@ -4799,63 +4799,63 @@ export default function App() {
                     {/* Export All Button */}
                     <button 
                       onClick={exportAllDataToExcel}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-teal-100 active:scale-95 text-sm"
+                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 whitespace-nowrap"
                       title="Export all member contributions and financial data to Excel"
                     >
-                      <FileSpreadsheet className="w-4 h-4" /> Export All
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                      <span>Export All</span>
                     </button>
 
                     {/* Send Reminders Button */}
                     <button 
                       onClick={() => setShowReminderConfirm(true)}
                       disabled={isTriggeringReminders || isSendingReport}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 active:scale-95 disabled:opacity-50 text-sm"
+                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
                       title="Send monthly reminders to members who haven't paid"
                     >
                       {isTriggeringReminders ? (
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       ) : (
-                        <Mail className="w-4 h-4" />
+                        <Mail className="w-3.5 h-3.5" />
                       )}
-                      {isTriggeringReminders ? 'Sending...' : 'Send Reminders'}
+                      <span>{isTriggeringReminders ? 'Sending...' : 'Send Reminders'}</span>
                     </button>
 
                     {/* Send Backup Now Button */}
                     <button 
                       onClick={triggerFullBackupReport}
                       disabled={isSendingReport || isTriggeringReminders}
-                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 text-sm"
+                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
                       title="Send full financial backup report to jpvenu2000@gmail.com"
                     >
                       {isSendingReport ? (
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       ) : (
-                        <FileDown className="w-4 h-4" />
+                        <FileDown className="w-3.5 h-3.5" />
                       )}
-                      {isSendingReport ? 'Generating Backup...' : 'Send Backup Now'}
+                      <span>{isSendingReport ? 'Generating Backup...' : 'Send Backup Now'}</span>
                     </button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Member Details Collapsible Card */}
-            <div className="bg-white rounded-3xl border-2 border-indigo-200/90 shadow-sm overflow-hidden transition-all">
+            {/* Section 2: Member Details */}
+            <div className="space-y-4">
               <div 
                 onClick={() => setIsMemberDetailsCollapsed(!isMemberDetailsCollapsed)}
-                className="flex items-center justify-between p-5 sm:p-6 cursor-pointer bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 transition-colors select-none group border-b border-indigo-100/90"
+                className="flex items-center justify-between p-4 bg-gradient-to-r from-slate-50/90 via-indigo-50/40 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
+                title={isMemberDetailsCollapsed ? "Click to expand" : "Click to collapse"}
               >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
                     <Users className="w-5 h-5" />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base sm:text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
-                        Member Details
-                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMemberDetailsCollapsed && "-rotate-180")} />
-                      </h3>
-                    </div>
+                    <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                      Member Details
+                      <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberDetailsCollapsed && "-rotate-90")} />
+                    </h4>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
                       Overview of registered group members, payment status, contact details, and administration controls
                     </p>
@@ -4863,14 +4863,14 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="px-3.5 py-1.5 bg-indigo-100 text-indigo-800 rounded-full text-xs font-bold border border-indigo-300/80 shadow-2xs">
+                  <span className="px-3.5 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs sm:text-sm font-bold shadow-2xs">
                     {sortedMembers.length} Members
                   </span>
                 </div>
               </div>
 
               {!isMemberDetailsCollapsed && (
-                <div className="border-t border-slate-100">
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
                   {/* Desktop Table View */}
                   <div className="hidden lg:block w-full max-w-full overflow-hidden">
                     <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
@@ -5244,11 +5244,11 @@ export default function App() {
                 );
               })}
             </div>
+                </div>
+              )}
+            </div>
           </div>
-        )}
-      </div>
-    </div>
-  ) : activeTab === 'loans' ? (
+        ) : activeTab === 'loans' ? (
           <div className="space-y-6">
             {isAdmin ? (
               <>
@@ -7146,11 +7146,12 @@ export default function App() {
                 if (field === 'principal') return (a.principal - b.principal) * factor;
                 if (field === 'interest') return (a.interest - b.interest) * factor;
                 if (field === 'total') return (a.total - b.total) * factor;
+                if (field === 'mode') return a.paymentMode.localeCompare(b.paymentMode) * factor;
                 if (field === 'date') return (a.timeMs - b.timeMs) * factor;
                 return 0;
               });
 
-              const handleLoanSort = (field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'date') => {
+              const handleLoanSort = (field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'mode' | 'date') => {
                 if (collectionLoanSortConfig.field === field) {
                   setCollectionLoanSortConfig({
                     field,
@@ -7163,29 +7164,33 @@ export default function App() {
 
               return (
                 <div className="space-y-6">
-                  {/* Top Banner */}
-                  <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-6 sm:p-8 shadow-sm border-2 border-indigo-200/90">
-                    <div className={cn("flex flex-col lg:flex-row lg:items-center justify-between gap-4", isMonthlyCollectionSummaryExpanded && "pb-6 border-b border-indigo-100/80")}>
+                  {/* 1. Monthly Collection Summary Card */}
+                  <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-5 sm:p-6 shadow-sm border-2 border-indigo-200/90 transition-all">
+                    <div className={cn("flex flex-col lg:flex-row lg:items-center justify-between gap-4", isMonthlyCollectionSummaryExpanded && "pb-5 border-b border-indigo-100/80")}>
                       <div 
                         onClick={() => setIsMonthlyCollectionSummaryExpanded(!isMonthlyCollectionSummaryExpanded)}
                         className="flex items-center gap-3.5 cursor-pointer group select-none"
                       >
-                        <div className="w-12 h-12 bg-indigo-100 rounded-2xl flex items-center justify-center border border-indigo-200 text-indigo-600 shrink-0 group-hover:scale-105 transition-transform shadow-xs">
-                          <IndianRupee className="w-6 h-6" />
+                        <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                          <IndianRupee className="w-5 h-5" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-xl text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                            <h3 className="font-bold text-lg text-slate-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                               Monthly Collection Summary
-                              <ChevronDown className={cn("w-5 h-5 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMonthlyCollectionSummaryExpanded && "-rotate-90")} />
+                              <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isMonthlyCollectionSummaryExpanded && "-rotate-90")} />
                             </h3>
                             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                               Live
                             </span>
                           </div>
-                          {isMonthlyCollectionSummaryExpanded && (
+                          {isMonthlyCollectionSummaryExpanded ? (
                             <p className="text-xs text-slate-500 mt-0.5">
-                              Total received amount including member contributions &amp; loan repayments (principal + interest)
+                              Total received including member contributions &amp; loan repayments for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} ‚Ä¢ ‚Çπ{grandTotalMonthlyReceived.toLocaleString("en-IN")} Total
                             </p>
                           )}
                         </div>
@@ -7232,7 +7237,7 @@ export default function App() {
                               >
                                 {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                                   <option key={`coll-m-${m}`} value={m} className="bg-white text-slate-900">
-                                    {format(new Date(2026, m - 1, 1), 'MMMM')}
+                                    {format(new Date(2026, m - 1, 1), "MMMM")}
                                   </option>
                                 ))}
                               </select>
@@ -7289,88 +7294,112 @@ export default function App() {
                       })()}
                     </div>
 
-                    {/* Collection Metrics Grid */}
+                    {/* Collection Metrics Grid - Smart & Compact */}
                     {isMonthlyCollectionSummaryExpanded && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
-                        <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white border-2 border-emerald-200/90 rounded-2xl p-5 relative overflow-hidden shadow-xs">
-                          <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-1">
-                            Total Received ({format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM yyyy')})
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
+                        {/* Card 1: Total Received */}
+                        <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/30 to-white border border-emerald-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-emerald-300 transition-all">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
+                              Total Received
+                            </span>
+                            <div className="w-6 h-6 rounded-lg bg-emerald-100/80 text-emerald-700 flex items-center justify-center font-bold">
+                              <IndianRupee className="w-3.5 h-3.5" />
+                            </div>
+                          </div>
+                          <p className="text-2xl font-black text-emerald-700 tracking-tight">
+                            ‚Çπ{grandTotalMonthlyReceived.toLocaleString("en-IN")}
                           </p>
-                          <p className="text-3xl font-black text-emerald-700">
-                            ‚Çπ{grandTotalMonthlyReceived.toLocaleString('en-IN')}
-                          </p>
-                          <p className="text-[10px] text-emerald-600 font-semibold mt-1.5">
-                            Contributions + Loan Repayments
+                          <p className="text-[11px] text-emerald-600 font-medium mt-1">
+                            Contributions + Loans
                           </p>
                         </div>
 
-                        <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white border-2 border-indigo-200/90 rounded-2xl p-5 shadow-xs">
-                          <p className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider mb-1">
-                            Member Contributions
+                        {/* Card 2: Member Contributions */}
+                        <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/30 to-white border border-indigo-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-indigo-300 transition-all">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider">
+                              Member Contributions
+                            </span>
+                            <div className="w-6 h-6 rounded-lg bg-indigo-100/80 text-indigo-700 flex items-center justify-center font-bold">
+                              <Wallet className="w-3.5 h-3.5" />
+                            </div>
+                          </div>
+                          <p className="text-2xl font-black text-indigo-950 tracking-tight">
+                            ‚Çπ{monthlyContributionTotal.toLocaleString("en-IN")}
                           </p>
-                          <p className="text-2xl font-black text-indigo-950">
-                            ‚Çπ{monthlyContributionTotal.toLocaleString('en-IN')}
-                          </p>
-                          <p className="text-[10px] text-indigo-600 font-semibold mt-1.5">
+                          <p className="text-[11px] text-indigo-600 font-medium mt-1">
                             {monthlyPaidContributions.length} Paid Members
                           </p>
                         </div>
 
-                        <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white border-2 border-purple-200/90 rounded-2xl p-5 shadow-xs">
-                          <p className="text-[10px] font-bold text-purple-800 uppercase tracking-wider mb-1">
-                            Total Loan Repayments
+                        {/* Card 3: Total Loan Repayments */}
+                        <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/30 to-white border border-purple-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-purple-300 transition-all">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider">
+                              Loan Repayments
+                            </span>
+                            <div className="w-6 h-6 rounded-lg bg-purple-100/80 text-purple-700 flex items-center justify-center font-bold">
+                              <IndianRupee className="w-3.5 h-3.5" />
+                            </div>
+                          </div>
+                          <p className="text-2xl font-black text-purple-950 tracking-tight">
+                            ‚Çπ{monthlyLoanTotalCollected.toLocaleString("en-IN")}
                           </p>
-                          <p className="text-2xl font-black text-purple-950">
-                            ‚Çπ{monthlyLoanTotalCollected.toLocaleString('en-IN')}
-                          </p>
-                          <p className="text-[10px] text-purple-600 font-semibold mt-1.5">
-                            {monthlyPaidLoanPayments.length} Collected Repayments
+                          <p className="text-[11px] text-purple-600 font-medium mt-1">
+                            {monthlyPaidLoanPayments.length} Collected
                           </p>
                         </div>
 
-                        <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white border-2 border-amber-200/90 rounded-2xl p-5 shadow-xs">
-                          <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mb-1">
-                            Principal &amp; Interest Split
-                          </p>
-                          <div className="text-lg font-black text-slate-900">
-                            ‚Çπ{monthlyLoanPrincipalCollected.toLocaleString('en-IN')} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-700">‚Çπ{monthlyLoanInterestCollected.toLocaleString('en-IN')}</span>
+                        {/* Card 4: Principal & Interest Split */}
+                        <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/30 to-white border border-amber-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-amber-300 transition-all">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                              Principal &amp; Interest
+                            </span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                              Split
+                            </span>
                           </div>
-                          <p className="text-[10px] text-amber-700 font-semibold mt-1.5">
-                            Principal + Interest Portion
+                          <div className="text-base sm:text-lg font-black text-slate-900 truncate">
+                            ‚Çπ{monthlyLoanPrincipalCollected.toLocaleString("en-IN")} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-700 font-bold">‚Çπ{monthlyLoanInterestCollected.toLocaleString("en-IN")}</span>
+                          </div>
+                          <p className="text-[11px] text-amber-700 font-medium mt-1">
+                            Principal + Interest
                           </p>
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Detailed Tables Section */}
+                  {/* Detailed Sections: Member Contributions and Loan Repayments */}
                   <div className="flex flex-col gap-6">
-                    {/* Table 1: Paid Member Contributions */}
-                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
+                    {/* Section 2: Paid Member Contributions */}
+                    <div className="space-y-4">
                       <div 
                         onClick={() => setIsContribListExpanded(!isContribListExpanded)}
-                        className="flex items-center justify-between p-3.5 bg-gradient-to-r from-indigo-50/80 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/50 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-2xs"
+                        className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
                         title={isContribListExpanded ? "Click to collapse" : "Click to expand"}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
-                            <Wallet className="w-4 h-4" />
+                          <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                            <Wallet className="w-5 h-5" />
                           </div>
                           <div>
                             <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                               Member Contributions
                               <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isContribListExpanded && "-rotate-90")} />
                             </h4>
-                            <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
+                            <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} ‚Ä¢ {monthlyPaidContributions.length} Members</p>
                           </div>
                         </div>
-                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-bold shadow-2xs">
-                          ‚Çπ{monthlyContributionTotal.toLocaleString('en-IN')}
+                        <span className="px-3.5 py-1.5 bg-indigo-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs">
+                          ‚Çπ{monthlyContributionTotal.toLocaleString("en-IN")}
                         </span>
                       </div>
 
                       {isContribListExpanded && (
-                        <>
+                        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/90 space-y-4">
                           {sortedContribs.length === 0 ? (
                             <p className="text-slate-400 text-xs italic py-8 text-center">
                               {searchQuery && searchQuery.trim() ? "No contributions match your search." : "No paid contributions recorded for this month."}
@@ -7562,36 +7591,36 @@ export default function App() {
                               </div>
                             </>
                           )}
-                        </>
+                        </div>
                       )}
                     </div>
 
-                    {/* Table 2: Loan Repayments Collected */}
-                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
+                    {/* Section 3: Loan Repayments Collected */}
+                    <div className="space-y-4">
                       <div 
                         onClick={() => setIsLoanListExpanded(!isLoanListExpanded)}
-                        className="flex items-center justify-between p-3.5 bg-gradient-to-r from-emerald-50/80 via-slate-50 to-white hover:from-emerald-100 hover:to-emerald-50/50 border-2 border-emerald-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-2xs"
+                        className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50/90 via-slate-50 to-white hover:from-emerald-100 hover:to-emerald-50/60 border-2 border-emerald-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
                         title={isLoanListExpanded ? "Click to collapse" : "Click to expand"}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
-                            <IndianRupee className="w-4 h-4" />
+                          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                            <IndianRupee className="w-5 h-5" />
                           </div>
                           <div>
                             <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-emerald-700 transition-colors flex items-center gap-2">
                               Loan Repayments Collected
                               <ChevronDown className={cn("w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-transform duration-200", !isLoanListExpanded && "-rotate-90")} />
                             </h4>
-                            <p className="text-xs text-slate-500">Principal + Interest for {format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy')}</p>
+                            <p className="text-xs text-slate-500">Principal + Interest for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} ‚Ä¢ {monthlyPaidLoanPayments.length} Repayments</p>
                           </div>
                         </div>
-                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-xs font-bold shadow-2xs">
-                          ‚Çπ{monthlyLoanTotalCollected.toLocaleString('en-IN')}
+                        <span className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs">
+                          ‚Çπ{monthlyLoanTotalCollected.toLocaleString("en-IN")}
                         </span>
                       </div>
 
                       {isLoanListExpanded && (
-                        <>
+                        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/90 space-y-4">
                           {sortedLoanPayments.length === 0 ? (
                             <p className="text-slate-400 text-xs italic py-8 text-center">
                               {searchQuery && searchQuery.trim() ? "No loan repayments match your search." : "No loan repayments collected for this month."}
@@ -7605,10 +7634,10 @@ export default function App() {
                                     <tr className="bg-slate-50/75 border-b border-slate-200/80 text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
                                       <th 
                                         onClick={() => handleLoanSort('sno')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-10"
+                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-14"
                                       >
                                         <div className="flex items-center gap-1">
-                                          #
+                                          Sl no
                                           {collectionLoanSortConfig.field === 'sno' ? (
                                             collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                           ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
@@ -7619,48 +7648,37 @@ export default function App() {
                                         className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       >
                                         <div className="flex items-center gap-1">
-                                          Borrower
+                                          BORROWER
                                           {collectionLoanSortConfig.field === 'borrower' ? (
                                             collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                           ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
                                         </div>
                                       </th>
                                       <th 
-                                        onClick={() => handleLoanSort('principal')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          Principal
-                                          {collectionLoanSortConfig.field === 'principal' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
-                                      <th 
-                                        onClick={() => handleLoanSort('interest')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          Interest
-                                          {collectionLoanSortConfig.field === 'interest' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
-                                      <th 
                                         onClick={() => handleLoanSort('total')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-44 sm:w-52"
                                       >
                                         <div className="flex items-center gap-1">
-                                          Total Paid
+                                          Total paid
                                           {collectionLoanSortConfig.field === 'total' ? (
                                             collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                           ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
                                         </div>
                                       </th>
                                       <th 
+                                        onClick={() => handleLoanSort('mode')}
+                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-28 sm:w-32"
+                                      >
+                                        <div className="flex items-center gap-1">
+                                          Mode
+                                          {collectionLoanSortConfig.field === 'mode' ? (
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                        </div>
+                                      </th>
+                                      <th 
                                         onClick={() => handleLoanSort('date')}
-                                        className="px-3 sm:px-3.5 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-3 sm:px-3.5 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-32 sm:w-36"
                                       >
                                         <div className="flex items-center gap-1">
                                           Date
@@ -7680,14 +7698,25 @@ export default function App() {
                                         <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-900 border-r border-slate-200/60">
                                           {p.borrowerName}
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 font-semibold text-slate-700 border-r border-slate-200/60">
-                                          ‚Çπ{p.principal.toLocaleString('en-IN')}
+                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
+                                          <div className="flex flex-col">
+                                            <span className="font-bold text-emerald-600">
+                                              ‚Çπ{p.total.toLocaleString('en-IN')}
+                                            </span>
+                                            <span className="text-[10px] text-slate-500 font-medium">
+                                              ‚Çπ{p.principal.toLocaleString('en-IN')} (P) + ‚Çπ{p.interest.toLocaleString('en-IN')} (I)
+                                            </span>
+                                          </div>
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 font-semibold text-amber-600 border-r border-slate-200/60">
-                                          ‚Çπ{p.interest.toLocaleString('en-IN')}
-                                        </td>
-                                        <td className="px-3 sm:px-3.5 py-3 font-bold text-emerald-600 border-r border-slate-200/60">
-                                          ‚Çπ{p.total.toLocaleString('en-IN')}
+                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
+                                          <span className={cn(
+                                            "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase inline-block",
+                                            p.paymentMode.toLowerCase() === 'cash' 
+                                              ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                              : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                          )}>
+                                            {p.paymentMode}
+                                          </span>
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 text-slate-500">
                                           {p.dateFormatted}
@@ -7701,15 +7730,15 @@ export default function App() {
                               {/* Mobile / Tablet Columnar Table View */}
                               <div className="lg:hidden">
                                 <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
-                                  <table className="w-full min-w-[540px] text-left border-collapse whitespace-nowrap text-xs">
+                                  <table className="w-full min-w-[500px] text-left border-collapse whitespace-nowrap text-xs">
                                     <thead>
                                       <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
                                         <th 
                                           onClick={() => handleLoanSort('sno')}
-                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-9 text-center select-none"
+                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-12 text-center select-none"
                                         >
                                           <div className="flex items-center justify-center gap-1">
-                                            #
+                                            Sl no
                                             {collectionLoanSortConfig.field === 'sno' ? (
                                               collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                             ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
@@ -7727,30 +7756,8 @@ export default function App() {
                                           </div>
                                         </th>
                                         <th 
-                                          onClick={() => handleLoanSort('principal')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Principal
-                                            {collectionLoanSortConfig.field === 'principal' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleLoanSort('interest')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Interest
-                                            {collectionLoanSortConfig.field === 'interest' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
                                           onClick={() => handleLoanSort('total')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none w-36"
                                         >
                                           <div className="flex items-center gap-1">
                                             Total paid
@@ -7760,8 +7767,19 @@ export default function App() {
                                           </div>
                                         </th>
                                         <th 
+                                          onClick={() => handleLoanSort('mode')}
+                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none w-24"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Mode
+                                            {collectionLoanSortConfig.field === 'mode' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                        <th 
                                           onClick={() => handleLoanSort('date')}
-                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none w-28"
                                         >
                                           <div className="flex items-center gap-1">
                                             Date
@@ -7781,14 +7799,25 @@ export default function App() {
                                           <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-200/60">
                                             {p.borrowerName}
                                           </td>
-                                          <td className="px-3 py-2.5 font-semibold text-slate-700 border-r border-slate-200/60">
-                                            ‚Çπ{p.principal.toLocaleString('en-IN')}
+                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
+                                            <div className="flex flex-col">
+                                              <span className="font-bold text-emerald-600">
+                                                ‚Çπ{p.total.toLocaleString('en-IN')}
+                                              </span>
+                                              <span className="text-[10px] text-slate-500 font-medium">
+                                                ‚Çπ{p.principal.toLocaleString('en-IN')} (P) + ‚Çπ{p.interest.toLocaleString('en-IN')} (I)
+                                              </span>
+                                            </div>
                                           </td>
-                                          <td className="px-3 py-2.5 font-semibold text-amber-600 border-r border-slate-200/60">
-                                            ‚Çπ{p.interest.toLocaleString('en-IN')}
-                                          </td>
-                                          <td className="px-3 py-2.5 font-bold text-emerald-600 border-r border-slate-200/60">
-                                            ‚Çπ{p.total.toLocaleString('en-IN')}
+                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
+                                            <span className={cn(
+                                              "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase inline-block",
+                                              p.paymentMode.toLowerCase() === 'cash' 
+                                                ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                                : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                            )}>
+                                              {p.paymentMode}
+                                            </span>
                                           </td>
                                           <td className="px-3 py-2.5 text-slate-500">
                                             {p.dateFormatted}
@@ -7801,12 +7830,11 @@ export default function App() {
                               </div>
                             </>
                           )}
-                        </>
+                        </div>
                       )}
                     </div>
                   </div>
-                </div>
-              );
+                </div>              );
             })()}
           </div>
         ) : (
@@ -9254,51 +9282,43 @@ export default function App() {
                     className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
                   >
                     Cancel
-                  </button>
-                  <button 
-                    disabled={isSubmittingAdminLoan || !selectedLoanUserId}
-                    onClick={addAdminLoan}
-                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
-                  >
-                    {isSubmittingAdminLoan ? (
-                      <>
-                        <Clock className="w-5 h-5 animate-spin" /> Recording...
-                      </>
-                    ) : (
-                      'Record Loan'
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-        {editingContribution && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              key="modal-edit-contrib-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setEditingContribution(null)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              key="modal-edit-contrib-content"
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
-            >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">Edit Contribution</h2>
-              <div className="space-y-6">
-                <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Member</p>
-                  <p className="font-bold text-slate-900">
-                    {allUsers.find(u => 
-                      (editingContribution.userId && u.uid === editingContribution.userId) || 
-                      (editingContribution.userEmail && u.email.toLowerCase() === editingContribution.userEmail.toLowerCase())
-                    )?.displayName || editingContribution.userEmail.splitxú‘ñÕR€0«Ôyäù\íÃ†ÿhß©ìñazeò·ÿÈA∂7éä,y,9¿ óæU_á'©lŸ¡çeùv⁄˙íH+ÌÆ˛˚”«xÙq4˘Ïy@ÁºlŸÈºòmñÉn’Ìp¬ià"Nï:ß).Ü!ó—hº—D•∞íBìPÚ∏Ó·T#yÎ˚êÜd6\û¶≤∆èﬂæOØÚÂå¬DVhpX Ùmf¢ä"1:Gl(/pqá1”L$g&£úÖÖfRL©ç£ëK# )Œ÷T$f˛'∞XÇB˝©Îi|”È‘‚ lå9úW)éq™iû†ûViM‡a‚‹íÙö¨
-Œ!#«&µÜ'>‰∆oå1ô›pec^ˇ‘CfFÊñÍÔL≥*Gj“, “DÖöÁ&_2k7òàY"M d°9HÑË“÷˚Î ]j™ı:&n€˚ä„$4+';uL›¥N[Cõ‚¶≠BÜ≥Ë Ûk¿®jMseî≈£^@⁄à‹Eb‹3†Z39ÑÏñm°1Ã8$Œ©P¨ÃÇPﬁ@5<ËıÏ⁄R6{X,ızg|Ä°SÃ)è…õÜ◊Î5”ÿ∞‹∂™5çÂ5·IÛØ1˙~_5 o^≈±n[ï.;;f-7òœwÇœ˙˝˜T«¿ÖëƒÕùg©˙˜©Ds@à‰ˇ≥^√ãl“ÚÃÓ!Û…÷·“ö˛ï÷˚od“™Òj,Î≥æß€y8è‚#»49vû«5˜Ó´?§Öπ;_æcüP<ﬁ-∆ÜuzÓ‡ü!u’∆]Ä3*"‰N}ü—~/aä,6â∂ÂÿOàô"‹ævv@{ŸyÍIÂ5Ω≥s;;•j∂
-–H≥ŒUDπy≠ú@≈áâñ*°–ÊyÛµPö≠nõ¶Ω∆˜÷˘ínÏkNΩJm'ÁéŒ¿Keu‘ÏXvÜnaºS¡RS†ãÏò†zVMﬁ?   ˇˇ Ö
-=
+                  </buttxúÏ=Ÿr‹FíÔ˛äcfÿm}Ò∞Dì‘“í´QfòrÃŒj6ÿ(≤1¬5 Zdª≈óy€ˇÿüòﬂô/ŸÃ*†™ ÙARî!±ª‘ëïwef˘ﬁÒ7§r^L„ÿ˜à‰!ñôµéÊvt>ΩpÌ8∂Ω´ÀµΩ◊æÈëOü»ìà:tS¯5¢·+ÎV⁄ñÔΩpÏÒá£πiYYÚG«éEoLóm\:Ù∆ë`fÏíã+√ˆ,˚ 7ˆ”õÿ∏ûÿ1%°?ı,j£á\˙^l\¯éE&˛G‰/}á/Ö¶Ÿ±Ì{ÜÈ8$öòñm8WÈß‰—!<jéc˚#=à∆¶Cçg{,¸¿€ÒÃÿ‰øÒß50ÅAπë1¶^LCÚ˜i€ó≥ÙÎï£…ºe´CàÚœIG˙8,®ºvÎÖ„è?à‡Ω6ˆ»˛ôûÌö15¢¿ˆ6Hˇò¸B«~hAóΩ^O’Q_ﬁSó(∑…€%8áM˘€2î8Ïs,≠vxÿ∑ÏèÂü%?ˆ]óΩW∫SzTË}N-a˛*¥°xõ¸Â/Ö©¬Àlµo®El/¢±1 Ô #ﬁ◊£D`ÏnîÜõè∂LôËÏh√ı-”1pÑ∆òèœ∏0«¨– ®e{0”9öœIÇπd@nÀ`N0†ÿ∞˙Ω±„∫¶2JÔt…—1`¸Xe«õ:Ne±XöëÔLÅ∫Sp%G"È≥¡†øﬂì	Œ44"∑8Ò˛“ ≈ø∞>ç‡πMÄOΩg{€~5ÖqˆÍêΩ'y≠
+Ûf›	¿)@ÿëÛÃk„Ä∏Êçqm∏V∆Cwn2∂àÏ40ûP°µ…HÏàqÂ"f?e+G‹c„1Çà¯pÿüå*mó»+ PcÜÔWÅÑ∞ﬂÉ n"˘Ëvat” †·ÿå(és∏q|J›ˆÉ˙∂U3ñØ9 îóQÔ§Ngä§¢‡ö	+ÍMô¨Eé4ÌMmãıs]î’mõˇ—5má˜@Òc/ˆ_˚◊4|A⁄÷Ù¯cı˘Æúﬂ?öå«ú!qî˙&·Q;Ól˛«f˜›‡Ω\VH÷J*&÷Ü4g4¥}kI§ô_˙!pãéGØ…K¯U∫J3jÜ€RàπeB2ÏnìÕS∏»ÆÕÓ≠>Õ‰ò‘'r¡T>	W™Ô8ıè6éO\‡6Òaüµ"møD˘)ˇR–“!pO*<zÉÍÉòˆGƒ`
+ Õå˝PZ…l‹«ˇ˛Áø˚ÿÆ¢K€¶±ä§‚Y £¶»<d∫^Mg
+≤@∂x&Éè\9fÚubzWnáÍ$ÏúÄÚ&i~õˆ»6¿Ì≈fxE„Ró‹Jï0º
+™# Åc<%A0NutM–éEµ¸¥>–t¯ü‰ëQ™≈Á¬!«õK<çB:®ˇ¬óDCﬂÉá˝iÏÿ5<ﬂ£r K5T/∏[8èÕxµ ¶Er„AÅë:KÆ©V¶∆ôà¯Äl¶mm6¬ë˘ÿSÑp”nàh≥ì°JAqHp¶h≥ml+[îQ5U…¿ïØ0™6 ©KC”± FfÇ∫‚›ä˘òﬁµC◊—Îà∑+`∂Y°êƒå-ˆ7TlE±.*´Ä"G'•Õ≈Óﬁ≤Q≠–œﬂ“±◊¢úâlXÅp˘Ω
+∫Ò[kC6ﬁ¸
+Qç√£5∂-¿∞•åsáq≈“Nﬁ—°Ûˆ,ø ˛¨!óï•≈êxÆ§¢¥Ñüç=I/LoLùVﬁï¶ÄôT«Á„ÿk¿shÆzE˜Ï§ ΩTvtb!U=0◊îiYﬂ35Ø¨@ÁU–Œ•ÈD¥˚ΩÏôÛƒÁÕ˝›úÙÀÍ‹1˜·€W‰´kkçÆ≠ƒ≈ΩJÁ£r◊Æ¯ü≈∂z⁄íV
+Ctíz¡î∆
+ö‡¸QΩ±Ω=õõmÃ‹·ï◊VÎäLUt¿©ªcU•6˙€{‡ ‹»≈$.[–°˚¸U¢Ø—∂ŒΩçâWÔy…≠˜t◊Ûøùø˝ÒÙ∑ìóßØﬁ¸ˆ„È…´◊%_^œ5ÉNg∫M¶∂u√VG≠yß@f4ˇ=ÂA!Ω2‡ÜÒßπbàÏ∆Ê->˝‹˛~õ"˜y¬#…À∑Í]/ò˛¥ÏcLﬂRèπ¢]≤ˆ9ä∑–cEqû=ZbW!Ãˇ÷ÌDÄd®œ*TŸuÒÇSÙ(Æê∞ˆ!~ˆbGÓªz§<`~ÜÊ¨w˙.XÕıÆ‚	à’ò≈ú€&ˆ¬d»|≈@c6Ÿ"CÅ»¯w-eïù‘£¡hÜ≤ù˚ù7ïKrßT∂F¬¯5W)±πE»ﬂ˚¬®fx'ÅïcB Ípäò-J∏•¥0Ë`v{ˇÓYõ∫6ÇX83g.ÿå¸ıT–`«›5˚%ÔªkC%g˘kèKml≥«qhpJ„	Ó}Í°	´v92óîí¥´Ó∫dl|hùMﬂCêÍ‰RCó2!Ã%wSï\Rà•x4“¯ü		ƒâqßs29ÕK©”9√≤¥Ø≤N¯ÆÒßı˜î˛a~qˇsF3	d7wA_ÂO®õW.°&ÓøÕ†¥æ@›ªd|s[POé ïú˚çQg˜VNã¸˙ô5£BiÌ^À
+P~lFìGälj–ùÔf‰X⁄si≤ÕÚπ°˙¶˜¡ÛcZîd◊u∏
+¯d!LUãùÂÙú‘7∂≥àV™Cµ2hG∫’ˇñ¸Ä·>Öÿ–ül
+Dm_°*oçËUÌèÄˆ∆Pw∏∂á‘€SäPBŒß—8¥π‹˘˜?ˇ%èŒ¬%“HÚ÷Å:Ï}∞ŒN˚`ùî’‘Ì∞Óô™!„&±;x%˙ËÈœoﬁ˛ÁÎø˝vr˙ÛØoﬁ™YlMØyD_Û∆◊Ï‡VŸ®∑óªπÖ=Ï∫Áw2Ä‘K2ûÜë¬Á˘∑M-ıÙï‹C…‘‘éí‘9Ã∆
+î£Èì◊Ï3•ÀPñl/X*ã.h|M©WO9+'VM_§
+©÷kïˆÍ§=õ¬ªg¡Õ˚d^åú7#D»¸IPÕå8ZjÂ∫·M–êJÙê/Ar¸,D4‡◊QM\DQ\KƒsEêhÑ≥÷IVùL‡ÑmCìŒÒpO∫Ló|Âô…èˇ˛ﬂˇ„?Î|g:>ß!√ï0Ì:ƒiÃ”´Lºû<Oê4A «‚:jóÌÜl`˙«æÀà˝ÄtB§‚€®nbã◊ÿ˜¢{&G‰‘å'=◊ºÈ∂Uëüü>ëÅdÀ[º¿∏xëç∂Ô5}û˝väÚílë∫&*õø‚ïg®=©¿U˜^cL\VI‚™ Æ∞ç#À™LG˚të'ˆ˜
+úpg pIÆ»Ox_K1¸*ÛMùﬁÅå¥çb°±t
+@ —	@òÜGöÅ.°ü(oHÓ†⁄Ú÷èÅº8vü#∞dÄ◊
+}•Ã{‰é	 „*$ô¬R÷QDF¨cˇeº®∫0_“’∫ãdˆ5í©ö[Òn8@C¶ﬁsO©F0Iÿ©}ûìﬂÅ„ˇ©§¥≥çgå:9èë:õ‘3^ΩŸÏﬁr+oã∞wr≠~ûq∆‘Û’K&≈◊ág.0$ﬁòn>®WÙ“i“ìäv…(zz(°*g!ˆ’$V˚fÂ®ÂTP+Ò¢©”£∏Ã´Ú¢S/@ª]%¸î—§z¨…´±Í¿Tï&–$®-{≤Ihør˘3vùk›ør-°] ºZY„ä⁄•ÌôŒâ£∂∂ﬁ´ı(˚»¢»äÅX]ΩŸÔ˛bòfÖñ‘j‹äùôÆ”≤
+”Ö8êm"noó∆∑ù$odzú˝v≠Ìlô4 ∏%P_?Q–¨-á˛zˆ*≤~åi˜∫Nwî:ÌCåê^¢¶Å&™≠∏ìU"`˚)ln¨*Smì¿ö(x≥öú’Ö>¢]ÇdXî†é˝§§ˇ<MÉrk‘T≈∑çT„[ â•â.58ÃﬂiÇ¬ŸFÕ›`∞|{Ö°qäªÌq∂
+”5fÄ»≥ k0ó+rtÚ"…¨-è@∑ﬁ89†qz@≥ŸVÍÀÑTy>´ãÓóØÌ!’,å~·∏˝≈#˜◊ª/#S©˝í‡#’o`ü_√}†h¯/ÒÆ {)p¨:‘wos
+ñ1t)◊Ò°”∑!p⁄Q±ﬂß–ÌSRtn∂ˆiô¿∞qÃpù≤Ú<‰$ÄLDºÁ≤÷C’òœ7<‹£xﬁNÏàÒcê∑c”Ü	+ä&irãÔ˚cﬁ≤2}ﬁâ˝p#Iå88¢küv"[©¬ÍµÆg éXçãÏÚTjAå0ƒå|Øˇ¬wqbÈ¸Ãˆ\Mß´À˝∆FÕêöRlI¸»í◊§qe›≠J0‹ÎÚ´ÕB‚
+Œ∑rálzlù∏$.’Î…©dsÛÜ◊ÿ!’∞â™/¨`fQiËº,xYuŒM@À˛(ı
+“Ω™v“»˛#irbåvesíêc{„	©ÕdTi>7Û|æÜ§¡‘)j>€§BO:7â‡ö«´∑©“´∫Urù:›˙lÆQß€ u˙t*ÓŒò„Â“]¬≈J´ÂVhΩrWÚxEÕá¯™Áfóåá@ÙU—UÅÛPtsKzÂ™Ó)µ‹Ã9pzÓò˘/W©ËûÑîÃ¸)â¶…ákìoâYIgπ"k
+=í∑Pá#ÄSoA≥Ÿæ¥?’ñÈ~Ôx|Jm2±á™’¶aÕUΩ6ª≥àfK‡©LÌP≠¯Ä‘ﬁF"´¥LèJÔ`*¥”ãC€Ì( “XafÃ+—ò‡n≠2KÎûtÊ˚ÚCkãH7ì©”¥«ä<ìªQµ±R∑Y≤Ã≠*Õ@¨}∏Ei¯nΩ √dœ˛°ïì…A˘eUì¡„›≥—«…{Çº·H’òq≈W©≈Ôì»=XW≈Ü-L]A|Y[%ÂÂDIÙâ4V¨sjﬁ`Ñœﬁ`{0hΩ°wUV•˘ﬁA1X¿™£9ËjeØ® ∑.˚:{´√£ÄmØ√zSE∑*∞¶∞yÏÿΩ§Iå)ƒõ⁄
+¨s_”—˚√ ¸ûï#01<@]ê†& Å$u
+¶ƒ4˛ ö–Åˇoïë2#†ºªöº–ƒËâa—ì≤ytéÈ,!XH\.jo∫lé˝j≤eM>á‚ñ>VÜÿ>ÓPóO)ß¬áQ¿¯%çM€iª°%«pÅ∑%Õ∂3˚ìó0¯ˆﬁ∆ ø◊Z`∏ÔåDK~≈€SÅh'igó;Ç⁄¡:ƒ:;ˇƒ°a¸¬«é,|¶öí∞¯`0O€†∑ßÚJ´ˆM=Ö¶jZ|7–1—ˆ®è2ùxÏB”hÏàD”ãøc9–˜Æ .1Yh∞˚2ÒÍı»+4Thñ—oU‘°÷<ÃÈœÑUar“ËyŸ©;K˘◊P∑ëù¬Ø«Í~…OµBH®è¥íü§ï¢%à∫√#U˛◊Éï84<€*9÷j3ˇò1ãS‰øànziÕ»˚™ø{fäﬁÒ8¥á‡˝∏wÜ¢»nµ&ÖvŸs∑ÃÓ„vu<›”π:FeW«.wuÏ∑wu§å
+>á¶¬›˙#≠_h+&swîæbñﬁO¿ƒ»•ÇDûzçHªcÒf’\ΩyGÖæ<Ë;È="Gå{'ﬁYÅ’ ﬂzè6@˚Ed=€í‡ªCc‚¡ÑYt7¥;T?ÇﬂV[¨>§1Wa®≈Ç–K„IÔùƒXÖ5	SW<ë<–¡˙¨Ó£d:˝~æHÑ)Ñ`ÜæK‚	eì‡Oí(ó*Xä¡≥˜S¿tƒ©Ù@ﬂÁAªXÆ≤K˛åu1∑d–öJ XnË'¿VG€RvÉÀ9ÑÜI¸æGlÎlI<ATè1ë¿õ˜c>Ê®Àc;ÄàËGÖÅÙBjM«¥”1«„m0$áè0ﬂ 9wh[öì¿õO√Z˘ÀÁ‚^N÷S)ø\é;¨˘'ƒêåRE¥ :àÚ6¥>¯˛íN>9G®HG]xlkKû–ƒß‡"	¯¥ÌzƒI_ù!›dË≥≈gL—;“˚l@2À¨è¡f$˙`òö$“Õàòl©0´3IŒH˘å§ÃËzí≤°^‰ª4≈&NWà,.Gü√v¯>c*âüxÅÙÙínWï&Ú*Wæ1'™ô¸âãêöd∑™*û§NrBgÚ‹öµTxlßÊYÇ∂Löu‘ÿ˝-à’¡`OOvHiŸ[YÃi<=e-wô´^P#∑‹+vì¬-1‘d‡™Sµƒà≈ëÏ.∞h¬∆Ò+AÏ&~er≤¬äï◊Ï…´@)ùtÚÙ‰í˝ô:íz◊5≈AîV}˝Å~)qlî$=∞oeÖ^j´	¨	î’Ç≥∂^z0ÙöÙc€Mçd—-›®pX›6øöÉ…úû%Ü•+~!wÄæ(6–∂4ø
+>80 »π]P∫‰&»Œj®7+ã—MÃª9\x?á_ö"Üz¬Xöj8;[5°d^√∫ªÀr·∞∫ç„-‹¢Ñ]*û‘µV»yÇòØ[y°à[œˆ≈≤%≠°ÃsÆTE-ˆì„9S
+V]]=ı©ëX∞-Æ/´¨Ênç≥¢õ{x
+o‘˚zÚKSJÍiŒI5⁄m‚kB2Î]Œx©ëHÈz∆´a˝ﬂï¨Øq ã√¬re¨`X=tímí+*ôzªùi∑´Y•w£˜BÅKΩCª≠?;]¬Öí¬QJ‹[ Ê™’Øwî€»ÜR©}¿jÚ
+µR∑†LÅr≤Jo¸ÎÖ0®mõ™óµ[#mÓ+O?ŒÅ∆Q™+RpÍù„£«ÁglOÑä<Ñ˘´O˚Ûﬂ[§⁄¨*ØﬁRl≠W¸; åïK·Ø¿6i\dQò¥øl¢éZßôÏ®ÀÜ…¨iF64x‹Q¥™é()©˛?±ˇ@l¡ª~$§Ì(‹˙pú œjQæo¿´∞‹ï:Ÿ\DÍ√°Dƒh∞¡.ÖC)≥++Ñ"ç\X…€6±ÖbùöÂ<U+¨≥†÷ƒSHrW!+—¨ãÖR◊ì≠wdgE!ˆ◊8‰áE^lÁ,XO™S
+˘µ&=≠ <Í.Òä±°<ÜËÓP*Ì≤-F•Ô}E®“ <Ñ‚´‘‰†ÆZ\Rü—U¿$uf55?ùkmòS«¸ä;Ö£Ω|Kã8J◊SÍMÆ™jtﬁy∑…œL⁄‹&õx"ÕÊ{bF|ª-9Ù“’ûxYwh©w€ÑÕ'¬3)
+–Ä¨"væËßZU¸|Tm≤#¨›‡ˆ‹tR&eÌ±
+%;S6Y√⁄cîΩW/‚E◊/8›»å´µ%õfC)∏Aû›öqÉ‘K.»ézáycg9ÔYÍ+ÔîTZ≤Eä…"€mL≥f∆áEÌ∆∆Sô	≤fÔ¬ße†T¯Ø5A∑j8Ç°ú%Ò.ü>ë2& #¢˘ºytÜìD_aÿïguXx≈IB¨xÿï∏
+ß6Ü‹8›dÄÏIı ±3Î»˜+§>œ>1}·Ç™2‘í`Å≤⁄ˆ¶—H2FRáyÿû¬-•©¸bB«x: ®©C!´§≥ŸLJb⁄Örºâ#ÎçÕÇ›1MMæúÈJÇ›k(≈ü⁄«¥ßï—≤ÕØﬁ˙r°=4_]ˆÎtŸÉ]¶.çEÑJWÌ\Û“≤ÆÖìƒ-|%ıÁ+ÎªJ8ã\;iÁœr4Y9◊YüÀ\Â “V˚ºùßIWVûäW]e!‹ih7?Ä9ÃAO£1ª…DÏÖÈ†÷–#⁄∞∑z´™A≠Æ∆ÙãóTÎ⁄!∫,c˝µê	zœ*X	2yYÃ0âh	%Me ï¶l6EÒ…;í°ãàŒµ÷¿·K˝†ÎﬂºÃ`˜pdkÇ_VŸõ¶ı)ÎXyÉ⁄î˜PÇ}ôÏ*'√¢≈◊aÚTQâr˘ÇÎÍ*ï¨w∂€=œµ”ÒT≈t[óâ"Ò|!	˛Â∏K§≤∫p.L.lÅ„A’éñBO_7zÕ¢õïs85Ω©Èd∫Oœé~(ÀËñﬁvJ˜>J˘D†N“èl∑fNzΩ~√Câ¶ÑÖì€™?˛´˝‡‰˜R1mR—€ZNr…Î≤ú©ì¿Y„qÈÍ¿¸êT2µ§$?c—“[Æ:óK]¡•Ús©∏:ö+a÷óO&À)ªÛ≠ˆl”#≠íxë?R655eçê7|†:Å\Åëkà¯»ˆ$[∆
+	ij“DÉåQI¶ÒÄ£<Ó4ÿLÆbµé=kŒıí¶/⁄â©~ü‚•·EkèKì"ùpÙÂNh˝ÄqÓQnÒÿ∂G Îåhª
+mã‡∆ÿw"Äî:ã¡Ú„SÛ√ây%XwÈòµﬂ]Üy`b'Ëe∏0„Os∑]ÿ∆XÏ≤Û∞àãx|V‰S~4∂ëÒjQAÒ[—õ†˙®ååc3∞cñ∑°çàìÎÍ˘aﬂçb„2íHGSNV≤Äk„‰J)ˆÚ}•\Á.ì˙££ÀÅ≠é£™.$◊4DN»0≠ƒ»≈~‚∑’£…ªq*ëqI?yhúFA'[r¨^<πˇÎâÆ÷à˝äéF¨2¶lÕ Únÿ€{ˇ à.~>∑"
+µA@WÊe>Sñÿ∫üí¢—ƒø>õÄZv˙n∑v+èz—∆n›˝≤[◊µ÷Ê÷]µWw!ÔÏªQo/§Ó˚¢ãv8»3ï'∂eÅkÂ≥ÕÄå'_¯1ÉtPß`\W°iŸ®K∆æ≤:ç¢Úˇ—6ç`˜ò¬3‰ﬁìnâ6Ò 3ˆZtEKõ√“Í Ê0¨Ÿˇì™;ç∂á/å}¬Ïùß§hˆ`™Çî=ü“(2ØË˘?¶fX™`>ƒÒ% ‡r{«;M°X5∑ub,ƒ¥q|õ3‰r´ÎÒ§Âér©8Qπr∫.gHd,˜ÊÓ/á‰Ø3∆B·Ñ˚ÖPU
+Èò"=ÿn‡á1n@ÛBÍ” ç¯à≈íÂ·e ›@œã™—õoI£Cƒ&Ø$}4Á5P~eΩ1N{€Êp)i≥	4 ‰(±ºYNëÅc»Da‡3mŒ†±“#Øâ’&˘"∑"r˘ÕÜk0K,„xb{"æñ~ T?å6é∑û['[mŸ4Ó∫â©¢¢éÊBXº£çw„Ÿ˚˘pp´uˇ∏–Øp(Õ=gŸ;%èaåo<G¢”ˇüó˝+∞Ò7ªΩî2ä≈OáïFZ8{‚Ÿ”Ôˆ˜vwFCÖ'=ig∏èGÌÏ£“∂Ws˛2ˆ§ﬁ.e`bmÀö„vòwí•0¶¢™ê—(†á‡%⁄ïªå˙√“ô%Q Ü∏õ¥≥º;I≠<s|„z≥¨15ÖÒ„G$`R3lË9‘ªä'‰	VñfßH/Y±¶jvŒÊaQd˙v€úπ~ûÔ'Mè¥Ü¥X§®∆ø%ÍÈ˚∆)EË*>*‚û◊!Iq7˝¿w2ßL¨lñÀQyN”=>7AÕÖö¬nj”ÑMM10ƒˆÜ9(j´•âU±b±î¢QVzï ¶s:∆Ä≥ø`ùåè¶4¶G"ÀQl/oOıøÕŒyÊg∏Ù…K;∫ Åœß“Y®ˇ>ÁÂ™ì\∞ü¸PL°}t∂ÿÇ!>j-≤˚¥lÚ›8_#y‰∂‚N’RlÃ£0û âﬂ&∫t.åöˇ%ñ”2912ÒY™@õ}£‰,âå¥JèŸ´6kbÒbäÖ<‹§a%ÌÛs‡≠¥cYLÕ⁄I7£vïfsª¨d^	2É£Î¥CMƒêrõGg¯'~d4√3O√n≈éèbõ'íúó≥OØ⁄ëY›ﬁŒzvu$@o`k™◊"(Óµ-œEèd‹UÕS°¸TJfÍî%µ)Z[)x„òœLΩ=í*Wk°1VË‰Û§06t=}eU1
+%02¨Í
+~Ÿƒ≈A)¬lçîıÉÈ} 3ëﬁy·‹Íâ´AáM‹ÃL&.+[+ªx)ˆuπ£πm%:rÚhr∞¬ÂØv<Aà¥ÉÖ‹RàÖ∂õA	≠¯e∞≤mU‰√˛	∑4Œ0uVà?√M˝Ó˜ﬂ‹~Ûˇ   ˇˇ êEL€
