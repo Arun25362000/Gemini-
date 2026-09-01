@@ -214,6 +214,19 @@ const { vpa: UPI_VPA, name: PI_NAME, mcc: MERCHANT_CODE, isPersonal: IS_PERSONAL
 const MERCHANT_ID = "BCR2DN5TQ322VPIY"; // Merchant ID for Google Pay
 const GROUP_NAME = "Unnati Savings Group";
 
+// Helper to format phone number for WhatsApp international URL format (wa.me)
+const formatWhatsAppNumber = (phone?: string | null): string => {
+  if (!phone) return '';
+  let digits = String(phone).replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('0')) {
+    digits = digits.slice(1);
+  }
+  if (digits.length === 10) {
+    digits = `91${digits}`;
+  }
+  return digits;
+};
+
 // --- Types ---
 enum OperationType {
   CREATE = 'create',
@@ -441,6 +454,7 @@ export default function App() {
   const [customAmount, setCustomAmount] = useState<number>(1000);
   const [customFine, setCustomFine] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
+  const [loanRepaymentMethod, setLoanRepaymentMethod] = useState<'cash' | 'online'>('online');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingNotification, setPendingNotification] = useState<string | null>(null);
   const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
@@ -1912,11 +1926,14 @@ export default function App() {
           (contrib.userId && u.uid === contrib.userId) || 
           (contrib.userEmail && u.email.toLowerCase() === contrib.userEmail.toLowerCase())
         );
-        if (targetUser && targetUser.phoneNumber) {
-          const monthName = format(new Date(contrib.year, contrib.month - 1), 'MMMM');
-          const message = `Hi ${targetUser.displayName || 'Member'}, your Unnati contribution of â‚¹${contrib.amount.toLocaleString('en-IN')} for ${monthName} ${contrib.year} has been successfully verified and approved. Thank you!`;
-          const encodedMessage = encodeURIComponent(message);
-          window.open(`https://wa.me/${targetUser.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+        if (targetUser && (targetUser.phoneNumber || (targetUser as any).phone)) {
+          const formattedPhone = formatWhatsAppNumber(targetUser.phoneNumber || (targetUser as any).phone);
+          if (formattedPhone) {
+            const monthName = format(new Date(contrib.year, contrib.month - 1), 'MMMM');
+            const message = `Hi ${targetUser.displayName || 'Member'}, your Unnati contribution of â‚¹${contrib.amount.toLocaleString('en-IN')} for ${monthName} ${contrib.year} has been successfully verified and approved. Thank you!`;
+            const encodedMessage = encodeURIComponent(message);
+            window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
+          }
         }
       }
       
@@ -2210,14 +2227,14 @@ export default function App() {
     setSelectedLoanForPayment(null);
   };
 
-  const handlePayLoanInstallment = (loan: Loan, month: number, year: number, principal: number, interest: number) => {
+  const handlePayLoanInstallment = (loan: Loan, month: number, year: number, principal: number, interest: number, mode: 'online' | 'cash' = 'online') => {
     const note = `Loan Payment - ${format(new Date(year, month - 1), 'MMM yyyy')}`;
     setPaymentModal({
       isOpen: true,
       amount: principal + interest,
       note,
       type: 'loan',
-      mode: 'online'
+      mode: mode
     });
     setSelectedLoanForPayment({ loan, month, year, principal, interest });
   };
@@ -2260,13 +2277,19 @@ export default function App() {
   };
 
   const sendWhatsAppReminder = (u: UserProfile) => {
-    if (!u.phoneNumber) {
+    const rawPhone = u.phoneNumber || (u as any).phone;
+    if (!rawPhone) {
       notify('error', "No phone number found for this user.");
+      return;
+    }
+    const formattedPhone = formatWhatsAppNumber(rawPhone);
+    if (!formattedPhone) {
+      notify('error', "Invalid phone number for WhatsApp.");
       return;
     }
     const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati contribution of â‚¹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment. Thanks!`;
     const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/${u.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+    window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
   };
 
   const sendEmailReminder = (u: UserProfile) => {
@@ -2277,13 +2300,19 @@ export default function App() {
   };
   
   const sendLoanWhatsAppReminder = (u: UserProfile, amount: number, month: string) => {
-    if (!u.phoneNumber) {
+    const rawPhone = u.phoneNumber || (u as any).phone;
+    if (!rawPhone) {
       notify('error', "No phone number found for this user.");
+      return;
+    }
+    const formattedPhone = formatWhatsAppNumber(rawPhone);
+    if (!formattedPhone) {
+      notify('error', "Invalid phone number for WhatsApp.");
       return;
     }
     const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of â‚¹${amount.toLocaleString('en-IN')} for ${month}. Please pay before the 10th to avoid late fees. Thanks!`;
     const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/${u.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+    window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
   };
 
   const sendLoanEmailReminder = (u: UserProfile, amount: number, month: string) => {
@@ -3555,10 +3584,13 @@ export default function App() {
         }
 
         // Prepare WhatsApp message
-        if (targetUser?.phoneNumber) {
-          const message = `*Loan Fully Settled - Unnati Finance*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of â‚¹${loan.approvedAmount?.toLocaleString('en-IN')} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: â‚¹${settlePrincipal.toLocaleString('en-IN')}\n- Interest: â‚¹${settleInterest.toLocaleString('en-IN')}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
-          const encodedMessage = encodeURIComponent(message);
-          window.open(`https://wa.me/${targetUser.phoneNumber.replace(/\D/g, '')}?text=${encodedMessage}`, '_blank');
+        if (targetUser?.phoneNumber || (targetUser as any)?.phone) {
+          const formattedPhone = formatWhatsAppNumber(targetUser.phoneNumber || (targetUser as any).phone);
+          if (formattedPhone) {
+            const message = `*Loan Fully Settled - Unnati Finance*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of â‚¹${loan.approvedAmount?.toLocaleString('en-IN')} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: â‚¹${settlePrincipal.toLocaleString('en-IN')}\n- Interest: â‚¹${settleInterest.toLocaleString('en-IN')}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
+            const encodedMessage = encodeURIComponent(message);
+            window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
+          }
         }
 
         notify('success', "Loan settled immediately with final principal and interest.");
@@ -6773,6 +6805,7 @@ export default function App() {
                                                      onClick={() => {
                                                        setSelectedLoan(l);
                                                        setIsPayingLoan(true);
+                                                       setLoanRepaymentMethod('online');
                                                        setCustomPrincipal(l.approvedAmount! / (l.installments || 10));
                                                      }}
                                                      disabled={!isCurrentMonth}
@@ -9254,68 +9287,29 @@ export default function App() {
                   <label className="block text-sm font-bold text-slate-700 mb-2">Initial Status</label>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setAdminLoanStatus('approved')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
-                        adminLoanStatus === 'approved' 
-                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
-                      )}
-                    >
-                      Approved
-                    </button>
-                    <button
-                      onClick={() => setAdminLoanStatus('pending')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
-                        adminLoanStatus === 'pending' 
-                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
-                      )}
-                    >
-                      Pending
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button 
-                    onClick={() => setIsAddingLoan(false)}
-                    claxœì=ÙrÜF’ïşŠcfØm}ñ°D“ÔÒ’«Qf˜rÌÎj6Ø(²1Â5 Zd»Å—yÛÿØŸ˜ß™/ÙÌ* ª ôAR”!±»Ô‘•wefEÑÓ¥G—½1†$˜»$¦7±9fLıÁ€\ú^l\øE&şG\\%7÷$ô§E-ctã84½Èmß3LÇÙø†T®cÉo„¼0½1u$·ûÓ8ö=Ùk‡ü‘¶hÙ‘yáPëhnGçÓ×cÛ»:±\Û{í›ùô‰<‰¨CÇ1µğ‡_#¾²n¥mùŞÇ8š›–•µ tì˜‘Î'ÀËö,ûÊgĞdÀ½Ø1- Oää¥ïğ¥hI41-ÿÚp®ÒOÉ£CxÔÇöGzM‡Ïö2Xø9¶ã®Zö
-_Ã”cêÅ4$ŸF±}9K¿^™1j¾¨
-È?'éã° òvØ­?ş ‚÷ÚØ#øgz¶‹˜¶·AúÇä:öCºìõzªúòºä@9¸MŞ.Á9lÊß–¡„û–ı±ü³äÇÃ¾ëã²÷JwJ
-½Ï©e#Ì_ B…6ôo“¿ü¥0µCx¹€­öµˆíE46äã`Äûz”ŒİÒpóÑ–)óm¸¾e:ĞóñæøƒúAµl¦a:Gó9I0÷€ÈmÌ	V£7v\×TFé.9:& Œ« ìxSÇ©,¶ Kó"ò)Pw
-ÎŒ]>ú»ğ=™°qáLC#r‹ï/PüëÓÛ„q øÔ{¶·Mà§QSg¯Ù{’×ª0oÖ Ìä€!9Ï¼6.aˆkŞ×†ke<tç&c‹ÈNãi Z›ŒÄW.òaA
-ÂÊ÷ÂØß8FŒ ">ö'£JÛ%òŠ  Ô˜áûUF áì÷ 2¼›H>º]İ4h86#ŠãnŸR÷‚†‡ı ¾mÕŒ%ƒÅkåeÔ»©Ó™"©(¸fGÂŠzS&k‘#M{SÛ"GGGDı\euÛætMÛá=PüØ‹ı×ş5_ |¶5=şX}¾+ç÷Ï&£À1gE¥¾IxÔ;›ÿ±Ù}7x/—’µ’Š‰µ!ÍmßZiæ—~Ü¢ãÑkò~•®ÒŒšá¶b.|™ƒ»Ûdó.2ƒk³{«ƒOs 9æuÄ‰\0Õ‚OÂ•ƒê;Nı£ã¸M|Øg­HÛ/Q~Ê¿´tœÁ“
-‡^Æ¨‰ƒ˜öGÄ`
- ÍŒıPZÉlÜÇÿşç¿ûØ®¢KÛ¦±Š¤âY £ğ¦È<dº^Mg
-²@¶x&ƒ\9fòubzWğn‡ê$ìœ€ò&i~›ğöÈ6ÀíÅfxEãR—ÜJ•0¼
-ª# c<%A0Nut©MsZh:üOòÈ(ÕâsáãÍ¥?F!ÔáK¢¡ïÁÃş4vlïQ9¥ªŠÜ-	œÇf<Z Ó"¹ñ ÀH%×T+SãLÄ|@6Ó¶6áÈ|ì©BKy'C•‚âàLÉŞV¶(£$>j&ª’+_'`Tm şR—†¦c•ÌuÅ»ó1½	jÿ†®£Öo·ä$¨PHbÆ{‡*¶¢X•Ux@‘£“Æip‡ÈF=´B?O|KÇ^‹r&²aÂå÷*èÆo­Ùxó+D5ÖØ¶ Ã–2ÎÄK;yG‡ÎKØ³ü*û³‹{0Ì4°` "8>Ç^s ›`@sÕ+ºg'Uî¥²£©ê¹¦LËzø©ye¥ :¯€v.M'¢İïeÏœ'>oîïæ¤_~Pç¹ß–¸"_][ktm%.îU:·•»vÅÿ,¶¥ĞÓ–´R¢“Ô¦4VĞçêİ¨@8èíÙÜlcæ–¯d¸¶°ZWdªº NİÕ«*µéĞØŞáF¶(&qÙ²€}ØçÏ¨š}°uîmL¼zÏKn½' »ÿíüí§¿¼<}õæ·OO^½.ùòz®t:Óm2µ­¶:jÍ; 2£ùï)
-é•7Œ?Íã@ä`76oñ!èçö÷Û‘¸ÏI^¾UïzÁô§ecú–zÌ5í*í°ÏQ¼…+ŠóìÑs¸
-a¶ø°n'$C}V¡Ê®‹œ¢Gq…<€µ·ñ³;rßÕ#åó“04g½ËĞwÁjv¨wO@¬À,æ”øÛ6±&Cæ+³É
-DÆ¿k)«ì¤F»0”íÜï¼©\’;¥²5Æß¨¹JÙˆÍ-BøŞF0Ã“ 8ù¬ã0Q‡SÄlQbÀ- …™@³Ûcøw‡ÈÚÔµñÄÂ™9sÁ–`ä¯§‚;&èF¨Ù/	xØ]*9Ë_{\jc›=;@ƒSOpïS‡M°XµË‘¹¤”¤]u×%cãCëlú‚T'—º”	Ù`ş+¹›ªä’ÊàØ(@,Å£‘ÆÿLH NŒ;“Éi^JÎ–¥}•}pÂw?­¿§ôó‹ûŸ3š)È°H »¹ú*Bİ¼r	51pÿm¥õêŞ%à›Û€"ĞÀxr¨làÔØoŒ:»·rZä×Ï¬Jk÷ZV€òc3š<R„gSk€î|7#GÀÒK“m–ÏÕ0½Ó¢$ã¸®ÃU0À'aªZì,§ç¤¾±E$°Rª•A;ªĞ­ş·ä÷)Ä†şdS ‚oû
--P)xkD¯*ğh¯x´7ş€ºÃµ0À8¤ŞR„r>½ˆÆ¡Í•àÎ¿ÿù/yt.‘F’·Ôa¯èƒuvÚë¤¬¦6h‡uÏÔP7‰İÁ+ÑGO~óö?_ÿí·“ÓŸ}óVÍbóhzÍ#Òøšï0¾f·ÊF½½ÜÍ-ìa7Ğ=¿“¬ ^’ñ4Œü>ÇÈ¿ıkj©§¯äJ ¦v¼¤Îi`†0V $MŸ¼fŸ)]†²d{ÁRYtAãkJ½zÊY9±jú"PèHµ–X«´W'íÙŞ=nŞ'ór`ä$¸A!BàO‚‡jfÄÑR+×íg(Øhº€†T¢‡€ü{	’ãg!¢¿jâ"ŠâZ"+‚D#œµN²êì`'lšt‡ƒxÒeºä+ÏL~ü÷ÿşÿYç;Óñ9®„i×!Nc^eâíğäy‚¤	08×Q»l÷ 0ds Ó?ö]Fìd "ßFu[¼Æ¾ÅØ39"§f<é¹æMg°­Šüüô‰$[ŞâÆÅ‹l´x¯éó<è·S”—d‹Ô5QÙü¯<CíI®º÷c2à²JWp€mY†We:Ú§‹<±¿Wà„;KrE@îxÂûZŠáW™oêôd¤m¥ƒW ˆN Â4<ÚĞt	ıDyCrÕ–·~äÅ±ø%Ô¸Vè+eŞ wL W!É–²"*0ª``û/+àEÕ…‰ø’æ¨Ö]$³¯‘LÕÜŠwÃj2õ{J5‚IÂN5èóœüÿO%¥m<cÔÉyŒdĞÙ¤ñêÍf÷–[y[„½“óhõóŒƒw0¦–˜—¨^2)ş»><s!ñ.ÀtóA½¢—~H“T´£HFÑÓC	U9±¯&±Ú7+G-§‚Z‰M…Àe^•zÚí*á§„&ÕcM^U¦ª4&AmÙ“MBÛø¥ËŸq°ë\ëş•k	íáÕÊWÔ.mÏtNÜµµEğ^­GÙ—Ø@EVÄêêµÈ~ŸğÃ4+œp°¤şXPÃàVìÌt­˜–U˜.Älqû{»4¾í$y#sĞãì·3hmgË¤À-¡€úú‰‚fm9ô×³W	õcL»×uª¸£Ôib„ô54QmÅ}˜¬ÛOascuP™úh›ÖDÁ›Õä¬.Dğ¹í$Ã¢Ü 5`pè'%ıçi”[£¦*¾m¤ßH,Mt©ÁaşNÎ6jîƒåÛ+SÜm³U˜®1{ DXƒ¹,X‘ƒ§“IfmyÚ¸õÆÉÓš%È¶R_ ¤ÊóY]t¿Äxm©faôÇí/¹¿¦Ø}™Jí—y¨~ûüÚîEÃ‰wÙKcÕ¡¾{c˜S°Œ¡K¹¾ÓŠı>…nŸ’¢s³e°OË†c†ë”•ç!'A ”`"â=—%0°ªÆ|¾ááÆÅóvbGŒƒ¼›0L°XQ4ù`H“XlxßÛğ–•é“ğNì‡3iHblÀÁ]Ûø´ùØBH]V¯u=qÄj4Xd—§Rb„Ù fä{ı¾‹‹Hçg¶çj:]]î76j†Ô”bKâGFœ0¸&+ënU‚á^—_mWp¾ıÈ;dÓcëÄ%	p©^O.H%››7¼nÀ©†MT}a»0‹JCçeÁËªsnZöG©ÿSğîUµ‹FöI“c´+›“„Ûÿ«HHm&£J‹ğ¹™ç«ğ…0$¥¦NQóÙ&zÒ¹Id ×<^%¸M•^İĞ­’ëÔéÖgs:İ¨Ó§Sq·pÆ,/—vè.VZ-·Bë•«¸’Ç+jî8ÄW=7»d<¤ ¢¯Š®
-œ_€¢›[Ò+WuÿK©åfÎ»ĞsÇÌ¹JE÷$¤dæOI4M>\›|KÌJ:ËYSè‘¼€:ô˜zš-¨Èö¥ı¹¨¶L÷ËxÇãSj“‰=T­6k®êµÙE4[Oıcj‡ÒhÅ¤ö6Y¥ezTz¯ S¡^ÚnGÆ
-3c^‰Æ\ wk•Y²X÷¤3ß—Z[DºY˜L¦=Vä™Üª•*@¸Í’e~hUiphbíÃ-JÃwë&{ö­œLÊ/«š~˜ï>NŞä—@ªÆŒ+¾J-~ŸDîÁº*Î0laê
-âËÚ*)/— úK¢O¤±bSó#|öÛƒÁ@ë½«b°*Í÷ŠÁVÍAW(ƒE¹uyØ×Ù[l{Ö›*¸UÉ€5•€ÍcÇî%Mº`L!ŞÔV`£øB˜öØá÷¬‰áê‚5	$©S 0] ¦ñĞ4°€ü«Œü“	àİÕä…&FÏH‹–˜”ÍC sLg‘XÁBârQ{ÛĞesìW“-kò9·ô±Š0Äöq‡º|J9>ŒÆ/ilÚNÛ-9†¼-i¶ÙŸ¼´€Á/ø0°÷6Vş½Ö‚ Ã}g$Zò+Ş
-D;I;»ÜØÔöÖ!ÖÙù'ãv8vdá3Õ”l€ÅƒyÚ½=•PZµ_hê)4åPÓâ»‰¶G}”ùëÄcú˜FcG$š^üËù€¾wp	ˆÉB«€½Ø—‰W¯G^¡¡B£˜°ŒFx«¢–µæaN&¬
-““FÏËNİYÊ¸†2¸ì~=V÷K~ªBB}¤•ü$­ô-AÔ©ò¿dh¨Ä¡±àÙVÉ±V›ù/ÀŒYœ"ÿEtÓKkFŞWıİ3SôvˆÇ¡=ïÇ½û3Evs¨5)´Ë{¸ev·«ãéÎÕ1*»:v¹«c¿½«#eTğ94îĞ'iıB“X1™»£ô³ô~&F.í$òÔÃhDŠØ‹7«æêÍ;*ôåAßIï9bÜ;	ğÎ
-¬ønĞsx´Ú/"cèÙ–ß&Ì¢»¡İ¡úŒø†'°Úbõ!Åˆ¹
-C-„^Ozï$Æ*¬I˜ºâ‰ä†×gu%Óé÷óE"L!C0ô]O(›×x’D¹TÁR½Ÿ¦#N¥ú>¯ÚÅr•]òg¬‹¹%ƒĞTÀrC?ş³:ŠØ–²\Îá 4Lâ÷•8b[gKâ	Ê zŒ‰Ş¼Ïó1Ï@]Û|@D?*¤Rk:¦9o“€!9|„ùÉ¹CÛÒœŞüx†ĞÊ/X>÷r²JùårÜaÍ?!†d”2(¢UÖA”·¡õÁ÷ğçtŠğÉi8BEj8êÂc[[ò„&>1HÀ§-h×Ğ#Núêé&CŸ->c`Š~Ø‘¶Øg’Yf},6#Ñ;ÀÔ, ‰nFÄdK…YIrFÊg$m`F×“”õ"ß¥)6qºBdq9úÌ¶Ã÷SI$ø„À¤§—t»ªì0‘W¹ò9WÍäO\„Ôü »UUñ$u’:çÖd¨¥Âc;5Ï´eÒ¬£ÆîoA¬{z²CJËŞØÊú`vHãiè)k¹Ë\õÊ€¹å^±›n‰¡&Wªİ F¤(dwE6_	b7ñÛ(““V¬¼fO^Jé¤“§'—ìÏÔÔ»®)¢´êëôK‰c[ $é}++ôR[M`M Ìè¨œµõšĞƒ¡/Ğ¤Ûnj$‹néF…Ãê¶yøÕ´Læô,1,]ñ¹ôE±¶% ùUğÁá @Îí‚ºĞ%7AvV@½YYŒnbŞÍáÂû9üÒ1ÔÆÒTÃÙÙª	%óvĞ%Ø]–û‡Õmoá… ìRñ¤®•°BÎÄ¼xİÊh@¬ØÂx¶7(–-ieÖ˜s¥*j±ŸìÏ™R°zèêêè©OÄ‚mq}Ye5wkœİÜÃSx£Ş×“_ššPROsNªYĞn_³’YïrÆKDJ×3^ëÿ®dmxX†—+cÃê‰ “l“\QÉÔÛíL»]Í*½½
-\êÚmıÙé.”ÚPâŞ1W­~½£ÜFÖ0”JíV“W¨}º`
-”“UBxã_/„Am+ØT½¬İris_yúq4R]‘‚Sï=>ç8c{"Tä!Ì_}ÚŸGøŞ"ÕfU!xõfbk½âØQfô¨\
-¶Iã"‹Âä ıeuÔ:ÍdG]6LfM3²¡iÀã¢UuD@IHğŸ°ø‰ı2`Şõ#!mGá¦Ğ‡ãT~V‹òÅx^…å®ÔÉæ"R%"Fƒv)J™]Y!	häÂJ®Ø¶qˆ-ëÔ,ç©Zaµ&B’»
-Y‰f],”ºl½ó ;+
-±¿Æi ?,ªğb;gÁzRRÈ¯5éiáQw‰WŒå1Dw‡Ri—m1*}ï+B•Væ _¥&uÕâ’úŒ®&©+0«±¨ùé\kÃœB8æWÜ)íå[ZÄQºRorUÕPë óÎ»M~fÒæ6ÙÄi6ß3âÛmÉ¡—®öÄËºC“XH½Û&l>I‘P€Œ`±óE?Õªâç£òh“aí> °ç¦“â00)kU(©Ø™²ÉÖ£´@è½zï(º~ÉÀéFf\­-Ù4JÁòìÖŒ¤^rAvÔ;Ì;Ëy‡ÏR_y§¤Ò’-RÔHÙ¦hcš53>„(j76ÊL5xw>-¥Â­	ºUÃ¡@à,‰wùô‰”1áPİÈçÍ£3œ$ú
-Ã®<«ÃjpÀ+NbÅÃ®Ä•P8µ1äÆé&dOº¨/ ˆYG¾_!õö‰éT•¡–”Õ¶_0F’1’:Ì£Àön)M=à:şÀÓQFM½
-Y%ÍfúSÓ.”ãMYoükìi²hòåLWì^ã@)şÔ>¦=­Œ–…o~õÖ—í	 ùê²_§Ëì2ui,"Tºjçš—–u-œ$¶há+©?_YßUÂYäÚI;ÿx–£ÉÊ¹fÈú\æ*W–¶Úçí<Mj¸²òT¼ê*áNC»ù¡ ÌazÙM&b/Lµ†ÑÖ€•¸Õ[Uj¥p5¦_¼¤Z×Ñeë÷¨…LĞ{VÁJÉËbf€éH¤@K(i*S®¤0e3°)ŠOŞ‘]Dt®µ_ê]ÿæe»‡#[«ü²ÊŞ4­OYÇÊÔ¦¼‡ìË`W9-¾ş“§ŠJ”Ë\WW©d½³İî±x®u˜§*¦ÛºL‰çIğ/Ç]"•Õ…saraÓªv´zúºÑkİ¬œÃ©éMM'Ó}zvôs@YF·ô¶³Pº÷ğQÚÈ' u‚~d»5sÒëõğJ„0= ,<˜ÜVıñ_è'¿—Ši“ŠŞÖr’H^—åLÎ—ˆKW æ‡¤’©%%ù‹ˆ–ŞrÕ¹\ê
-.•ŸÛHÅÕÑ\	³¾œx2YNÙoµg›i•Ä;ˆü‘¢°©©1(àhŒ€¼áÕ	ä
-Œ\CÄG¶'Ù2VHHS“&dŒJ2åq§Áfr«uìYs®—4ıxÑNLõû¼//Z{\šé„£/×€wBë¤ˆswˆr‹Ç¶=R^·`DÛUh[ÿ3Æ¾¤ÔYX–ŸšNÌ+ÁºKÇ¬ıî2Ì;A/Ã…yš»íªÀ6Æb—‡}@\Àã³"Ÿò£±•ˆŒW‹
-²ˆßúˆŞÕGed›³¼mDœ\WÏûn—‘D:šr²¢\'WJ±—ï+å:w™Ô}]luPp± ¹¦!rB†i%F.ö¿­&MŞS‰ŒKúÉCã4
-:Ù’cõâÉı÷XOtµFìPt4b•1e`kwÃŞŞû‡PFtñó¹Q¨º2/ó™²ÄÖı”&şõÙÔ²³Ğwƒ¸µ[yôĞ«ˆ6vëî—İº®µ6·îª½ºygßz{!uß]´ÃA©<±-äX+Ÿmd<ùbÀÁ¤c˜€:ãº
-MËF]2öÕi•ÿ¶iÓ0p¸Ç	° ÷tK´‰™±Ğ¢‹(ZÚ–†WW6‡aÍ&øŸT]Øi´=|aìfï<%E³S¤ìù”F‘yEÏÿ15ÃRó!g(Q—Û;Ş‘h
-ÅÊ¨¹­c!¦ãóØœ!—óX]'-w”KÅ‰Ê•Ó¥p9ƒ‡@"c¹G0·p9$˜1
-'Ü/„ªRHÇéÁv?ŒqšRŸhÄG,–,/éz^T­ˆŞ|Kú 6y%é£9¯ò+ëqÚÛ6‡ãHI›M Q&G‰åÍrŠC&
-Ÿisıˆ•yM¬6É¹‘Ëo6\ƒYú`ÇÛ;ñµdğ¡úa´q¼õlØ:Ù‚hË¦q×MLu4‡ÀÀâm¼ÏŞÏ‡ƒ[­û'À…~…Ciîè9ËŞ)y{`|ã9şÿ¼ì_¿ÙíE ”Q,~:¨4ÒÂÙÏ~·¿·»3*ì8éI;Ã}<jg•¶½šó'±'õ¶p)k[Ö·Ã¼“,…1U…ŒF=/Ñ®ÜeÔ–Î¬()ˆ0Äİ¤åİIjå™ã×›e½ˆ©)Œ?`?"+šaCÏ¡ŞU<!O°°4;E²xÉŠ5U³s6‹"Ó·ÛælÈõó|?8iz¤5¤Åú#E5ş(QOß7Nù(BW™ğQ÷¼I‚»éX¸“9eÊ`e+°\ˆÊsÂ˜îñ¹	B€o.ÔvS›&ljŠ!¶7ÌAQ[-M„¿¨Š‹¥%ˆ²Ò«T6Ó1œıëd|4¥1=Yb{y{ªÿmvÎ3?Ã¥O^ÚÑ|>ÅÎBı÷9/Wä‚ıä‡b
-í£³ÅñQƒhÉİ§e“ïÆùÉ#·wª–bË`…ñTNü.0Ñ¥saÔü/±œ–É‰‘‰ÏRÚÜè%gIdÜ UzÌ^µA0XˆS,äÉà&+iŸŸo¥Ë’`jÖNºµ«4›Ûe%óJ\]§åj"†”Û<:Ã?ñ#£yBv+v|Û<‘là¼œ}2xÕÌêövÖ³«#z[S½Aq¯mqx.z$ã®j
-å§R2S§,©MÑÚJÁÇ|fêí‘T¹Z±B'Ÿ'…±¡ëé+«ŠQ(‘aPWğË&.Jfk¤¬Lï˜‰ôÈçVO\:lâff2qYqØZÙÅK±÷¨ËÍm+Ñğ“G“ƒ}.µã	B¤,ä¾@,´åØJhÅ/ƒ•m«"öO¸¥q†©Ó°Bünêw¿ÿæö›ÿ  ÿÿ ºBwİ
+              xœì=ÛrÛÈ•ïùŠ6+‰È‘À›$­Hò*öL­«,jä©lÖëšÈ–ˆ  ´ÄĞzÉÛşÇşD~'_²çtã>€I–ªS$Ğè>}î·fL^îô¥m>-ÚvtÌŒkúÆ5§ç¡Î‚ö–éy¾û‰·:·¿cÊkd›AğÖtøÑb4m71Öº´ù1`ŞÜØe¾;›ùØ¸±YÈoB#pØ¥;×³Ğ7§ZîÔ0m›]¸ş˜û­rd3?gvttÄÒy3ò9Æ^°ÖÅ•Áî›öØxÚïËÙ\O¬GïÍıLÌ±{mØWñ§øÇA¿ßÒ½è@¼H+l›!cF¯‘_á‹	LÛ?(¼~hãsLÜ~Fùóaïb†îTığ¡ü‘¸2y|:¶¦W_.ÅÓ®F%Ó¹€MS#Rú[	äOC"9üúPèLÂ£1öÆÖ§òÑ×åïáëFˆMgW¦{î…Æ^Kù
+ùv5Ëú:8ãRpÇÛ—¦p…iHÜÛ+nCŠwü¯¢÷û	šOsX©Ú5è_šÓ·•Õ@]’±˜6-¬à|váXaàH—}şÌÜæ£ñ‹_î¿«a”€×“ês(Á	ğ² µ®Ü"	e§ rôĞ÷øPàK¤İ
+´ÆÌQh}âÁÈ´¹ñ|?Åë™#+œã®%ßÉ»ğ1†0)'0F|rŸım„Öå<şQtXS	È¿`ÿ;¤è~zi»£Yğ^ûlÿ™SËAL<kÚb½cö3w€Wv»]êE=õ›:ÀŠ¨ÉmÉq®aKı´
+%hV2Å—‡=ÇÅmï~)Üšyû‚-„ùK@(ß‚÷ÃÓìÌ-­Äƒ¬>fÖx‡Ñgÿ0ŞF|¨F	¯Ä®ÓÙ)ó#ŸµwlÚÎĞÉùæèãØw½"jYSX†i-,ÂÜÖg·E0G»mP¾ßXaÕPeFúC”íéÌ¶K›¥y¸ö¨;gÂ.Ÿ÷û½=ø;Z°qaÏ@¸9ù…÷V(şûS;Lp øÔ}¾¿Ãà«a]'ÄsŠÇÊ0¯÷º0}vÆáÚ¸„`yc\Î8á¡»7	[DvêÏò (ÑÚd˜}‘àÊy>œ‘‚°sÌ¹0¶#X{“aiìy  nÌñy¥: ”o^iz7zv{0»™çqdç9hŸrÔ{^õØÔŠ•šğ@(/ƒî%HöI…àšm+êÎ„¬E4ëÎ¬±ĞEéû:(«›ÿƒcZ¶|ÇİĞ}ã^sÿ%Ài[óÆÊ÷wÔüşĞdàÙæ¡ˆ³Ô	·Za{ë?¶:ïûÔ²B±W”n¹¤9ã¾åWDšÅ¥ë·hOù5{ß*wiÎMG	1ş˜0ƒ:;lë.6‡l+|êÈ6/¸]È…P-&Vº¬ï%õ[Ç'p›ğ°'FQ_ ü˜´tœaª6¿Q11è™!@1›¹ø¢°“É¼[Çÿşç¿{8.ñJkêÍBŠ¤Â¹³˜ÎyPfÕ'Ó,Pm)àC™Á _'æô
+ms„]0PŞÃï09ş{+&ØæİĞô¯xØSê°Ûx+ m<c0ut¥M#mÍ²%Z)Ş\º£YpàÃÔAıÏüièûp³;mkÊ©;åj +5Ô%ìÌ€ô 4 Ä¾RD ³äêje4ÎbÂlË3­ñV-YÊK“Â-Â™‚9L{gT”d5bâß~¹ë€²¼³oóÈ;×¾D|ûæÌ]Ç1XÛ•×cu&€™yc˜h_c¯> ÏM0 ¥êÜ³“*õRY‘ú¹¦Ìñøá{¦¥Ê8ı#‡ÿŸT÷œG>oéï–¤_¼Qç¹ßVvG¾¹¶6èÚŠ\Üëtn	*w¬’ÿ9;¡§­h¥Dg±Œ4VĞ—·êİ G8èíÙÚjbæ¯`¸6°Z×dª: Îœõ«”Útèz"ö AØJ6ÅdØĞ¡{òjˆ¬¯Ñ¶.½‘WïEÁ­÷t×ó¿¿ûáô×“W§¯ßşúÃéÉë7_^×1½v{¶ÃfÖøFì­yÇ@f´ø-æA>¿2àã÷bˆâ‡­[¼	ŞsûÛmŒHÒç	·DßÒQ/Xş¬ècŒŸ¢ç\Ñl‡=‰âôØ¬8On-0‡+V‹ÿÖm€d¨Ïªì¦xÁ)z×ÈÄxË¿x°­ö]=R°8ñ}sŞ½ô]¬f›O¯Â	ˆÕ!˜Å’İaÖÒd(|Å@cÛfƒ‘É¿µ”UtRûÃ=˜ÊNêw¦Óyî”Ê6Håæ:e#·Yàs_UÀ
+O<ïä°rÌÃ@mIóe‰C*@óÌoá¿;DÖº®‡ ÎÌ¹¶„ =Ôˆ˜ ¡"^âÉ÷áëšPÉYúØãR›Ä8î Ny8ÁØ§ê`1å¨Ê3U¹ë¢¹É©µ·Ü)‚T'—jº”k	ÿ•ÚMUpI%p¬• ãÑPãfÌË.L:£ÅiŠÎ	–Åï*úà2küi½}Ò?,/éNh&G ƒ<ì¥.è«ôzxr59pÿmz…ıêŞcà›;€"ĞÀx²3PiáÒÄw‚:;·jZ”×Ob
+¥µ±–5 üÈ&áÅÒj »Œf¤Xˆ¹Ô	³|i¨şgsúqê†</É$®ëpğÉR˜J‹ÕôœØ7¶»Œ&Õ¡J´K¥nõ¾cÆtŸ\nè"ø®Gh¤à­½TâÑ~.ñhoôu‡ka€yHİ}R„2v>»F¾%•àö¿ÿù/uvn‘F’7NÔè“uv›'ëÄ¬¦2iG¼^¨¡2®“»ƒW¤şôöİ¾ùë¯'§?ıòöÍbÓlzÍ-Êüšï1¿fCeÃî~êæÎÄ°kèß« –S/Ùhæ®ŸCäßî5ÓË'¹ÉhjÇIêœ{¦sJ‚ÙôØñ™óU(KVÊ¢^s>­¦œµ«æ]¬
+©Vk™öª¤½XÂûçŞÍ‡h]6Ìœy7#DÈ>üá!ÍŒ*Ëª³\aÆFÓ%4Äİäß?g2ğÏaE^D^\+ÄsIh„³ÖIV^,àD„¡YûxĞ'¡K¾šÑ—ÿşßÿ“_ë|g:>§!Ãµ0í*Ä©ÍÓËL¼¼ˆ4B Çü>j·í†j`ú‡®#ˆı€õuB¤äÛ(±³×È!¾™±S3œtó¦İß¡2??f}EÈ;{qñ2™m«{¿Lúmçå%ÛfUC”‚¿Ù+­P{R‚«î¹Ú˜¸LIâ² ®°µ3Ëğ*-G{w'öösœp·Ÿá’RP;ğw-ÅÈ«È7uz2Ò&Š…ÆÒÁËÄ' aîµ4]A?!Pü‚jË;7ò’Ø|Á–j\úJ‘÷zÈ# †eH
+…¥¨£d*XÇş‹
+x^u"¾ 9Òº‹bõ’©\[ñ~ĞGC¥ŞKO©F0)Ø©}^°ß€ãÿ¾ ´‹À3fœ‡Hí->5^¿İêÜJ+o›‰gRMß/8xsj™y‰ê¥â¿éÓ3—˜’|˜n.¨WüÒõyô&Švˆb==PU²ëjÒ¾Y5jÙ%ÔŠ¼hty^ —EY^´«h§CÂ„¦ÔcC^u'¦Rš@¤¶äÎ:©mò"äòœìºĞºÕZB³DxZY“ŠÚ¥55í'Dmm¼§õ(ëH²Èò‰X½Ùë1ù W…3	–ØjüÚsİ(æxœK˜Îåì°lø{§0¿¨x#qĞãêwhí$Û¤À-ã€úú…‚f=¶ù/g¯# ëç¿^÷RâR§}ˆÒ+ô4Ğdµåã0I'Ok}P™úd™ö„àÍ49Ó¾¢]dD– LıÄ¤ÿ".ƒÊÔÖĞT%ÃFÔü–@be¡KËgê p¨¹V‡WÇ¸ÛgË0İ`õ ˆ¼1`Mõ¸‘åäy’ÙX6o½vq@íò€zªPê«„¨:Ÿõe÷+Œ×æª—F¿tŞşò™ûÊİW‘©Ò~‰ğQ¦ê×°Ï¯ÁS hø_ä]Aö’ãXU¨ïÜæ,cx¥ZÇ‡—¾óÓóï}¯}ÆòÎÍ†É>ZÇ×¹hÏƒ­à€LD¼ªñ†²1Ÿ<œ³xŞM¬@ğc·#s
+,VM.Òì6wG<5NôIx&tı9ÌÔg!`ãŒ®-¼Û\Áç6ªë6îg1ËDyJ½ †Xbî´÷Òupakÿ$b®¦İÑÕ~ã ¦ÏM%¶D~dÉ‰€k48Ùw«”÷¦øh½”¸œóíÜ¾XØ')I€Ku»jAªnŞÈ¾»¬œ6Qö…åìÂ$+—9/«Î¹	hÙÆşÏŒ‡t¿¬]ø<°ş91†{ª5)È±¹ñ¿‚Ôz2ª°	_šy¾_ˆ@R.úå5ŸV¢'›DpÍíe‚Û¢ôêšn•T§CŸõ5ê8P¥OÇânéŠY0^.-ßaR¬4ÚnBëU«¸ŠÛKjî8Ä7=7¹T<$¢oŠ.Î¯@ÑM-éµ«ºÿEj¹‰sà.ôÜ‘ğ_®SÑ=ñ9›»3Ì¢×¦‰£—¥Š¬™y#{7u8 è	õ4[P‘­KëKQm…î—ğÇ§ÔF{¨ZmœÖ\Ök“_–ÑlÜõ÷™å+³Ú[Kd¶éQé½™˜ítCßrÚ@j+Ì‚yEsÜUfÅfİ“Î|_~hmézi2Ušöˆ¨3¹U;U€p›GÛüĞºÒàÔÄÚ‡Û”FFë30$:Ïßw;™”_W7ü01Ş?~š|`È.T¹T|I-ş)œƒMuœØ"ÔÄ—uR^­@ôçHŸˆsÅÚ§æføì÷wúı¾ÖzWÍ`)Í÷šÁV-@Wë“É¿Y¹q{Ø7ÉSm™lMÛâmT&p£–j›æİK™tÎ˜B¼©ìÀº@ñ…0î‹„?ˆv&¦Ğ	*XÔ§ Ãt˜FAÓÀ:ğÿ[2óO%`2è Ï®§.42z†¥wò&eıèÓE&B0W¸œ×ŞZºj§åbËŠzâ'}®"L±yŞ¡®RM…£ñ+š–İ4 ¥Æğo‹†mföG-ağg|øö&Vş½ö‚ Ã}w˜µä×ò²v’vu©±“QÛØ‡PgçŸØÜ_ZşÈV¥Ï”K²áiëw÷)ÿ ²kf¨g0”ÍÍ±ŒÚ&ÚÕYæo"ïb°`vñ7lçúŞÀÅ“Ç‚1`/ÖeäÕë²×h¨ğ d¢¢*©%™^ó°¦?0Ñ…É³çU§î¬äÜÌùXÕvŠ¼«û%=Õ
+!Ai¥>I+>D+#ê¨ú¯™ªph,y¶Ut¬ÕVú0c‘§(¿Éºé•=#ï«ÿî™™õvdC{Ş{÷gMvS¨Õi´+î{¸mv·«ãÙ¾ÎÕ1,º:ö¤«ãisWGÌ¨à³oîĞ'iıÌ£\1•»£ğ'VéıLŒ]Z>HäÙS )B`w"ß¬\«·hSè+“¾£·ìHpï(Á;i°êá³^×–Ùh¿dC×+ğİæ!›Â‚Ev7Œ; oÁŒo¸»-–o"fŸy+’Ğó‰;	±k”¦NÜİĞÆôú¤ï£b9½^ºIL(„`ú®ÃÂ	‹OT(+XÄäÅó1`ÚÙ¥tAß—A;Ø®²Ãş€}1·UĞË°8Ğ€ÿ¢"E¾·s0 ¢ü}G¬ñÙŠx‚2Ä+c¢€·|gˆõ˜g .,> ¢å&Òõùx6âí¶9í0O 9|„õzÑ¹C;Êš9ühæû0ÊÏØ>c9É›
+õåjÜÃ?a†b–*(¢UÖF”·`ôşŸàŸCÖÎÃ'¥á ©Á°·mo«šäÄ >mÃ¸†qâGçH7	úlËStı¶rÄ˜Ê2ëaC°9>Z–fIø|+`¦Ø*¬êŒŠ3b>£+ºÄl¨¸±IÒ"‹#Ñg.°ş•DO<OyzI§CU‡ey•£ÌexÕ\}Ç…ÏÍªŸÊ*¢OrDg$”µ5	jQxlÅæY„¶BšµiìşÄj¿¿¯';¤´ä‰íä
+Ìöy8ó§d/w•«L¨Q[î%»‰pK4¸t©v‘\¡8’İ6Mh¿ÎˆİÈoC'V¬ºgOÚŠtÒ©Ë“ögìˆú]W4!­úêıbâØÉP’òÀ¾µ5z©ì&°!P&tT	ÎÊ~MèÁĞ7hÒÏm/6’³néZÃªÂ<òªÛ&qz–®ù…Úú2?@ÓĞòÊùàÀp  §vAUê’!»è@+óÙMÂ»9X:#/MC=a¬L5’­›P¯a]‚U¹Oæ°ºÖñ6†(2Â.Ot¯„5r/”ÍëÖŞèDb"„ñ|¿Ÿo[ÒÊb0ûŠjjñ4Š/„R°~èVõÑKZ1»cÎ¤Åõ…2-Ïqayúá´¬Ì¶‘†¹7l=Ù°4«ìª3sy›©#¬	„ë7nÖ˜ªÜ‡JßŒ÷eÍxeˆ¶°Êú]¨WèC]®$(^ìÄ«íP¥U´­§«`¹jêŠÔU¡hqÇ]LUÛêÇB.Õ=¬—íbı…RÊ²«µ½««Q|I¡KÕŒ]RÃê³h“¢v+’úa•ÜÕ–ôÒ4bT†wSı8‘şu¼™:ˆê8/^4:ñ^¼j6İ¿§½Aï_T4mBÏ¡È´Oı-9ßé“ŒÛa‡¥¾ˆÄƒµ“8°*;Á$‹l‚NõZ2E=™ÎÖ¹˜êfQtç¦šdP•.'¨äığƒ¢—hAunVŸ­°TŸtğDâÁW¦à-­ß•’õT©åãDvk±
+:E}FéÜİ˜Käú-jèjºİ?Ô	°’¾Lk¬8jlx3  ¤QV…‚‡,~3İ-«Ş¤+DvÒÉK+ +¦¸\eÓşåƒN±ˆª~¦HüqÜ}ZDzujÈğñ¥†‘…Šº€ï[FÇ—Q¼²ÌYTJu€H,-EÃvÉzv* ö°<Ìó1,ºj™:m\Lvé¦¹ªX’ —ûì£Òù°<v?ÿˆ­ÿ¬ |Ã³n)Z'‚túdôÒ×´N½oÀ+·İ¥Sb¤~ /È"FôR%
+}’6€
+Ğ¨…•ÚÂl^*Ó¿^Å¿ÒY›ÄÉY(”è*èÓªCgÉI©ˆı!3õQ©¹›…Ê6SèC~£%ÿk(¸K¼l(Í ¿;”Š_Ù£âç¾!TagBÉ]ªsLm%.Ñ'Ôæ0‰>„Æ¢úgÓnsrÅHßp§AD’öÇ¹eUƒÖAí÷[ÒšßÚa[h2o}`f “Í¢#ßíyïU±QPê4)„gäô hÀÖæ
+(a+UÅÙFù5\V‘Ç=V*VP±eS¬=Dtg¹‰wT[ºbÙ`-3®Ò–¬Û€à©ï0áqHFvT§‹ÔN‘/|gŠ´*-Ûfyd™$&¦Y=ã#SCè„Æ3•	²aïŠU $Iš’3¹RÀgQ¶÷çÏ¬ˆ	‡êzÀZÁ'™›lGµXt0‹¨>bG²è »D`D„¤:ÑÅê b{ŞVGz”±’/¾-ÓÒÇ	¨PKäY3/…F£¨—ãgM	·”æ4Œ—>ú(‹±‡u½„¬R®f+ş*ªèÌF9²Şº×¢Ô›Ä É—2]E©g…%ÿUóŠÎ¸/pàùæ­/¶™Î€æ›Ë~“.{°ËèÆ°,Óçµ™k^y¨AîİeÛ¾*ıùäé
+Î¢ÖNšùÇ“%â0ƒY_¨\ådc×§rœgÑ	¢9«<s@0ÆÉ³òH,á0=‡âG!b/Lµ†.Ó€ p«7ê™ÙHáªM¿x)µ®İ¼%[€—2‹¡ÜxçŞU°dÒ¦ğ	`Ú
+)ĞJš¾ìkiË^lDëõ;’¡ËˆÎv€”[ı »?¾J`÷pdk‚_WÓÇºİÙ«XyÎì÷p Ñ*ÇQN†eúYÈS¢ûêÇÑ=ÚÅÛE´{”9r/’ï/Tbº©Ë„h»´”ÿzÜ%JY;16µÀñ NNQBOjÊ†E·hfvjNg¦è>]+øÉã¢Ÿ‘òg{©fGƒGi#Ÿ( Ôö|şIDk¬Ûíâ_x$'Âô€‰\pv[öÇ3¢œü^)§M)zËI) eçİI®—>ÌõY©O’äç"¿^ù“Cw2 û–¾n"×GsÌúzòÉTî<Ô=âáwù£DaSÓa[•ÀQåÀD×m
+#7ñ‘Ä$æ
+eš4(kRF¥XÆÎò¸Ód3µŠÕ8÷¬>×‹†~¼h—mtñe!^œ^´ñ¼4%Òe~ß ŞeF?`yœ»C”[>·í‘òº%3Ú”ı5ÔUx‚,M«-å9ÎÊ9k¿9óÀÄĞËp`ÆïN³3jc±#êû˜ƒ	xrUìsZêG"2^ÎO@üÖgôÆ]ŠÈ82=+uÚŒ8µ®/ÖÊkĞ¬£:O®Ğ`ª²é@Ô}]
+l:.Ó›{¹$¹º)r™¢İR\èF~[M2šú5v)3.zOš§QĞÙ¶«—omuİô×kÄ~-÷Ñ^¶z y?èîxMô—M'£`^'¡+ñ2Ÿ‘fï§¡~0q¯Ï& –ù®ã…İÊÃ‡ŞC¿¶[÷iÑ­ëŒ7æÖ]·Ww)ïìûawßçÎ‡¼‹vĞO+•'ÖxÌ§Í|¶	ñÜ·¾<®Ïa‚İ›®Œ+ß[¨K†®á‹.åYåÿ“eŞÌ÷lé1…{<<f_­ãAì´è<Š‚ÃÊôêRpöl‚ÿSª»µÂÃÆS&ìg,oö`©‚’=Ÿò 0¯øùßg¦_hø0ÀùÊàj±ã]…¦? µuBlCÚ:>Í9r¹©èó¤aD¹Ğš³xn.gpHdlvæÆ—}ö—‰â19Lú…PUòùˆ#=Xçú! å1B3ø@ä’¥ée İ@ÏÊçÕI£CÄ¦<Gåh!;êü"Ş&8í­Ê!\'7!!m±€Z•–7O)Ò³•(ô\¡Íüö9—îš_¤VD*¿ÅtaéƒeN¬éA_?ªë­ãíçƒÆÅLÛ4XºnBN´¶ÒÁíB Ëô¨õ¾o<ÿ°ôoµî7ú5N¥¾£ç,y¦à1ì‚ñ§¨µ{ÿóªw6şV§€RÆ±õÿ Oi¤¹“×?ûşéşŞîp@Øq
+?Y0ì
+”¶ıŠÓ×Ò¶|b+=;»W6)¼“¢„1U¹ŠÆzd¼D{j—QoP8±­  f€‘&í®îN¢•g‰oRoV½%[š"ø¦ñ#ˆãlèÚ|zNØ<CY¢Ø¼hÇêªÙ)›‡MQéÛMk6Ôúy†jélÿ‘¼ÿ”¨gj—|ä¡K|”Ä½ìCáã^üAî&N™"XÅ¬V#ByNÓ=>7AÈàBE[cÚ4K#»;ªûB)mµÔşYU,ß,%/AÈs”²éœ0áìØ'ã“©ÌéQÈrÛ«ÛS½ïd®ÀI|‚a½²‚ ø|Š)¹ĞyXKTö£ëgKh-¶dŠ¢SvŸM¾û[&ÚVÜ-[Š“yã©Xøc¢+×ÂĞü/²œV©‰Q‰ÏÂù©Ñ7ŒNRK¸A£ò˜ıò€`°FlÍ™«“Á èAŸ4”Bi-_¬*‚©Ø;e0j4››U%Ë¾¢	\]Çí*2†È0ÎğüÈh†'İDÄ‡óª‰Ë¾”Ñä©ˆÌúb;›‰ê(€^ÃÖ¤÷ÂËÇÚ–‡ç²’ïQë$”ŸRGP²D›¢•çd´åÊèğH¬\m„Æ^’ıŞ<…‰©ëé«nïö¯¸$(_úünˆ²Ômk7F^¸¶jâªñÂ:nf!W‡•]¼ˆØ£®v4µ­²Î€‡\<k‰pù‹N"Í`¡ö…T b©c=(¡¿
+V6íŠ|Ø;‘–Æ–NÃÉ{¤©ßùÓïn÷ÿ   ÿÿ AèRe
