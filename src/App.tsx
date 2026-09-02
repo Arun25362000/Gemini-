@@ -6638,9 +6638,14 @@ export default function App() {
                                           <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-indigo-200">
                                             <Calendar className="w-4 h-4 text-white" />
                                           </div>
-                                          <h4 className="font-black text-xs sm:text-sm text-slate-900">
-                                            Repayment Schedule <span className="text-indigo-700 font-bold">— {targetUser?.displayName || l.userEmail}</span>
-                                          </h4>
+                                          <div>
+                                            <h4 className="font-black text-xs sm:text-sm text-slate-900">
+                                              Repayment Schedule <span className="text-indigo-700 font-bold">— {targetUser?.displayName || l.userEmail}</span>
+                                            </h4>
+                                            <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
+                                              Loan: ₹{(l.approvedAmount || 0).toLocaleString('en-IN')} • 0.5% Monthly Interest • {l.installments || 10} Months Tenure
+                                            </p>
+                                          </div>
                                         </div>
                                         <span className="text-[11px] font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1 rounded-xl flex items-center gap-1 shadow-2xs">
                                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
