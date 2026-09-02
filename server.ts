@@ -8,9 +8,18 @@ import admin from 'firebase-admin';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { initializeApp as initializeClientApp } from 'firebase/app';
 import { initializeFirestore, collection, getDocs, query, where, limit, doc, updateDoc } from 'firebase/firestore';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import * as XLSX from 'xlsx';
-const firebaseConfig = JSON.parse(readFileSync('./firebase-applet-config.json', 'utf-8'));
+
+let firebaseConfig: any = {};
+try {
+  const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
+  if (existsSync(configPath)) {
+    firebaseConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+  }
+} catch (e: any) {
+  console.warn('[Config] Warning reading firebase-applet-config.json:', e?.message || e);
+}
 
 // Initialize Firebase Admin
 let firebaseAdminApp: admin.app.App;
@@ -159,14 +168,18 @@ async function sendMailWithRetry(mailOptions: any, maxRetries = 3) {
   throw lastError;
 }
 
-// Verify transporter on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('[SMTP] Verification failed:', error);
-  } else {
-    console.log('[SMTP] Server is ready to take our messages');
-  }
-});
+// Verify transporter on startup if credentials configured
+if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+  transporter.verify((error, success) => {
+    if (error) {
+      console.warn('[SMTP] Verification failed:', error?.message || error);
+    } else {
+      console.log('[SMTP] Server is ready to send messages');
+    }
+  });
+} else {
+  console.log('[SMTP] No SMTP credentials configured. Email sending features will be disabled until credentials are added.');
+}
 
 async function sendMonthlyReminders() {
   console.log('Running monthly email reminder task...');

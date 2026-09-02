@@ -463,6 +463,7 @@ export default function App() {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [isLocalAdmin, setIsLocalAdmin] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isGoogleLoggingIn, setIsGoogleLoggingIn] = useState(false);
   const [showInitButton, setShowInitButton] = useState(false);
   const [showPhonePrompt, setShowPhonePrompt] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
@@ -529,6 +530,7 @@ export default function App() {
   const [isCompletedRepaymentsExpanded, setIsCompletedRepaymentsExpanded] = useState(true);
   const [isLoanOverviewExpanded, setIsLoanOverviewExpanded] = useState(true);
   const [isFinancialInsightsExpanded, setIsFinancialInsightsExpanded] = useState(true);
+  const [expandedMemberLoanGroups, setExpandedMemberLoanGroups] = useState<Record<string, boolean>>({});
   const [expandedMemberLoanSchedules, setExpandedMemberLoanSchedules] = useState<Record<string, boolean>>({});
   const [isApplicationHistoryExpanded, setIsApplicationHistoryExpanded] = useState(false);
 
@@ -1141,87 +1143,131 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    const backfillUserData = async (uid: string, email: string) => {
+    const backfillUserData = async (uid: string, email: string, oldUid?: string, oldEmail?: string) => {
       if (!email) return;
       try {
-        console.log(`Checking for data to backfill for email: ${email}`);
+        console.log(`Checking for data to backfill for email: ${email}, oldUid: ${oldUid}, oldEmail: ${oldEmail}`);
         
-        // 1. Contributions
-        const contribsQuery = query(
-          collection(db, 'contributions'), 
-          where('userEmail', '==', email)
-        );
-        
-        // Use standard getDocs, if offline it should still return cache
-        const contribsSnap = await getDocs(contribsQuery).catch(err => {
-          console.warn("Backfill (contribs) error:", err.message);
-          return null;
-        });
+        const normEmail = email.toLowerCase().trim();
+        const emailsToMatch = [normEmail];
+        if (oldEmail && oldEmail.toLowerCase().trim() !== normEmail) {
+          emailsToMatch.push(oldEmail.toLowerCase().trim());
+        }
+        if (normEmail.includes('pranesh') || (oldEmail && oldEmail.toLowerCase().includes('pranesh'))) {
+          if (!emailsToMatch.includes('praneshrao1954@gmail.com')) emailsToMatch.push('praneshrao1954@gmail.com');
+          if (!emailsToMatch.includes('jpranesh1954@gmail.com')) emailsToMatch.push('jpranesh1954@gmail.com');
+        }
+
+        const uidsToMatch = [uid];
+        if (oldUid && oldUid !== uid) {
+          uidsToMatch.push(oldUid);
+        }
+        if (normEmail.includes('pranesh') && !uidsToMatch.includes('imp5eagibVcvtfD5qleX4ISC1Nj2')) {
+          uidsToMatch.push('imp5eagibVcvtfD5qleX4ISC1Nj2');
+        }
 
         const batch = writeBatch(db);
         let hasChanges = false;
 
+        // 1. Contributions
+        const contribsSnap = await getDocs(collection(db, 'contributions')).catch(err => {
+          console.warn("Backfill (contribs) error:", err.message);
+          return null;
+        });
+
         if (contribsSnap) {
           contribsSnap.docs.forEach(doc => {
             const data = doc.data();
-            if (!data.userId || data.userId === '') {
-              batch.update(doc.ref, { userId: uid });
-              hasChanges = true;
+            const cEmail = (data.userEmail || '').toLowerCase().trim();
+            const cUid = data.userId || '';
+            const matchEmail = emailsToMatch.includes(cEmail);
+            const matchUid = uidsToMatch.includes(cUid);
+            
+            if (matchEmail || matchUid) {
+              const needsUidUpdate = data.userId !== uid;
+              const needsEmailUpdate = (data.userEmail || '').toLowerCase().trim() !== normEmail;
+              if (needsUidUpdate || needsEmailUpdate) {
+                batch.update(doc.ref, { 
+                  userId: uid, 
+                  userEmail: email 
+                });
+                hasChanges = true;
+              }
             }
           });
         }
 
         // 2. Notifications
-        const notificationsQuery = query(
-          collection(db, 'notifications'), 
-          where('userId', '==', email)
-        );
-        const notificationsSnap = await getDocs(notificationsQuery).catch(() => null);
+        const notificationsSnap = await getDocs(collection(db, 'notifications')).catch(() => null);
         if (notificationsSnap) {
           notificationsSnap.docs.forEach(doc => {
-            batch.update(doc.ref, { userId: uid });
-            hasChanges = true;
+            const data = doc.data();
+            const nUserId = (data.userId || '').toLowerCase().trim();
+            const matchEmail = emailsToMatch.includes(nUserId);
+            const matchUid = uidsToMatch.includes(data.userId || '');
+            if ((matchEmail || matchUid) && data.userId !== uid) {
+              batch.update(doc.ref, { userId: uid });
+              hasChanges = true;
+            }
           });
         }
 
         // 3. Loans
-        const loansQuery = query(
-          collection(db, 'loans'), 
-          where('userEmail', '==', email)
-        );
-        const loansSnap = await getDocs(loansQuery).catch(() => null);
+        const loansSnap = await getDocs(collection(db, 'loans')).catch(() => null);
         if (loansSnap) {
           loansSnap.docs.forEach(doc => {
             const data = doc.data();
-            if (!data.userId || data.userId === '') {
-              batch.update(doc.ref, { userId: uid });
-              hasChanges = true;
+            const lEmail = (data.userEmail || '').toLowerCase().trim();
+            const lUid = data.userId || '';
+            const matchEmail = emailsToMatch.includes(lEmail);
+            const matchUid = uidsToMatch.includes(lUid);
+            if (matchEmail || matchUid) {
+              const needsUidUpdate = data.userId !== uid;
+              const needsEmailUpdate = (data.userEmail || '').toLowerCase().trim() !== normEmail;
+              if (needsUidUpdate || needsEmailUpdate) {
+                batch.update(doc.ref, { userId: uid, userEmail: email });
+                hasChanges = true;
+              }
             }
           });
         }
 
         // 4. Loan Payments
-        const loanPaymentsQuery = query(
-          collection(db, 'loanPayments'), 
-          where('userEmail', '==', email)
-        );
-        const loanPaymentsSnap = await getDocs(loanPaymentsQuery).catch(() => null);
+        const loanPaymentsSnap = await getDocs(collection(db, 'loanPayments')).catch(() => null);
         if (loanPaymentsSnap) {
           loanPaymentsSnap.docs.forEach(doc => {
             const data = doc.data();
-            if (!data.userId || data.userId === '') {
-              batch.update(doc.ref, { userId: uid });
-              hasChanges = true;
+            const pEmail = (data.userEmail || '').toLowerCase().trim();
+            const pUid = data.userId || '';
+            const matchEmail = emailsToMatch.includes(pEmail);
+            const matchUid = uidsToMatch.includes(pUid);
+            if (matchEmail || matchUid) {
+              const needsUidUpdate = data.userId !== uid;
+              const needsEmailUpdate = (data.userEmail || '').toLowerCase().trim() !== normEmail;
+              if (needsUidUpdate || needsEmailUpdate) {
+                batch.update(doc.ref, { userId: uid, userEmail: email });
+                hasChanges = true;
+              }
             }
           });
         }
 
-        // 5. Clean up email-keyed user document
-        const emailRef = doc(db, 'users', email);
-        if (email !== uid) {
-          const emailSnap = await getDoc(emailRef).catch(() => null);
-          if (emailSnap?.exists()) {
-            batch.delete(emailRef);
+        // 5. Clean up old user document (by email or oldUid)
+        for (const e of emailsToMatch) {
+          if (e !== uid) {
+            const emailRef = doc(db, 'users', e);
+            const emailSnap = await getDoc(emailRef).catch(() => null);
+            if (emailSnap?.exists()) {
+              batch.delete(emailRef);
+              hasChanges = true;
+            }
+          }
+        }
+        if (oldUid && oldUid !== uid) {
+          const oldUidRef = doc(db, 'users', oldUid);
+          const oldUidSnap = await getDoc(oldUidRef).catch(() => null);
+          if (oldUidSnap?.exists()) {
+            batch.delete(oldUidRef);
             hasChanges = true;
           }
         }
@@ -1312,21 +1358,56 @@ export default function App() {
         let userSnap = await getDoc(userRef);
         
         if (!userSnap.exists()) {
-          // Check if admin pre-added this user by email
-          const email = firebaseUser.email || '';
+          const rawEmail = firebaseUser.email || '';
+          const email = rawEmail.trim().toLowerCase();
+          
+          // Check 1: doc with email as ID
           const emailRef = doc(db, 'users', email);
-          const emailSnap = await getDoc(emailRef);
+          const emailSnap = await getDoc(emailRef).catch(() => null);
+          
+          let existingData: UserProfile | null = null;
+          let oldDocId: string | null = null;
 
-          if (emailSnap.exists()) {
-            // Link UID to existing record (User was pre-registered by email)
-            const existingData = emailSnap.data() as UserProfile;
-            const updatedProfile = { ...existingData, uid: firebaseUser.uid, displayName: firebaseUser.displayName || existingData.displayName };
+          if (emailSnap && emailSnap.exists()) {
+            existingData = emailSnap.data() as UserProfile;
+            oldDocId = emailRef.id;
+          } else {
+            // Check 2: query users collection for this email or legacy email
+            try {
+              const allUsersSnap = await getDocs(collection(db, 'users'));
+              const matchedDoc = allUsersSnap.docs.find(d => {
+                const data = d.data() as UserProfile;
+                const dEmail = (data.email || '').trim().toLowerCase();
+                if (dEmail === email) return true;
+                // Specific matching for Pranesh Rao transition from praneshrao1954@gmail.com to jpranesh1954@gmail.com
+                if (email === 'jpranesh1954@gmail.com' && (dEmail === 'praneshrao1954@gmail.com' || d.id === 'imp5eagibVcvtfD5qleX4ISC1Nj2')) return true;
+                return false;
+              });
+              if (matchedDoc) {
+                existingData = matchedDoc.data() as UserProfile;
+                oldDocId = matchedDoc.id;
+              }
+            } catch (err) {
+              console.error("Error querying users by email:", err);
+            }
+          }
+
+          if (existingData) {
+            // Link UID to existing record (User was pre-registered by email or email was updated)
+            const updatedProfile: UserProfile = { 
+              ...existingData, 
+              uid: firebaseUser.uid, 
+              email: rawEmail || existingData.email,
+              displayName: firebaseUser.displayName || existingData.displayName 
+            };
             await setDoc(userRef, updatedProfile);
-            await deleteDoc(emailRef); // Remove the email-keyed doc
+            if (oldDocId && oldDocId !== firebaseUser.uid) {
+              await deleteDoc(doc(db, 'users', oldDocId)).catch(err => console.warn("Could not delete old user doc:", err));
+            }
             setProfile(updatedProfile);
             
-            // Backfill contributions and notifications
-            backfillUserData(firebaseUser.uid, email);
+            // Backfill contributions, loans, and notifications
+            backfillUserData(firebaseUser.uid, rawEmail, oldDocId !== firebaseUser.uid ? oldDocId : undefined, existingData.email);
           } else {
             // STRICT VERIFICATION: Not in database = Access Denied
             await signOut(auth);
@@ -1576,6 +1657,7 @@ export default function App() {
   }, [profile, loans, allUsers, loanPayments]);
 
   const handleLogin = async () => {
+    setIsGoogleLoggingIn(true);
     try {
       const provider = new GoogleAuthProvider();
       // Ensure we request the email to make it more official for Google
@@ -1603,20 +1685,26 @@ export default function App() {
         
         if (popupErr.code === 'auth/unauthorized-domain') {
           notify('error', 'Domain Error: Please add "localhost" and your app URL to Authorized Domains in Firebase console.');
-        } else if (popupErr.code === 'auth/popup-blocked' || popupErr.code === 'auth/operation-not-supported-in-this-environment') {
-          notify('info', 'Switching to secure redirection...');
+        } else if (
+          popupErr.code === 'auth/popup-blocked' || 
+          popupErr.code === 'auth/operation-not-supported-in-this-environment' ||
+          popupErr.code === 'auth/cancelled-popup-request'
+        ) {
+          notify('info', 'Switching to secure redirection for your browser...');
           await signInWithRedirect(auth, provider);
         } else if (popupErr.code === 'auth/disallowed-useragent' || popupErr.message?.includes('disallowed_useragent')) {
-          notify('error', 'Browser Restriction: Google does not allow login in this simplified view. Please try opening the app in the Chrome browser.');
-        } else if (popupErr.code !== 'auth/popup-closed-by-user') {
+          notify('error', 'Browser Restriction: Please open the app directly in Safari or Chrome rather than inside an in-app viewer.');
+        } else if (popupErr.code !== 'auth/popup-closed-by-user' && popupErr.code !== 'auth/cancelled-by-user') {
           console.log('Attempting Redirect fallback...');
           await signInWithRedirect(auth, provider);
         }
       }
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-by-user') {
-        notify('error', err.message || "An unexpected error occurred.");
+        notify('error', err.message || "An unexpected error occurred during login.");
       }
+    } finally {
+      setIsGoogleLoggingIn(false);
     }
   };
 
@@ -2383,12 +2471,6 @@ export default function App() {
 
   const applyLoan = async () => {
     if (!user || !profile || isAdmin) return;
-    
-    const activeLoan = loans.find(l => l.userId === user.uid && (l.status === 'approved' || l.status === 'pending'));
-    if (activeLoan) {
-      notify('error', "You already have an active or pending loan application.");
-      return;
-    }
 
     if (loanAmount > 50000) {
       notify('error', "Maximum loan amount is ‚Çπ50,000");
@@ -3970,10 +4052,27 @@ export default function App() {
               {loginMethod === 'google' ? (
                 <button 
                   onClick={handleLogin}
-                  className="w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95"
+                  disabled={isGoogleLoggingIn}
+                  className={cn(
+                    "w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95",
+                    isGoogleLoggingIn && "opacity-80 cursor-not-allowed"
+                  )}
                 >
-                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
-                  Continue with Google
+                  {isGoogleLoggingIn ? (
+                    <>
+                      <motion.div 
+                        animate={{ rotate: 360 }}
+                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                        className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
+                      />
+                      <span>Signing in...</span>
+                    </>
+                  ) : (
+                    <>
+                      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
+                      <span>Continue with Google</span>
+                    </>
+                  )}
                 </button>
               ) : (
                 <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
@@ -4157,7 +4256,11 @@ export default function App() {
         {(!isAdmin || isFinancialInsightsExpanded) && (
         <div className={cn(
           "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5 mb-6",
-          !isAdmin && "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 max-w-2xl",
+          !isAdmin && (
+            loans.some(l => l.status === 'approved' && ((user?.uid && l.userId === user.uid) || (user?.email && l.userEmail?.toLowerCase() === user.email?.toLowerCase())))
+              ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-4xl"
+              : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 max-w-2xl"
+          ),
           isMobileVisual && "gap-2.5 mb-5"
         )}>
           {/* Card 1: Current Month / Status */}
@@ -4238,29 +4341,87 @@ export default function App() {
           </motion.div>
 
           {!isAdmin ? (
-            <motion.div 
-              key="dashboard-card-your-savings"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 }}
-              className={cn(
-                "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group",
-                isMobileVisual && "p-3 rounded-xl"
-              )}
-            >
-              <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0">
-                    <TrendingUp className="w-4 h-4" />
+            <>
+              <motion.div 
+                key="dashboard-card-your-savings"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 }}
+                className={cn(
+                  "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group",
+                  isMobileVisual && "p-3 rounded-xl"
+                )}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                    <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0">
+                      <TrendingUp className="w-4 h-4" />
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">Your Savings</span>
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">Your Savings</span>
+                  <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Your Contributions</h3>
+                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-950 tracking-tight">
+                    ‚Çπ{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString('en-IN')}
+                  </div>
                 </div>
-                <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Your Contributions</h3>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-950 tracking-tight">
-                  ‚Çπ{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString('en-IN')}
-                </div>
-              </div>
-            </motion.div>
+              </motion.div>
+
+              {(() => {
+                const myActiveLoans = loans.filter(l => 
+                  l.status === 'approved' &&
+                  ((user?.uid && l.userId === user.uid) || (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase()))
+                );
+                if (myActiveLoans.length === 0) return null;
+
+                const totalActiveLoanAmount = myActiveLoans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
+                const totalActiveLoanPaid = myActiveLoans.reduce((sum, l) => {
+                  const paid = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid').reduce((acc, p) => acc + (p.amount || 0), 0);
+                  return sum + paid;
+                }, 0);
+                const totalActiveInterestPaid = myActiveLoans.reduce((sum, l) => {
+                  const intPaid = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid').reduce((acc, p) => acc + (p.interest || 0), 0);
+                  return sum + intPaid;
+                }, 0);
+
+                return (
+                  <motion.div 
+                    key="dashboard-card-active-loans-summary"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.08 }}
+                    className={cn(
+                      "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
+                      isMobileVisual && "p-3 rounded-xl"
+                    )}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                        <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0">
+                          <CreditCard className="w-4 h-4" />
+                        </div>
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                          {myActiveLoans.length > 1 ? `${myActiveLoans.length} Active Loans` : 'Active Loan'}
+                        </span>
+                      </div>
+                      <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Loan Amount</h3>
+                      <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
+                        ‚Çπ{totalActiveLoanAmount.toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                    <div className="mt-2.5 pt-2 border-t border-purple-100/90 grid grid-cols-2 gap-2 text-[10.5px]">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-slate-500">Total Loan Paid</span>
+                        <span className="font-bold text-emerald-700 truncate">‚Çπ{totalActiveLoanPaid.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="flex flex-col text-right">
+                        <span className="font-semibold text-slate-500">Total Interest Paid</span>
+                        <span className="font-bold text-indigo-700 truncate">‚Çπ{totalActiveInterestPaid.toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })()}
+            </>
           ) : (
             /* Card 2: Active Members */
             <motion.div 
@@ -4626,13 +4787,9 @@ export default function App() {
             {activeTab === 'loans' && !isAdmin && (
               <button 
                 onClick={() => setIsApplyingLoan(true)}
-                disabled={hasActiveLoan}
-                className={cn(
-                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-                  hasActiveLoan ? "bg-slate-100 text-slate-400 shadow-none" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
-                )}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700 cursor-pointer"
               >
-                <Plus className="w-5 h-5" /> {hasActiveLoan ? 'Loan Active' : 'Apply for Loan'}
+                <Plus className="w-5 h-5" /> Apply for Loan
               </button>
             )}
             {activeTab === 'contributions' && !isAdmin && (
@@ -4664,16 +4821,67 @@ export default function App() {
           const targetCycleDate = isThisMonthCycle 
             ? new Date(now.getFullYear(), now.getMonth(), 1)
             : new Date(now.getFullYear(), now.getMonth() + 1, 1);
+          const targetMonth = targetCycleDate.getMonth() + 1;
+          const targetYear = targetCycleDate.getFullYear();
           const cycleMonthLabel = format(targetCycleDate, 'MMMyyyy');
           const cyclePrefix = isThisMonthCycle ? 'This Month' : 'Next Month';
 
-          const activeLoans = loans.filter(l => l.status === 'approved');
-          const activeOutstandingPrincipal = activeLoans.reduce((acc, l) => {
-            const paidPayments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
-            const paidPrincipal = paidPayments.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
-            return acc + Math.max(0, (l.approvedAmount || l.amount || 0) - paidPrincipal);
+          // Calculate total outstanding loan principal strictly as of the 1st of the target month
+          // Repayments made in or after targetMonth do not reduce the start-of-month principal base
+          const targetMonthStart = new Date(targetYear, targetMonth - 1, 1, 0, 0, 0, 0);
+
+          const getLoanDate = (l: Loan): Date | null => {
+            if (l.approvedAt?.toDate) return l.approvedAt.toDate();
+            if (l.approvedAt?.seconds) return new Date(l.approvedAt.seconds * 1000);
+            if (l.approvedAt instanceof Date) return l.approvedAt;
+            if (typeof l.approvedAt === 'string') {
+              const d = new Date(l.approvedAt);
+              if (!isNaN(d.getTime())) return d;
+            }
+            if (l.createdAt?.toDate) return l.createdAt.toDate();
+            if (l.createdAt?.seconds) return new Date(l.createdAt.seconds * 1000);
+            if (l.createdAt instanceof Date) return l.createdAt;
+            if (typeof l.createdAt === 'string') {
+              const d = new Date(l.createdAt);
+              if (!isNaN(d.getTime())) return d;
+            }
+            return null;
+          };
+
+          const startOfMonthOutstandingPrincipal = loans.reduce((acc, l) => {
+            if (l.status !== 'approved' && l.status !== 'paid') return acc;
+            
+            const loanDate = getLoanDate(l);
+            if (loanDate) {
+              const loanYear = loanDate.getFullYear();
+              const loanMonth = loanDate.getMonth() + 1;
+              if (loanYear > targetYear || (loanYear === targetYear && loanMonth > targetMonth)) {
+                return acc;
+              }
+            }
+
+            // Only subtract principal repayments made BEFORE the start of targetMonth/targetYear (i.e. strictly before 1st of targetMonth)
+            const priorPaidPayments = loanPayments.filter(p => {
+              if (p.loanId !== l.id || p.status !== 'paid') return false;
+              
+              const pDate = p.timestamp?.toDate ? p.timestamp.toDate() : (p.timestamp?.seconds ? new Date(p.timestamp.seconds * 1000) : (p.approvedAt?.toDate ? p.approvedAt.toDate() : (p.approvedAt?.seconds ? new Date(p.approvedAt.seconds * 1000) : null)));
+              if (pDate) {
+                return pDate < targetMonthStart;
+              }
+
+              const pYear = p.year;
+              const pMonth = p.month;
+              if (pYear && pMonth) {
+                return pYear < targetYear || (pYear === targetYear && pMonth < targetMonth);
+              }
+              return false;
+            });
+            const priorPaidPrincipal = priorPaidPayments.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
+            const loanStartPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - priorPaidPrincipal);
+            return acc + loanStartPrincipal;
           }, 0);
-          const dynamicInterest = Math.round(activeOutstandingPrincipal * 0.005);
+
+          const dynamicInterest = Math.round(startOfMonthOutstandingPrincipal * 0.005);
 
           return (
             <div className="-mt-4 mb-6 flex items-center justify-between gap-3 p-3 sm:px-4.5 sm:py-2.5 bg-gradient-to-r from-teal-50/90 via-emerald-50/60 to-cyan-50/90 border border-teal-200/90 rounded-2xl shadow-xs flex-wrap">
@@ -4686,7 +4894,7 @@ export default function App() {
                 </span>
               </div>
               <div className="text-[11px] font-bold text-teal-800/80 bg-teal-100/70 px-2.5 py-1 rounded-xl border border-teal-200/60 ml-auto select-none">
-                0.5% on active outstanding
+                0.5% on start-of-month outstanding
               </div>
             </div>
           );
@@ -6094,12 +6302,31 @@ export default function App() {
                                         {selectedLoan?.id === l.id && (
                                           <tr className="bg-slate-50/40">
                                             <td colSpan={6} className="p-4 sm:p-6 border-t border-b border-slate-200/80">
-                                              <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-sm">
-                                                <div className="p-4 bg-slate-50/80 border-b border-slate-200/80 flex items-center justify-between">
-                                                  <h4 className="font-bold text-sm text-slate-900">Repayment Schedule ‚Äî {targetUser?.displayName || l.userEmail}</h4>
-                                                  <span className="text-xs font-bold text-indigo-600">{paidPayments.length} / {l.installments} Installments Paid</span>
+                                              <div className="bg-white rounded-2xl border-2 border-indigo-100/90 overflow-hidden shadow-sm">
+                                                <div className="p-4 bg-gradient-to-r from-indigo-50/90 via-sky-50/70 to-indigo-50/50 text-slate-900 flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100/80 shadow-2xs">
+                                                  <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-indigo-200">
+                                                      <Calendar className="w-5 h-5 text-white" />
+                                                    </div>
+                                                    <div>
+                                                      <h4 className="font-black text-sm text-slate-900 flex items-center gap-2">
+                                                        Repayment Schedule
+                                                        <span className="text-xs font-bold text-indigo-700">‚Äî {targetUser?.displayName || l.userEmail}</span>
+                                                      </h4>
+                                                      <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
+                                                        Loan: ‚Çπ{(l.approvedAmount || 0).toLocaleString('en-IN')} ‚Ä¢ 0.5% Monthly Interest ‚Ä¢ {l.installments || 10} Months Tenure
+                                                      </p>
+                                                    </div>
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-2xs">
+                                                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                                      {paidPayments.length} / {l.installments || 10} Paid
+                                                    </span>
+                                                  </div>
                                                 </div>
-                                                <div className="p-4 space-y-2">
+                                                
+                                                <div className="p-4 sm:p-5 space-y-3 bg-slate-50/60">
                                                   {(() => {
                                                     const approvedAmount = l.approvedAmount || 0;
                                                     const installments = l.installments || 10;
@@ -6133,61 +6360,124 @@ export default function App() {
                                                       const interestToDisplay = (isPaid || isPending) ? (payment?.interest ?? (isPaid ? interest : 0)) : interest;
                                                       const total = principalToDisplay + interestToDisplay;
 
+                                                      const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
+                                                      const isFuture = installmentDate > new Date() && l.status !== 'paid';
+                                                      const now = new Date();
+                                                      const currentYear = now.getFullYear();
+                                                      const currentMonth = now.getMonth() + 1;
+                                                      const isFutureMonth = (installmentYear > currentYear) || (installmentYear === currentYear && installmentMonth > currentMonth);
+                                                      const isSettledOrClosed = l.status === 'paid' || remainingPrincipal <= 0;
+
+                                                      const paidOnDate = isPaid ? (
+                                                        displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
+                                                        displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
+                                                      ) : '-';
+
                                                       return (
-                                                        <div key={`admin-loan-schedule-${l.id || 'loan'}-${idx}-${i}`} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100">
-                                                          <div className="flex items-center gap-3">
-                                                            <span className="text-xs font-bold text-slate-400 w-6">{installmentNum}.</span>
-                                                            <div>
-                                                              <p className="text-sm font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
-                                                              <p className="text-[10px] text-slate-500">‚Çπ{principalToDisplay.toLocaleString('en-IN')} + ‚Çπ{interestToDisplay.toLocaleString('en-IN')} Int.</p>
+                                                        <div 
+                                                          key={`admin-loan-schedule-${l.id || 'loan'}-${idx}-${i}`} 
+                                                          className={cn(
+                                                            "flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl border-2 transition-all shadow-2xs relative overflow-hidden",
+                                                            isPaid ? "bg-gradient-to-r from-emerald-50/90 via-teal-50/40 to-emerald-50/20 border-emerald-300/80" :
+                                                            isPending ? "bg-gradient-to-r from-amber-50/95 via-orange-50/40 to-amber-50/20 border-amber-300/90" :
+                                                            isCurrentMonth ? "bg-gradient-to-r from-indigo-50 via-blue-50/60 to-indigo-50/30 border-indigo-400 ring-2 ring-indigo-200/60 shadow-xs" :
+                                                            isFuture ? "bg-gradient-to-r from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" :
+                                                            "bg-gradient-to-r from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
+                                                          )}
+                                                        >
+                                                          <div className="flex items-center gap-3.5 min-w-0">
+                                                            <div className={cn(
+                                                              "w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
+                                                              isPaid ? "bg-emerald-600 text-white" :
+                                                              isPending ? "bg-amber-500 text-white" :
+                                                              isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" :
+                                                              isFuture ? "bg-slate-200 text-slate-700" :
+                                                              "bg-rose-500 text-white"
+                                                            )}>
+                                                              #{installmentNum}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                              <div className="flex items-center gap-2 flex-wrap">
+                                                                <p className="text-sm font-black text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
+                                                                <span className={cn(
+                                                                  "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border shadow-2xs",
+                                                                  isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
+                                                                  isPending ? "bg-amber-100 text-amber-800 border-amber-300" :
+                                                                  isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" :
+                                                                  isFuture ? "bg-slate-100 text-slate-600 border-slate-200" :
+                                                                  "bg-rose-100 text-rose-800 border-rose-300"
+                                                                )}>
+                                                                  {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />}
+                                                                  {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
+                                                                </span>
+                                                              </div>
+                                                              <p className="text-[11px] text-slate-600 font-medium mt-0.5">
+                                                                <span className="font-bold text-slate-800">Principal: ‚Çπ{principalToDisplay.toLocaleString('en-IN')}</span>
+                                                                <span className="mx-1 text-slate-400">‚Ä¢</span>
+                                                                <span className="font-bold text-indigo-700">Interest (0.5%): ‚Çπ{interestToDisplay.toLocaleString('en-IN')}</span>
+                                                              </p>
                                                             </div>
                                                           </div>
-                                                          <div className="flex items-center gap-4">
-                                                            <div className="w-16 px-1">
-                                                              <p className="text-[10px] font-bold text-slate-400 uppercase">Mode</p>
+
+                                                          <div className="flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200/60">
+                                                            <div className="bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200/80 text-center min-w-[70px]">
+                                                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Mode</p>
                                                               <p className={cn(
-                                                                "text-xs font-bold",
-                                                                displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-300 italic"
+                                                                "text-xs font-black truncate",
+                                                                displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
                                                               )}>
                                                                 {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
                                                               </p>
                                                             </div>
-                                                            <div className="w-20 px-1 text-center">
-                                                              <p className="text-[10px] font-bold text-slate-400 uppercase">Paid On</p>
-                                                              <p className="text-xs font-bold text-slate-600">
-                                                                {isPaid ? (
-                                                                  displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yy') :
-                                                                  displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yy') : '-'
-                                                                ) : '-'}
+
+                                                            <div className="bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200/80 text-center min-w-[85px]">
+                                                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Paid On</p>
+                                                              <p className="text-xs font-bold text-slate-700 truncate">
+                                                                {paidOnDate}
                                                               </p>
                                                             </div>
-                                                            <span className="text-sm font-black text-slate-900 w-20 text-right">‚Çπ{total.toLocaleString('en-IN')}</span>
+
+                                                            <div className="text-right min-w-[90px]">
+                                                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total</p>
+                                                              <span className="text-sm sm:text-base font-black text-slate-950">‚Çπ{total.toLocaleString('en-IN')}</span>
+                                                            </div>
+
                                                             <div className="flex items-center gap-2">
-                                                              {isPaid && (
+                                                              {isAdmin && !isSettledOrClosed && isPaid && (payment?.id || displayPayment?.id) && (
                                                                 <button 
-                                                                  onClick={() => setDeletingRepaymentId(payment.id!)}
-                                                                  className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                                                                  onClick={() => setDeletingRepaymentId((payment?.id || displayPayment?.id)!)}
+                                                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-slate-200/60 hover:border-red-200 cursor-pointer"
                                                                   title="Delete Repayment Record"
                                                                 >
-                                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                                  <Trash2 className="w-4 h-4 text-red-500" />
                                                                 </button>
                                                               )}
                                                               {!isPaid && !isPending && isAdmin && (
                                                                 <button 
-                                                                  onClick={() => setAdminManualRepayment({
-                                                                    isOpen: true,
-                                                                    loan: l,
-                                                                    month: installmentMonth,
-                                                                    year: installmentYear,
-                                                                    amount: scheduledPrincipal,
-                                                                    interest: interest,
-                                                                    method: 'cash',
-                                                                    paymentDate: format(new Date(), 'yyyy-MM-dd')
-                                                                  })}
-                                                                  className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all border border-indigo-100/50"
-                                                                  title="Record Payment Manually"
+                                                                  disabled={isFutureMonth}
+                                                                  onClick={() => {
+                                                                    if (isFutureMonth) return;
+                                                                    setAdminManualRepayment({
+                                                                      isOpen: true,
+                                                                      loan: l,
+                                                                      month: installmentMonth,
+                                                                      year: installmentYear,
+                                                                      amount: scheduledPrincipal,
+                                                                      interest: interest,
+                                                                      method: 'cash',
+                                                                      paymentDate: format(new Date(), 'yyyy-MM-dd')
+                                                                    });
+                                                                  }}
+                                                                  className={cn(
+                                                                    "flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs",
+                                                                    isFutureMonth 
+                                                                      ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60 shadow-none hover:bg-slate-100" 
+                                                                      : "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer active:scale-95"
+                                                                  )}
+                                                                  title={isFutureMonth ? "Cannot record payment for future months" : "Record Payment Manually"}
                                                                 >
-                                                                  <PlusCircle className="w-4 h-4" />
+                                                                  <PlusCircle className="w-3.5 h-3.5" />
+                                                                  <span>Record</span>
                                                                 </button>
                                                               )}
                                                             </div>
@@ -6343,18 +6633,22 @@ export default function App() {
                                   {selectedLoan?.id === l.id && (
                                     <div className="px-4 pb-4 sm:px-5 sm:pb-5 border-t border-slate-100 bg-slate-50/50">
                                       {/* Schedule Header */}
-                                      <div className="mt-3 p-3.5 bg-white rounded-2xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-2 shadow-xs">
-                                        <div>
-                                          <h4 className="font-bold text-xs sm:text-sm text-slate-900">
-                                            Repayment Schedule ‚Äî {targetUser?.displayName || l.userEmail}
+                                      <div className="mt-3 p-3.5 bg-gradient-to-r from-indigo-50/90 via-sky-50/70 to-indigo-50/50 text-slate-900 rounded-2xl flex flex-wrap items-center justify-between gap-2 border border-indigo-100/90 shadow-2xs">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-indigo-200">
+                                            <Calendar className="w-4 h-4 text-white" />
+                                          </div>
+                                          <h4 className="font-black text-xs sm:text-sm text-slate-900">
+                                            Repayment Schedule <span className="text-indigo-700 font-bold">‚Äî {targetUser?.displayName || l.userEmail}</span>
                                           </h4>
                                         </div>
-                                        <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100">
-                                          {paidPayments.length} / {l.installments || 10} Installments Paid
+                                        <span className="text-[11px] font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1 rounded-xl flex items-center gap-1 shadow-2xs">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          {paidPayments.length} / {l.installments || 10} Paid
                                         </span>
                                       </div>
 
-                                      <div className="mt-3 space-y-2.5">
+                                      <div className="mt-3 space-y-3">
                                         {(() => {
                                           const approvedAmount = l.approvedAmount || 0;
                                           const installments = l.installments || 10;
@@ -6385,37 +6679,72 @@ export default function App() {
                                             const interestToDisplay = (isPaid || isPending) ? (payment?.interest ?? (isPaid ? interest : 0)) : interest;
                                             const total = principalToDisplay + interestToDisplay;
 
+                                            const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
+                                            const isFuture = installmentDate > new Date() && l.status !== 'paid';
+                                            const now = new Date();
+                                            const currentYear = now.getFullYear();
+                                            const currentMonth = now.getMonth() + 1;
+                                            const isFutureMonth = (installmentYear > currentYear) || (installmentYear === currentYear && installmentMonth > currentMonth);
+                                            const isSettledOrClosed = l.status === 'paid' || remainingPrincipal <= 0;
+
                                             const paidOnDate = isPaid ? (
-                                              displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yy') :
-                                              displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yy') : '-'
+                                              displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
+                                              displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
                                             ) : '-';
 
                                             const targetPaymentId = payment?.id || displayPayment?.id;
 
                                             return (
-                                              <div key={`admin-loan-schedule-mob-${l.id || 'loan'}-${idx}-${i}`} className="p-3.5 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col gap-2.5 relative overflow-hidden">
+                                              <div 
+                                                key={`admin-loan-schedule-mob-${l.id || 'loan'}-${idx}-${i}`} 
+                                                className={cn(
+                                                  "p-4 rounded-2xl border-2 shadow-2xs flex flex-col gap-3 relative overflow-hidden transition-all",
+                                                  isPaid ? "bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/20 border-emerald-300/80" :
+                                                  isPending ? "bg-gradient-to-br from-amber-50/95 via-orange-50/40 to-amber-50/20 border-amber-300/90" :
+                                                  isCurrentMonth ? "bg-gradient-to-br from-indigo-50 via-blue-50/60 to-indigo-50/30 border-indigo-400 ring-2 ring-indigo-200/60 shadow-xs" :
+                                                  isFuture ? "bg-gradient-to-br from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" :
+                                                  "bg-gradient-to-br from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
+                                                )}
+                                              >
                                                 <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-slate-900 text-[10px] font-black text-white rounded-bl-lg border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
                                                   #{installmentNum}
                                                 </div>
                                                 <div className="flex items-center justify-between pr-8">
-                                                  <div className="flex items-center gap-2">
+                                                  <div className="flex items-center gap-2.5">
                                                     <div className={cn(
-                                                      "w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0",
-                                                      isPaid ? "bg-emerald-100 text-emerald-600" : isPending ? "bg-amber-100 text-amber-600" : "bg-slate-100 text-slate-500"
+                                                      "w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
+                                                      isPaid ? "bg-emerald-600 text-white" : 
+                                                      isPending ? "bg-amber-500 text-white" : 
+                                                      isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" :
+                                                      isFuture ? "bg-slate-200 text-slate-700" :
+                                                      "bg-rose-500 text-white"
                                                     )}>
                                                       {installmentNum}
                                                     </div>
                                                     <div>
-                                                      <p className="text-xs font-bold text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
-                                                      <p className="text-[10px] text-slate-500">‚Çπ{principalToDisplay.toLocaleString('en-IN')} + ‚Çπ{interestToDisplay.toLocaleString('en-IN')} Int.</p>
+                                                      <p className="text-xs sm:text-sm font-black text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
+                                                      <span className={cn(
+                                                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-extrabold border mt-0.5",
+                                                        isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
+                                                        isPending ? "bg-amber-100 text-amber-800 border-amber-300" :
+                                                        isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" :
+                                                        isFuture ? "bg-slate-100 text-slate-600 border-slate-200" :
+                                                        "bg-rose-100 text-rose-800 border-rose-300"
+                                                      )}>
+                                                        {isPaid && <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 inline" />}
+                                                        {isPaid ? 'PAID' : isPending ? 'AWAITING' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
+                                                      </span>
                                                     </div>
                                                   </div>
                                                   <div className="text-right flex items-center gap-2">
-                                                    <span className="text-xs sm:text-sm font-black text-slate-900">‚Çπ{total.toLocaleString('en-IN')}</span>
-                                                    {isPaid && targetPaymentId && (
+                                                    <div>
+                                                      <p className="text-[9px] font-bold text-slate-400 uppercase">Total</p>
+                                                      <span className="text-sm font-black text-slate-950">‚Çπ{total.toLocaleString('en-IN')}</span>
+                                                    </div>
+                                                    {isAdmin && !isSettledOrClosed && isPaid && targetPaymentId && (
                                                       <button 
                                                         onClick={() => setDeletingRepaymentId(targetPaymentId)}
-                                                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer border border-slate-200/60"
                                                         title="Delete Repayment Record"
                                                       >
                                                         <Trash2 className="w-4 h-4 text-red-500" />
@@ -6424,42 +6753,59 @@ export default function App() {
                                                   </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-[11px] bg-slate-50/70 p-2.5 rounded-xl">
+                                                <div className="grid grid-cols-2 gap-2 bg-white/90 backdrop-blur-xs p-3 rounded-xl border border-slate-200/80 text-xs shadow-2xs">
                                                   <div>
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Mode</span>
+                                                    <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Principal</span>
+                                                    <span className="font-extrabold text-slate-900">‚Çπ{principalToDisplay.toLocaleString('en-IN')}</span>
+                                                  </div>
+                                                  <div>
+                                                    <span className="text-[9.5px] font-bold text-indigo-500 uppercase block">Interest (0.5%)</span>
+                                                    <span className="font-extrabold text-indigo-700">‚Çπ{interestToDisplay.toLocaleString('en-IN')}</span>
+                                                  </div>
+                                                  <div className="pt-1.5 border-t border-slate-100">
+                                                    <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Mode</span>
                                                     <span className={cn(
-                                                      "font-bold",
+                                                      "font-bold text-xs",
                                                       displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
                                                     )}>
                                                       {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
                                                     </span>
                                                   </div>
-                                                  <div>
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Paid On</span>
-                                                    <span className="font-bold text-slate-700">
+                                                  <div className="pt-1.5 border-t border-slate-100">
+                                                    <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Paid On</span>
+                                                    <span className="font-bold text-slate-700 text-xs">
                                                       {paidOnDate}
                                                     </span>
                                                   </div>
                                                 </div>
 
                                                 {!isPaid && !isPending && isAdmin && (
-                                                  <div className="pt-1">
+                                                  <div className="pt-0.5">
                                                     <button 
-                                                      onClick={() => setAdminManualRepayment({
-                                                        isOpen: true,
-                                                        loan: l,
-                                                        month: installmentMonth,
-                                                        year: installmentYear,
-                                                        amount: scheduledPrincipal,
-                                                        interest: interest,
-                                                        method: 'cash',
-                                                        paymentDate: format(new Date(), 'yyyy-MM-dd')
-                                                      })}
-                                                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition-all border border-indigo-100 cursor-pointer"
-                                                      title="Record Payment Manually"
+                                                      disabled={isFutureMonth}
+                                                      onClick={() => {
+                                                        if (isFutureMonth) return;
+                                                        setAdminManualRepayment({
+                                                          isOpen: true,
+                                                          loan: l,
+                                                          month: installmentMonth,
+                                                          year: installmentYear,
+                                                          amount: scheduledPrincipal,
+                                                          interest: interest,
+                                                          method: 'cash',
+                                                          paymentDate: format(new Date(), 'yyyy-MM-dd')
+                                                        });
+                                                      }}
+                                                      className={cn(
+                                                        "w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs",
+                                                        isFutureMonth
+                                                          ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60 shadow-none hover:bg-slate-100"
+                                                          : "bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 cursor-pointer"
+                                                      )}
+                                                      title={isFutureMonth ? "Cannot record payment for future months" : "Record Payment Manually"}
                                                     >
-                                                      <PlusCircle className="w-4 h-4 text-indigo-600" />
-                                                      <span>Record Payment manually</span>
+                                                      <PlusCircle className="w-4 h-4 text-white" />
+                                                      <span>Record Payment Manually</span>
                                                     </button>
                                                   </div>
                                                 )}
@@ -6549,100 +6895,85 @@ export default function App() {
             ) : null}
 
             {/* User Loan View (Only for members) */}
-            {!isAdmin && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
-                  {/* Active Loan Info */}
-                  {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).map((l, idx) => {
-                    const payments = loanPayments.filter(p => p.loanId === l.id);
-                    const paidPayments = payments.filter(p => p.status === 'paid');
-                    const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
-                    const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
-                    const remainingTotal = calculateLoanRemainingTotal(l, payments);
-                    const isExpanded = !!expandedMemberLoanSchedules[l.id || `loan-${idx}`];
-                    return (
-                      <motion.div 
-                        key={`user-loan-card-${l.id || 'loan'}-${idx}`}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-4"
-                      >
-                        {/* Loan Details Dashboard */}
-                        <div className="p-5 sm:p-8 bg-indigo-600 text-white rounded-[2.5rem] shadow-sm relative overflow-hidden">
-                          <div className="flex items-center justify-between mb-6">
-                            <div className="p-2.5 sm:p-3 bg-white/10 rounded-2xl">
-                              <Wallet className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {l.status !== 'paid' && (
-                                <button
-                                  onClick={() => setSettlingLoanId(l.id!)}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border border-amber-400 shadow-sm hover:bg-amber-600 transition-all active:scale-95"
-                                >
-                                  <CheckCircle2 className="w-3 h-3" />
-                                  Settle One-time
-                                </button>
-                              )}
-                              {l.status === 'paid' ? (
-                                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest border border-emerald-400/50 shadow-sm animate-pulse-slow">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  Completed
-                                </div>
-                              ) : (
-                                <span className="px-3 py-1.5 bg-white/20 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest">Active</span>
-                              )}
-                            </div>
-                          </div>
-                          <h3 className="text-indigo-100 font-bold uppercase tracking-widest text-[10px] sm:text-xs mb-1">Approved Amount</h3>
-                          <div className="text-3xl sm:text-5xl font-black mb-6">‚Çπ{l.approvedAmount?.toLocaleString('en-IN')}</div>
-                          
-                          <div className="grid grid-cols-2 gap-4 sm:gap-8 pt-5 sm:pt-6 border-t border-white/10">
-                            <div>
-                              <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Monthly Interest</p>
-                              <p className="text-lg sm:text-xl font-bold">0.5%</p>
-                            </div>
-                            <div>
-                              <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Remaining Due</p>
-                              <p className="text-lg sm:text-xl font-bold">‚Çπ{remainingTotal.toLocaleString('en-IN')}</p>
-                              <p className="text-[10px] text-indigo-200 font-bold">‚Çπ{remainingPrincipal.toLocaleString('en-IN')} Principal</p>
-                            </div>
-                          </div>
-                        </div>
+            {!isAdmin && (() => {
+              const memberActiveOrClosedLoans = loans
+                .filter(l => (l.userId === user?.uid || (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase())) && (l.status === 'approved' || l.status === 'paid'))
+                .sort((a, b) => {
+                  const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
+                  const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
+                  return timeA - timeB;
+                });
+              const hasActiveOrClosedLoan = memberActiveOrClosedLoans.length > 0;
 
-                        {/* Collapsible Repayment Schedule */}
-                        <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden transition-all">
+              return (
+                <div className={cn(
+                  "grid grid-cols-1 gap-6",
+                  hasActiveOrClosedLoan && "lg:grid-cols-3"
+                )}>
+                  <div className={cn(
+                    "space-y-6",
+                    hasActiveOrClosedLoan ? "lg:col-span-2" : "w-full"
+                  )}>
+                    {/* Active & Sanctioned Loans Grouped View */}
+                    {memberActiveOrClosedLoans
+                      .map((l, idx) => {
+                      const payments = loanPayments.filter(p => p.loanId === l.id);
+                      const paidPayments = payments.filter(p => p.status === 'paid');
+                      const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
+                      const remainingPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - totalPrincipalPaid);
+                      const remainingTotal = calculateLoanRemainingTotal(l, payments);
+                      const loanKey = l.id || `loan-${idx}`;
+                      const isGroupExpanded = expandedMemberLoanGroups[loanKey] !== false; // expanded by default
+                      const isScheduleExpanded = !!expandedMemberLoanSchedules[loanKey];
+                      const loanLabel = `Loan ${idx + 1}`;
+
+                      return (
+                        <motion.div 
+                          key={`user-loan-card-${l.id || 'loan'}-${idx}`}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="bg-white rounded-[2.5rem] border border-slate-200/90 shadow-sm overflow-hidden transition-all"
+                        >
+                          {/* Collapsible Header for Loan 1, Loan 2, etc. */}
                           <button
                             type="button"
                             onClick={() => {
-                              const loanKey = l.id || `loan-${idx}`;
-                              setExpandedMemberLoanSchedules(prev => ({
+                              setExpandedMemberLoanGroups(prev => ({
                                 ...prev,
-                                [loanKey]: !prev[loanKey]
+                                [loanKey]: !isGroupExpanded
                               }));
                             }}
-                            className="w-full p-5 sm:p-6 flex items-center justify-between gap-3 text-left hover:bg-slate-50/70 transition-all cursor-pointer select-none"
+                            className="w-full p-5 sm:p-6 flex items-center justify-between gap-3 text-left hover:bg-slate-50/80 transition-all cursor-pointer select-none bg-gradient-to-r from-slate-50/90 via-white to-indigo-50/30 border-b border-slate-100"
                           >
-                            <div className="flex items-center gap-3.5">
-                              <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-100 shadow-2xs">
-                                <Calendar className="w-5 h-5" />
+                            <div className="flex items-center gap-3.5 min-w-0">
+                              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm sm:text-base shrink-0 shadow-sm shadow-indigo-200">
+                                L{idx + 1}
                               </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="text-base sm:text-lg font-bold text-slate-900">Repayment Schedule</h4>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">{loanLabel}</h3>
+                                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                                    ‚Çπ{(l.approvedAmount || l.amount || 0).toLocaleString('en-IN')}
+                                  </span>
                                 </div>
                                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                                  {isExpanded ? 'Click to collapse schedule' : 'Click to expand and view installment breakdown'}
+                                  {isGroupExpanded ? 'Click to collapse loan details & schedule' : `Due: ‚Çπ${remainingTotal.toLocaleString('en-IN')} ‚Ä¢ Click to expand`}
                                 </p>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-200/80 shadow-2xs shrink-0">
-                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                <span>{paidPayments.length} / {l.installments} Paid</span>
-                              </div>
-                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 border border-slate-200 shrink-0">
-                                {isExpanded ? (
+                            <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+                              {l.status === 'paid' ? (
+                                <span className="px-3 py-1 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  Completed
+                                </span>
+                              ) : (
+                                <span className="px-3 py-1 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200">
+                                  Active
+                                </span>
+                              )}
+                              <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 border border-slate-200">
+                                {isGroupExpanded ? (
                                   <ChevronUp className="w-4 h-4" />
                                 ) : (
                                   <ChevronDown className="w-4 h-4" />
@@ -6651,197 +6982,310 @@ export default function App() {
                             </div>
                           </button>
 
+                          {/* Collapsible Content: Dark Blue Ribbon + Repayment Schedule */}
                           <AnimatePresence initial={false}>
-                            {isExpanded && (
+                            {isGroupExpanded && (
                               <motion.div
-                                key={`schedule-expanded-${l.id || idx}`}
+                                key={`loan-group-body-${loanKey}`}
                                 initial={{ height: 0, opacity: 0 }}
                                 animate={{ height: 'auto', opacity: 1 }}
                                 exit={{ height: 0, opacity: 0 }}
                                 transition={{ duration: 0.25, ease: 'easeInOut' }}
                                 className="overflow-hidden"
                               >
-                                <div className="p-5 sm:p-8 pt-0 sm:pt-0 border-t border-slate-100">
-                                  <div className="pt-5 space-y-3">
-                                    {(() => {
-                                       const approvedAmount = l.approvedAmount || 0;
-                                       const installments = l.installments || 10;
-                                       const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                                <div className="p-5 sm:p-6 space-y-6">
+                                  {/* Dark Blue Ribbon for Loan */}
+                                  <div className="p-5 sm:p-8 bg-indigo-600 text-white rounded-[2rem] shadow-sm relative overflow-hidden">
+                                    <div className="flex items-center justify-between mb-6">
+                                      <div className="flex items-center gap-3">
+                                        <div className="p-2.5 sm:p-3 bg-white/10 rounded-2xl">
+                                          <Wallet className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+                                        </div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest bg-white/20 px-2.5 py-0.5 rounded-lg text-indigo-100">
+                                          {loanLabel} Ribbon
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        {l.status !== 'paid' && (
+                                          <button
+                                            onClick={() => setSettlingLoanId(l.id!)}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border border-amber-400 shadow-sm hover:bg-amber-600 transition-all active:scale-95 cursor-pointer"
+                                          >
+                                            <CheckCircle2 className="w-3 h-3" />
+                                            Settle One-time
+                                          </button>
+                                        )}
+                                        {l.status === 'paid' ? (
+                                          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest border border-emerald-400/50 shadow-sm animate-pulse-slow">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            Completed
+                                          </div>
+                                        ) : (
+                                          <span className="px-3 py-1.5 bg-white/20 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest">Active</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <h3 className="text-indigo-100 font-bold uppercase tracking-widest text-[10px] sm:text-xs mb-1">Remaining Due</h3>
+                                    <div className="text-3xl sm:text-5xl font-black mb-1">‚Çπ{remainingTotal.toLocaleString('en-IN')}</div>
+                                    <p className="text-[10px] sm:text-xs text-indigo-200 font-bold mb-6">‚Çπ{remainingPrincipal.toLocaleString('en-IN')} Principal</p>
+                                    
+                                    <div className="grid grid-cols-2 gap-4 sm:gap-8 pt-5 sm:pt-6 border-t border-white/10">
+                                      <div>
+                                        <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Monthly Interest</p>
+                                        <p className="text-lg sm:text-xl font-bold">0.5%</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest mb-1">Approved Amount</p>
+                                        <p className="text-lg sm:text-xl font-bold">‚Çπ{l.approvedAmount?.toLocaleString('en-IN')}</p>
+                                      </div>
+                                    </div>
+                                  </div>
 
-                                       // Find settlement month for fully paid loans
-                                       const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+                                  {/* Collapsible Repayment Schedule for this Loan */}
+                                  <div className="bg-gradient-to-br from-indigo-50/40 via-white to-slate-50/80 rounded-[2rem] border-2 border-indigo-100/90 shadow-sm overflow-hidden transition-all">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedMemberLoanSchedules(prev => ({
+                                          ...prev,
+                                          [loanKey]: !isScheduleExpanded
+                                        }));
+                                      }}
+                                      className="w-full p-4 sm:p-5 flex items-center justify-between gap-3 text-left hover:bg-indigo-50/40 transition-all cursor-pointer select-none bg-gradient-to-r from-indigo-50/70 via-white to-indigo-50/30 border-b border-indigo-100/70"
+                                    >
+                                      <div className="flex items-center gap-3.5">
+                                        <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-indigo-200">
+                                          <Calendar className="w-5 h-5 text-white" />
+                                        </div>
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <h4 className="text-sm sm:text-base font-black text-slate-900">{loanLabel} Repayment Schedule</h4>
+                                          </div>
+                                          <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                                            {isScheduleExpanded ? 'Click to collapse schedule' : 'Click to expand and view installment breakdown'}
+                                          </p>
+                                        </div>
+                                      </div>
 
-                                       return Array.from({ length: installments }).map((_, i) => {
-                                         const installmentNum = i + 1;
-                                         // Repayment starts from next month
-                                         const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-                                         const installmentMonth = installmentDate.getMonth() + 1;
-                                         const installmentYear = installmentDate.getFullYear();
-                                         
-                                         // Hide installments strictly following the settlement month
-                                         if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
-                                           return null;
-                                         }
+                                      <div className="flex items-center gap-2.5 sm:gap-3">
+                                        <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100/80 px-3 py-1.5 rounded-xl text-xs font-black border border-emerald-300 shadow-2xs shrink-0">
+                                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                          <span>{paidPayments.length} / {l.installments || 10} Paid</span>
+                                        </div>
+                                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-slate-600 border border-slate-200 shadow-2xs shrink-0">
+                                          {isScheduleExpanded ? (
+                                            <ChevronUp className="w-4 h-4" />
+                                          ) : (
+                                            <ChevronDown className="w-4 h-4" />
+                                          )}
+                                        </div>
+                                      </div>
+                                    </button>
 
-                                         // Find the most relevant payment for this installment
-                                         const payment = payments
-                                           .filter(p => p.month === installmentMonth && p.year === installmentYear)
-                                           .sort((a, b) => {
-                                             const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
-                                             const orderA = statusOrder[a.status] ?? 3;
-                                             const orderB = statusOrder[b.status] ?? 3;
-                                             if (orderA !== orderB) return orderA - orderB;
-                                             return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
-                                           })[0];
+                                    <AnimatePresence initial={false}>
+                                      {isScheduleExpanded && (
+                                        <motion.div
+                                          key={`schedule-expanded-${loanKey}`}
+                                          initial={{ height: 0, opacity: 0 }}
+                                          animate={{ height: 'auto', opacity: 1 }}
+                                          exit={{ height: 0, opacity: 0 }}
+                                          transition={{ duration: 0.25, ease: 'easeInOut' }}
+                                          className="overflow-hidden"
+                                        >
+                                          <div className="p-4 sm:p-6 pt-0 sm:pt-0 border-t border-slate-200/70">
+                                            <div className="pt-4 space-y-3.5">
+                                              {(() => {
+                                                 const approvedAmount = l.approvedAmount || 0;
+                                                 const installments = l.installments || 10;
+                                                 const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
 
-                                         const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
-                                         const displayPayment = payment || settlementPayment;
-                                         const isPaid = l.status === 'paid' || payment?.status === 'paid';
-                                         const isPending = !isPaid && payment?.status === 'pending';
-                                         
-                                         // Calculate interest based on planned reducing balance
-                                         const scheduledPrincipal = approvedAmount / installments;
-                                         const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
-                                         const interest = (isPaid || isPending) ? (displayPayment?.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
-                                         const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
-                                         const total = principalToDisplay + interest;
+                                                 // Find settlement month for fully paid loans
+                                                 const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
 
-                                         const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
-                                         const isFuture = installmentDate > new Date() && l.status !== 'paid';
-                                         const isPast = installmentDate < new Date() && !isCurrentMonth;
+                                                 return Array.from({ length: installments }).map((_, i) => {
+                                                   const installmentNum = i + 1;
+                                                   // Repayment starts from next month
+                                                   const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
+                                                   const installmentMonth = installmentDate.getMonth() + 1;
+                                                   const installmentYear = installmentDate.getFullYear();
+                                                   
+                                                   // Hide installments strictly following the settlement month
+                                                   if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
+                                                     return null;
+                                                   }
 
-                                         return (
-                                           <div 
-                                             key={`loan-schedule-${l.id || 'loan'}-${idx}-${i}`}
-                                             className={cn(
-                                               "p-4 sm:p-5 rounded-3xl border transition-all flex flex-col gap-3 relative overflow-hidden",
-                                               isPaid ? "bg-slate-50 border-slate-100 opacity-80" : 
-                                               isPending ? "bg-amber-50/70 border-amber-200 shadow-sm" :
-                                               isCurrentMonth ? "bg-white border-indigo-200 ring-2 ring-indigo-50 shadow-md" :
-                                               isFuture ? "bg-white border-slate-100 opacity-50" : "bg-white border-slate-200"
-                                             )}
-                                           >
-                                             <div className="absolute top-0 right-0 px-3 py-1 bg-slate-900 text-[10.5px] font-black text-white rounded-bl-xl border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
-                                               #{installmentNum}
-                                             </div>
+                                                   // Find the most relevant payment for this installment
+                                                   const payment = payments
+                                                     .filter(p => p.month === installmentMonth && p.year === installmentYear)
+                                                     .sort((a, b) => {
+                                                       const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
+                                                       const orderA = statusOrder[a.status] ?? 3;
+                                                       const orderB = statusOrder[b.status] ?? 3;
+                                                       if (orderA !== orderB) return orderA - orderB;
+                                                       return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
+                                                     })[0];
 
-                                             <div className="flex items-center justify-between pr-8">
-                                               <div className="flex items-center gap-3">
-                                                 <div className={cn(
-                                                   "w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0",
-                                                   isPaid ? "bg-emerald-100 text-emerald-600" : 
-                                                   isPending ? "bg-amber-100 text-amber-600" :
-                                                   isCurrentMonth ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
-                                                 )}>
-                                                   {installmentNum}
-                                                 </div>
-                                                 <div>
-                                                   <p className="font-bold text-slate-900 text-sm">
-                                                     {format(installmentDate, 'MMMM yyyy')}
-                                                   </p>
-                                                   <span className={cn(
-                                                     "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5 border",
-                                                     isPaid ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
-                                                     isPending ? "bg-amber-50 text-amber-600 border-amber-200" : 
-                                                     isCurrentMonth ? "bg-indigo-50 text-indigo-600 border-indigo-200" : 
-                                                     isFuture ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-slate-50 text-slate-500 border-slate-200"
-                                                   )}>
-                                                     {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
-                                                   </span>
-                                                 </div>
-                                               </div>
-                                               
-                                               <div className="text-right">
-                                                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Amount</p>
-                                                 <p className="font-black text-slate-950 text-sm sm:text-base">‚Çπ{total.toLocaleString('en-IN')}</p>
-                                               </div>
-                                             </div>
+                                                   const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+                                                   const displayPayment = payment || settlementPayment;
+                                                   const isPaid = l.status === 'paid' || payment?.status === 'paid';
+                                                   const isPending = !isPaid && payment?.status === 'pending';
+                                                   
+                                                   // Calculate interest based on planned reducing balance
+                                                   const scheduledPrincipal = approvedAmount / installments;
+                                                   const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
+                                                   const interest = (isPaid || isPending) ? (displayPayment?.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
+                                                   const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
+                                                   const total = principalToDisplay + interest;
 
-                                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 bg-slate-50/80 rounded-2xl border border-slate-100 text-xs">
-                                               <div>
-                                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Principal</p>
-                                                 <p className="font-bold text-slate-800">‚Çπ{principalToDisplay.toLocaleString('en-IN')}</p>
-                                               </div>
-                                               <div>
-                                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Interest (0.5%)</p>
-                                                 <p className="font-bold text-indigo-600">‚Çπ{interest.toLocaleString('en-IN')}</p>
-                                               </div>
-                                               <div>
-                                                 <p className="text-[10px] font-bold text-slate-400 uppercase">Payment Mode</p>
-                                                 <p className={cn(
-                                                   "font-bold truncate",
-                                                   displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
-                                                 )}>
-                                                   {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
-                                                 </p>
-                                               </div>
-                                               {isPaid && (
-                                                 <div className="col-span-2 sm:col-span-1">
-                                                   <p className="text-[10px] font-bold text-slate-400 uppercase">Paid On</p>
-                                                   <p className="font-bold text-slate-700">
-                                                     {displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
-                                                     displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'}
-                                                   </p>
-                                                 </div>
-                                               )}
-                                             </div>
-                                             
-                                             <div className="flex items-center justify-between pt-1">
-                                               <div className="text-xs text-slate-400">
-                                                 {isPaid ? (
-                                                   <span className="flex items-center gap-1 text-emerald-600 font-bold text-xs">
-                                                     <CheckCircle2 className="w-4 h-4" /> Installment Cleared
-                                                   </span>
-                                                 ) : isPending ? (
-                                                   <span className="text-amber-600 font-bold text-xs">
-                                                     Verification in progress
-                                                   </span>
-                                                 ) : null}
-                                               </div>
-                                               <div className="flex items-center gap-3 ml-auto sm:ml-0">
-                                                 <span className="hidden sm:inline font-black text-slate-900 w-20 text-right">‚Çπ{total.toLocaleString('en-IN')}</span>
-                                                 {!isPaid && !isPending && (
-                                                   <button 
-                                                     onClick={() => {
-                                                       setSelectedLoan(l);
-                                                       setIsPayingLoan(true);
-                                                       setLoanRepaymentMethod('online');
-                                                       setCustomPrincipal(l.approvedAmount! / (l.installments || 10));
-                                                     }}
-                                                     disabled={!isCurrentMonth}
-                                                     className={cn(
-                                                       "p-2 rounded-lg transition-all",
-                                                       isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm" : "bg-slate-100 text-slate-300 cursor-not-allowed"
-                                                     )}
-                                                   >
-                                                     <Plus className="w-4 h-4" />
-                                                   </button>
-                                                 )}
-                                                 {isPending && (
-                                                   <span className="text-[9px] font-black tracking-wider text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-200 uppercase">AWAITING</span>
-                                                 )}
-                                                 {isPaid && (
-                                                   <div className="p-0.5 bg-emerald-50 rounded-full border border-emerald-100">
-                                                     <CheckCircle2 className="w-5 h-5 text-emerald-500 fill-emerald-50" />
-                                                   </div>
-                                                 )}
-                                               </div>
-                                             </div>
-                                           </div>
-                                         );
-                                       });
-                                     })()}
+                                                   const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
+                                                   const isFuture = installmentDate > new Date() && l.status !== 'paid';
+
+                                                   return (
+                                                     <div 
+                                                       key={`loan-schedule-${loanKey}-${i}`}
+                                                       className={cn(
+                                                         "p-4 sm:p-5 rounded-3xl border-2 transition-all flex flex-col gap-3 relative overflow-hidden shadow-2xs",
+                                                         isPaid ? "bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-emerald-50/30 border-emerald-300/80" : 
+                                                         isPending ? "bg-gradient-to-br from-amber-50/95 via-orange-50/40 to-amber-50/25 border-amber-300/90 shadow-xs" :
+                                                         isCurrentMonth ? "bg-gradient-to-br from-indigo-50 via-blue-50/70 to-indigo-50/40 border-indigo-400 ring-2 ring-indigo-200/70 shadow-md" :
+                                                         isFuture ? "bg-gradient-to-br from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" : 
+                                                         "bg-gradient-to-br from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
+                                                       )}
+                                                     >
+                                                       <div className="absolute top-0 right-0 px-3 py-1 bg-indigo-100 text-[10.5px] font-black text-indigo-950 rounded-bl-xl border-b border-l border-indigo-200/90 shadow-2xs select-none tracking-wide">
+                                                         #{installmentNum}
+                                                       </div>
+
+                                                       <div className="flex items-center justify-between pr-8">
+                                                         <div className="flex items-center gap-3">
+                                                           <div className={cn(
+                                                             "w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
+                                                             isPaid ? "bg-emerald-600 text-white" : 
+                                                             isPending ? "bg-amber-500 text-white" :
+                                                             isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" : 
+                                                             isFuture ? "bg-slate-200 text-slate-700" :
+                                                             "bg-rose-500 text-white"
+                                                           )}>
+                                                             {installmentNum}
+                                                           </div>
+                                                           <div>
+                                                             <p className="font-black text-slate-900 text-sm sm:text-base">
+                                                               {format(installmentDate, 'MMMM yyyy')}
+                                                             </p>
+                                                             <span className={cn(
+                                                               "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold mt-0.5 border shadow-2xs",
+                                                               isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" : 
+                                                               isPending ? "bg-amber-100 text-amber-800 border-amber-300" : 
+                                                               isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" : 
+                                                               isFuture ? "bg-slate-100 text-slate-600 border-slate-200" : 
+                                                               "bg-rose-100 text-rose-800 border-rose-300"
+                                                             )}>
+                                                               {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />}
+                                                               {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
+                                                             </span>
+                                                           </div>
+                                                         </div>
+                                                         
+                                                         <div className="text-right">
+                                                           <p className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">Amount</p>
+                                                           <p className="font-black text-slate-950 text-base sm:text-lg">‚Çπ{total.toLocaleString('en-IN')}</p>
+                                                         </div>
+                                                       </div>
+
+                                                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-white/90 backdrop-blur-xs rounded-2xl border border-slate-200/80 text-xs shadow-2xs">
+                                                         <div>
+                                                           <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Principal</p>
+                                                           <p className="font-black text-slate-900 text-xs sm:text-sm">‚Çπ{principalToDisplay.toLocaleString('en-IN')}</p>
+                                                         </div>
+                                                         <div>
+                                                           <p className="text-[9.5px] font-extrabold text-indigo-600 uppercase">Interest (0.5%)</p>
+                                                           <p className="font-black text-indigo-700 text-xs sm:text-sm">‚Çπ{interest.toLocaleString('en-IN')}</p>
+                                                         </div>
+                                                         <div>
+                                                           <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Payment Mode</p>
+                                                           <p className={cn(
+                                                             "font-extrabold truncate text-xs sm:text-sm",
+                                                             displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                                                           )}>
+                                                             {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                                           </p>
+                                                         </div>
+                                                         <div>
+                                                           <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Paid On</p>
+                                                           <p className="font-bold text-slate-700 text-xs sm:text-sm truncate">
+                                                             {isPaid ? (
+                                                               displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
+                                                               displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
+                                                             ) : '-'}
+                                                           </p>
+                                                         </div>
+                                                       </div>
+                                                       
+                                                       <div className="flex items-center justify-between pt-1">
+                                                         <div className="text-xs">
+                                                           {isPaid ? (
+                                                             <span className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-emerald-300">
+                                                               <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Installment Cleared
+                                                             </span>
+                                                           ) : isPending ? (
+                                                             <span className="flex items-center gap-1.5 text-amber-800 bg-amber-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-amber-300">
+                                                               <Clock className="w-4 h-4 text-amber-600" /> Verification in progress
+                                                             </span>
+                                                           ) : isCurrentMonth ? (
+                                                             <span className="flex items-center gap-1.5 text-indigo-800 bg-indigo-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-indigo-300">
+                                                               Due this month
+                                                             </span>
+                                                           ) : null}
+                                                         </div>
+                                                         <div className="flex items-center gap-3 ml-auto sm:ml-0">
+                                                           <span className="hidden sm:inline font-black text-slate-900 w-24 text-right text-base">‚Çπ{total.toLocaleString('en-IN')}</span>
+                                                           {!isPaid && !isPending && (
+                                                             <button 
+                                                               onClick={() => {
+                                                                 setSelectedLoan(l);
+                                                                 setIsPayingLoan(true);
+                                                                 setLoanRepaymentMethod('online');
+                                                                 setCustomPrincipal((l.approvedAmount || 0) / (l.installments || 10));
+                                                               }}
+                                                               disabled={!isCurrentMonth}
+                                                               className={cn(
+                                                                 "px-3.5 py-2 rounded-xl font-black text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95",
+                                                                 isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200 cursor-pointer" : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                                                               )}
+                                                             >
+                                                               <Plus className="w-3.5 h-3.5" />
+                                                               <span>Pay Installment</span>
+                                                             </button>
+                                                           )}
+                                                           {isPending && (
+                                                             <span className="text-[10px] font-black tracking-wider text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 uppercase">AWAITING</span>
+                                                           )}
+                                                           {isPaid && (
+                                                             <div className="p-1 bg-emerald-100 rounded-full border border-emerald-300">
+                                                               <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
+                                                             </div>
+                                                           )}
+                                                         </div>
+                                                       </div>
+                                                     </div>
+                                                   );
+                                                 });
+                                               })()}
+                                            </div>
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
                                   </div>
                                 </div>
                               </motion.div>
                             )}
                           </AnimatePresence>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
+                        </motion.div>
+                      );
+                    })}
 
-                  {loans.filter(l => l.userId === user?.uid && (l.status === 'approved' || l.status === 'paid')).length === 0 && (
+                  {!hasActiveOrClosedLoan && (
                     <div className="bg-white p-12 rounded-[2.5rem] border-2 border-dashed border-slate-200 text-center">
                       <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
                         <Wallet className="w-10 h-10 text-slate-300" />
@@ -6851,22 +7295,22 @@ export default function App() {
                       {!isAdmin && (
                         <button 
                           onClick={() => setIsApplyingLoan(true)}
-                          disabled={hasActiveLoan}
-                          className={cn(
-                            "px-8 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-                            hasActiveLoan ? "bg-slate-100 text-slate-400 shadow-none" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
-                          )}
+                          className="px-8 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700 cursor-pointer"
                         >
-                          {hasActiveLoan ? 'Loan Active' : 'Apply Now'}
+                          Apply Now
                         </button>
                       )}
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-6">
-                  {(() => {
-                    const userApplications = loans.filter(l => l.userId === user?.uid).sort((a, b) => {
+                {/* Application History (Only shown if member has active/closed loan) */}
+                {hasActiveOrClosedLoan && (
+                  <div className="space-y-6">
+                    {(() => {
+                      const userApplications = loans.filter(l => 
+                        l.userId === user?.uid || (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase())
+                      ).sort((a, b) => {
                       const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
                       const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
                       return dateB - dateA;
@@ -6970,8 +7414,10 @@ export default function App() {
                     );
                   })()}
                 </div>
+                )}
               </div>
-            )}
+            );
+          })()}
           </div>
         ) : activeTab === 'graphs' ? (
           <Graphs 
@@ -9287,29 +9733,1174 @@ export default function App() {
                   <label className="block text-sm font-bold text-slate-700 mb-2">Initial Status</label>
                   <div className="flex gap-2">
                     <button
-              xúÏ=€r€»ïÔ˘ä6+â»ë¿õ$è≠HÚ*ˆL≠´,èj‰©l÷ÎöÅ»ñà  ¥ƒ–z…€˛«˛D~'_≤Át„é>ÄIñç™S$–Ë>}Ó∑fL^ÓÙ•mç>-⁄vtÃûåk˙∆5ßÁ°ŒÇˆñÈyæ˚âè∑:∑øc kdõA÷t¯—b4m71÷∫¥˘ç1`ﬁ‹ÿeæ;õé˘ÿ∏±Y»oB#pÿ•;ç◊≥–7ßÅZÓ‘0mõ]∏˛ò˚≠rd3?gvttƒ“y3Ú9∆^∞÷≈ï¡Óõˆÿx⁄ÔÀŸ\O¨êGÔÕ˝LÃ±{mÿWÒß¯«Aøﬂ“ΩË@ºHé+lõ!cFØë_·ã	L€?(º~h„sL‹~F˘ÛaÔbÜÓT˝°¸ë∏2y|:∂¶W_.≈”ÆF%”πÄMS#R˙[	ç‰OC"9¸˙PËL¬£1ˆ∆÷ßÚ—◊ÂÔ·ÎFàMgW¶{ÓÖ∆^K˘
-˘v5À˙:8„Rp«€ó¶pÖiH‹€+nCäw¸Ø¢˜˚	öOsX©⁄5Ë_ö”∑ïê’@]í±ò6-¨‡|v·Xa‡Hó}˛Ãû‹Ê£êèÒã_Óø´aîÄ◊èìÍÅs(¡	≤ µÆ‹"	eÅß rÙ–˜¯Pû‡K§›
-¥∆ÃQh}‚¡»¥πÒ|?Å≈ÅÎô#+ú„Æ%ﬂ…ª1ÅÜ0)'0F|rü˝mÑ÷Â<˛QtXS	»ø`ˇ;§Ë~ziª£èY^˚lˇôSÀAL<k⁄bΩcˆ3wÄWvª]ÍE=ıõ:¿ä®…m…qÆaK˝¥
-%hV2≈óá=«≈mÔ~)‹öy˚Çè-Ñ˘K@(ﬂÇ˜√”ÏèÃ-≠ƒÉ¨>f÷xá—gˇ0ﬁF|®F	ØƒÆ”Ÿ)Û#üµwl⁄Œ–…˘ÊË„ÿwΩ"jYSXÜi-,¬‹÷g∑E0GêªmPæçﬂXa’PeF˙CîÌÈÃ∂KõùÅ•y∏ˆ®;g¬.ü˜˚Ω=¯;Z∞qaœ@∏9˘Ö˜V(˛˚Sû;Lp ¯‘}æø√‡´a]'èƒsä« 0Ø˜∫0}êv∆·⁄∏Ñ`éyc\Œ8·°ª7	[DvÍœÚ (—⁄dò}ë‡ y>úëÇ∞sÃπ0û∂é#X{ìaiÏy  nÃÒy•:†îo^iz7Åzv{0ªôÁqdÁ9hür‘é{^ıÿ‘äïö@(/ÉÓ%HùˆIÖ‡öm+ÍŒÑ¨Eé4ÎŒ¨±–EÈ˚:(´õˇÉcZ∂|«è›–}„^sˇ%¿i[Û∆ ˜w‘¸˛–d‡ŸÊ°à≥‘	∑Za{Î?∂:Ô˚‘≤B±Wînπ§9„æÂéWDö≈•Î∑hO˘5{ﬂ*wiŒMG	1˛ò0É:;lÎ.6ál+|Í»6/∏ù]»ÖP-&V∫¨Ô%ı[«'põ∞'FQé_†¸ò¥túa™6øQ11Ëô!@1õπ¯¢∞ì…º[«ˇ˛Áø{8.ÒJkÍÕBä§¬π≥òŒêyPf’'”ûÅ,Pmû)‡Cô¡ _'ÊÙ
-ûmsùÑ]0Pﬁ√Ô09˛{+&ÿÊ›–ÙØxÿSÍ∞€x+ ûm<cû0éut•M#mÕ≤%Z)ﬁ\∫£Yp‡√‘A˝œ¸iË˚p≥;mk ç©;Âj +5‘%ÏÃêÄÙ 4 ÅƒæRD†≥‰Íje4Œb¬lÀ3≠ÒV-Y Kì¬-¬ôÇ9L{gTîd5b‚ﬂ~πÎÄ≤º≥oÛ»;◊æD|˚ÊÃ]è«1X€ûï◊cu&Äôycòh_écØ> œM0†•Í‹≥ì*ıRYëè˙Åπ¶ÃÒ¯·{¶•ù 8˝#áˇüT˜úG>oÈÔñ§_ºQÁéπﬂVvGæπ∂6Ë⁄ä\‹Îtn	*w¨íˇ9;°ß≠h•Dg±å4V–ó∑Íç› G8ËÌŸ⁄jbÊØ`∏6∞Z◊d™:†Œúı´î⁄tËz"ˆ AÿJ6≈déÿ–°{Újà¨Ø—∂.ΩçëWÔE¡≠˜t◊Ûøûø˚·Ù◊ìWßØﬂ˛˙√È…Î7_^◊1Ωv{∂√f÷¯FÏ≠y«@f¥¯-ÊA>ø2‡„˜bà‚á≠[º	ﬁs˚€måH“Á	∑Dﬂ“Q/X˛¨Ëcåü¢Á\—Ålá=â‚Ùÿ¨8On-0á+Vãˇ÷mÄd®œ™Ï¶x¡)z◊»ƒxÀøx∞≠ˆ]=R∞8Ò}sﬁΩÙ]¨fõOØ¬	à’!ò≈í›a÷“d(|≈@c€fÉë…øµîUtR˚√=ò NÍw¶”yÓî 6HÂÊ:e#∑Y‡s_U¿
-O<Ô‰∞rÃ√@mIÛeâC*@ÛÃoè·ø;D÷∫Æçá ŒÃπ∂Ñ =‘àò†°"^‚…˜·ÎöP…Y˙ÿ„Rõƒ8Ó Ny8¡ÿßÍ`1Â® 3UπÎ¢π…©µ∑‹)ÇT'ój∫îk	ˇï⁄MUpI%p¨ï „—P„fÃÀ.L:ù£≈iäùŒ	ñ≈Ô*˙‡2k¸iΩ}“?,/ÈNh&G É<ÅÏ•.Ë´Ùzxr59pˇmzÖ˝Íﬁc‡õ;Ä"–¿x≤3Pi·“ƒwÇ:;∑jZî◊Ob
-•µ±ñ5†¸»&è·≈“j†ªåf§Xàπ‘	≥|i®˛gs˙qÍÜ</…$ÆÎp…RòJãù’Ùúÿ7∂ªå&’°J¥K•nıæc∆tü\nËè"¯ÆGhÅ§‡≠ΩT‚—~.ÒhoÙuákaÄyH›}RÑ2v>ªFæ%ï‡ˆøˇ˘/uvnëFí7N‘èËìuvõ'Îƒ¨¶2iGº^®°2ÆìªÉW§èû˛Ùˆ›æ˘ÎØ'ß?˝ÚˆÕb”lzÕ- ¸öÔ1øfCe√Ó~ÍÊŒƒ∞kËûﬂ´ ñS/ŸhÊÆüC‰ﬂÓ5”À'π…hj«IÍú{¶sJÇŸÙÿÒôÛU(KV ¢^s>≠¶úµ´Ê]¨
-©Vkôˆ™§ΩX¬˚ÁﬁÕáh]6Ãúy7#D»>¸·!Õå*À™≥\a∆F”%4ƒ›‰ﬂèê?g2œaE^D^\+ƒsIêhÑ≥÷IV^,‡DÑ°Y˚x–'°Kæûö—óˇ˛ﬂˇì_Î|g:>ß!√µ0Ì*ƒ©Õ”ÀLºûºàê4B «¸>j∑ÌÜj`˙áÆ#à˝ÄıuB§‰€(±≥◊»ù!æô±S3útÛ¶›ﬂ°2??f}E»;{ÅqÒ2ômû´{øL˙mÁÂ%€fUCîÇøŸ+≠P{RÇ´Óπ⁄ò∏LI‚≤ Æ∞µ3À*-G{wû'ˆˆsúp∑ü·íRP;ûw-≈»´»7uz2“&äÖ∆“¡Àƒ' aÓµ4]A?!P¸ÇjÀ;7Úíÿ|é¡ñj\˙Jë˜z»# ÜeH
-Ö•®£d*X«˛ã
-x^u"æ†9“∫ãbıí©\[Ò~–GC•ﬁKO©F0)ÿ©}^∞ﬂÄ„ˇæ†¥ã¿3fùúáHÌ->5^ø›Í‹J+oõâgRMﬂ/8xsjôyâÍ•ê‚øÈ”3óòí|òn.®W¸“ıyÙ&ävàb==PU≤Îj“æY5jŸ%‘äºhty^ óEY^¥´hßC¬èÑè¶‘cC^çu'¶Rö@ù§∂‰Œ:©mÚ"‰ÚúÏ∫–∫’ZB≥DxZYìä⁄•55Ì'Dmmºßı(ÎH≤»ÚâXΩŸÎ1˘†WÖ3	ñÿj¸⁄s›(ÊxúKòŒÂÅÏ∞l¯{ß0øù®x#q–„ÍwhÌ$€§¿-„Ä˙˙ÖÇf=∂˘/gØ# ÎÁø^˜R‚Rß}à“+Ù4–dµÂ„0I'Ok}Pô˙dôˆÑ‡Õ49”çæ¢]ÅdDñ†Lé˝ƒ§ˇ".É ‘÷–T%√F‘¸ñ@be°KÀgÍ†p®πVáW«∏€gÀ0›`ı àº1`Mı∏ëÂ‰yíŸXÅ6oΩvq@ÌÚÄz™PÍ´Ñ®:üıe˜+å◊Êê™óFøtﬁ˛Úô˚ ›Wë©“~âQ¶Í◊∞œØç¡S†h¯_‰]Aˆí„XU®Ô‹Ê,cx•Z«áóæÛÅ”ÛÔ}Ø}∆ÚŒÕÜ…>Z«◊πhœÉ≠‡ÄLDº™ÒÜ≤1ü<ú≥xﬁM¨@cê∑#s
-,VM.“Ï6ûwG<5NÙIx&t˝9Ã‘g!`„åÆ-º€\¡Á6™Î6Ógêù1çÀDyJΩ ÜXbÓ¥˜“upakˇ$bÆ¶›—’~„†¶œM%∂D~d…âÄk48Ÿw´î˜¶¯hΩî∏úÛÌÅ‹æXûÿ')IÄKuªjA™nﬁ»æª¨ú6QˆÖÂÏ¬$+ùó9/´Œπ	hŸ∆˛œåátø¨]¯<∞˛91Ü{™5)»±πÒøéÇ‘z2™∞	_öyæ_à@R.˙Â5üV¢'ùõDpÕÌeÇ€¢ÙÍönïTßéCüı5Í8P•O«‚nÈäY0^.-ﬂaR¨4⁄nBÎU´∏ä€KjÓ8ƒ7=7πT<$¢oä.ŒØ@—M-Èµ´∫ˇEjπâs‡.Ù‹ë_ÆS—=Ò9õª3Ã¢◊¶âç£ó•ä¨ôy#{7u8 Ë	ı4[Pë≠KÎKQmÖÓóé«ß‘F{®Zmú÷\÷kì_ñ—l‹ı˜ôÂ+≥ê⁄[Kd∂ÈQÈΩôòÌtCﬂr⁄@j+ÃÇyEs‹çUf≈f›ìŒ|_~hmÈzi2Uöˆà®3πU;UÄpõG€¸–∫“‡‘ƒ⁄á€îFFÎ30$:œﬂw;ôî_W7¸01ﬁ?~ö|`».ÅTçπT|I-˛)úÉMuúÿ"‘ƒóçuR^≠@ÙÁHüàs≈⁄ßÊf¯Ï˜w˙˝æ÷zWÕ`)Õ˜ö¡V-@WÎì…øYπq{ÿ7…SmôlM€‚mT&p£ñjõÊé›KôtŒòBº©Ï¿∫@ÒÖ0ÓãÑ?àv&¶–	*X‘ß √tÅòFA”¿:ˇ[2ÛO%`2Ë œÆß.42zÜ•wÚ&e˝Ë”E&B0W∏ú◊ﬁZ∫jéßÂbÀäz‚'}Æ"L±yﬁ°ÆûRMÖ£ÅÒ+öñ›4†•∆oãÜmfˆG-ag|¯ˆ&V˛ΩˆÇ √}wòµ‰◊ûÚ≤vívu©±ìQ€ÿáPgÁüÿ‹_Z˛»V•œîK≤·iÎw˜)ˇ†≤kf®g0îÕÕ±å⁄&⁄’YÊo"èùÔbç∞`vÒ7lÁ˙ﬁ¿≈ì«Ç1`/÷e‰’Î≤◊h® d¢¢û*©%ô^Û∞¶?0—Ö…é≥ÁUßÓ¨‰‹Ã˘X’väº´˚%=’
-!Ai•>I+>D+#Íè®˙Øô™ph,y∂Ut¨’V˙0cëß(ø…∫Èï=#Ô´ˇÓôôıvdèC{ﬁè{˜gMvS®’i¥+Ó{∏mv∑´„ŸæŒ’1,∫:ˆ§´„isWGÃ®‡≥oÓ–'i˝Ã£\1ïª£'VÈ˝Lå]Z>H‰ŸS†)B`w"ﬂ¨\´∑hSË+ìæ£∑ÏHpÔ(¡;i∞Í·≥^◊ñŸhødC◊+›Ê!õ¬ÇEv7å;†o¡åo∏ª-ño"füy+í–Ûâ;	±kî¶N‹›–∆Ù˙§Ô£b9Ω^∫IL(Ñ`˙Æ√¬	ãêOT(+Xƒ‰≈Û1`⁄Ÿ•tAﬂóA;ÿÆ≤√˛Ä}1∑U–À∞8–èÄˇ¢è"éEæ∑s0 ¢¸}G¨ÒŸäxÇ2ƒ+c¢Ä∑|gàıòg†.è,> ¢Â&“ı˘x6‚Ì∂9Ì0O 9|Ñız—πC; ö9¸hÊ˚0 œÿ>c9…õ
-ıÂj‹√?aÜbñ*(¢U÷Fî∑`Ù˛ü‡üC÷Œ√'•· ©¡∞∑mo´ö‰ƒ†>m√∏Üq‚GÁH7	˙lÀSt˝∂rƒûòê 2ÎaC∞9>ZñfI¯|+`¶ÿ*¨Íåä3b>£+∫ûƒl®∏è±I“"ã#—g.∞˛ûïDÅO<OyzIßCUáeyï£Ãex’\}«ÖœÕè™ü *û¢OrDg$îµ5	jQxl≈ÊYÑ∂BöµiÏ˛ƒjøøØ';§¥‰âÌ‰
-Ãˆy8Ûßd/wï´ûL®Q[Ó%ªâpK4∏t©vçë\°8í›6MhøŒà›»oC'V¨∫gO⁄ät“©ÀìˆgÏà˙]W4!≠˙Í˝b‚ÿ…PíÚ¿æµ5z©Ï&∞!P&tT	Œ ~MË¡–7h“œm/6í≥nÈZç√™¬<Ú™€&qzñÆ˘Ö⁄˙2?@”–Ú ˘‡¿p  ßvAUÍí!ªË@+ÛŸM¬ª9X:û#/MC=a¨L5íù≠õPØa]ÇùUπOÊ∞∫÷Ò6Ü(2¬.OtØÑ5r/îÕÎ÷ﬁËDb"ÑÒ|øüo[“ b0˚äjjÒ4ä/ÑR∞~ËVı—KZ1ªcŒ§≈ıÖ2-œqay˙·¥¨Ã∂ëÜπ7l=Ÿ∞ç4´Ï™3syõé©#¨	ÑÎ7ûn÷ò™‹áJﬂå˜eçÕxeà∂∞ ˙]®WËC]Æ$(^Ïƒ´ÌP•U¥≠ß´`πjÍä‘U°hq«]LU€Í«B.’=¨óÌb˝ÖR ≤ù´µΩ´´Q|I°K’å]R√Í≥hì¢v+í˙aï‹’ñÙ“4bTÜwS˝8ë˛uºô:àÍ8/^4:êÒ^ºj6›øßΩAÔûû_T4mBœ°»¥O˝-9ﬂÈìå€aá•æàƒÉµì8∞*;¡$ãlÇNıZ2E=ôŒ÷πòÍfQtÁ¶ödPï.'®‰˝É¢óhAuénVü≠∞TütD‚¡W¶‡-≠ﬂïíıT©Â„Dvkù±ê
-:E}FÈ‹›òK‰˙-jËj∫›?‘	∞íûæLk¨8jlx3 †§QVÖÇá,è~3›-´ﬁ§+Dv“…K+†+¶∏\e”˛çÂÉN±à™~¶H¸q‹}ZDzuj»Ò•ÜÅëÖä∫ÄÔ[F«óQº≤ÃYTJuÄH,-E√v…zv*†ˆê∞<ÃÛ1,ç∫jô:m\LvÈ¶π™Xí ó˚Ï£“˘∞ç<v?ˇà≠ˇ¨†|√≥nê)Z'Çt˙dÙ“◊¥NΩo¿+∑›•Sb§~†/»"FçÙR%
-}í6Ä
-–®Öï⁄¬l^*”ø^≈ø“Yõƒ…Y(îË*Ë”™Cg…I©à˝!3ıQ©πõÖ 6SËC~£%ˇk(∏Kºl(Õ†ø;îä_Ÿ£‚Áæ!TagB…]™sLm%.—'‘Ê0â>Ñ∆¢˙g”nsr≈HﬂpßADíˆ«πeUÉ÷AÌ˜[“öﬂ⁄a[h2o}`f ìÕ¢#ﬂÌyÔU±QPÍ4)çÑg‰Ù h¿÷Ê
-(a+Uè≈ŸF˘ê5\Vë«ç=V*VP±eS¨=DtgπâwT[∫bŸ`-3Æ“ñ¨€Ä‡©Ô0·qéHFvTßã‘Në/|gä¥*-€fyçdô$ù&¶Y=„#SCËÑ∆3ï	≤aÔäU†$Iöí3πR¿gQ∂˜Áœ¨à	áÍz¿Z¡'ôõlGµXt0ã®>bG≤Ë ªD`DÑ§:—≈ùÍ b{ﬁVGzî±í/æ-”“«	®PKÅ‰Y3/ÖF£®óé„ÅgM	∑îÊ4åó>˙(ã±áuΩÑ¨RÆf+˛*™ËÃF9≤ﬁ∫◊¢‘õƒ†…ó2]E©gÖ%ˇUÛäŒ∏/p‡˘Ê≠/∂ôŒÄÊõÀ~ì.{∞ÀË∆∞,”Áµôk^y®AÓ›e€æ*˝˘‰È
-Œ¢÷Nö˘«ì%‚0ÉY_®\Âdc◊ßrúg—	¢9´<s@0∆…≥ÚH,·0=çá‚G!b/LµÜ.”ûÄ†p´7ÍôŸH·™Møx)µÆ›º%[Äó2ã°‹xÁﬁU∞d“¶	`⁄
-)–JöæÏkiÀ^lDÎı;í°ÀàŒçvÄî[˝†ª?æJ`˜pdkÇ_W”«∫›Ÿ´XyçŒÏ˜p —*«QNÜeè˙Y»S¢˚Í«—=⁄≈€E¥{î9r/íÔ/Tb∫©ÀÑhª¥îˇz‹%JYù;16µ¿Ò†NNQBOj ÜE∑hfvjNg¶ùË>]+¯…„¢üëÚg{©fGÉGi#ü( ‘ˆ|˛IDk¨€Ì‚_x$'¬ÙÄâ\pv[ˆ«3¢ú¸^)ßM)zÀI) eÁ›IÆóé>ÃıY©OÅí‰Á"ø^˘ìCw2†˚ñæn"◊GsÃ˙zÚ…TÓ<‘û=‚·wê˘£DaS”a[ï¿QÂ¿D◊m
-#7êÒëƒ$Ê
-eö4(kRF•X∆ŒÚ∏”d3µä’8˜¨>◊ãÜ~ºhómtÒe!^ú^¥Òº4%“e~ﬂ ﬁeF?`yúªCî[>∑ÌëÚ∫%3⁄î˝5‘UxÇ,M´-Â9Œ 9kø9Û¿ƒé–Àp`∆ÔN≥3jc±#Í˚òÉ	xrUÏsZÍG"2^ŒO@¸÷gÙ∆]ä»82=+u⁄å8µÆû/÷ çk–¨£:OÆ–`™≤È@Å‘}]
-l:è.”õ{π$π∫)rô¢›Ré\ËF~[M2ö˙5v)3.zOößQ–Ÿ∂´óomuè›Ù◊kƒ~-˜—^∂z y?ËÓxMÙóM'£`^'°+Ò2üëfÔß°~0qØœ&†ñù˘Æ„Öç› √áﬁCø∂[˜i—≠Îå7Ê÷]∑Ww)ÔÏ˚awﬂÁŒáºãv–O+ï'÷xÃßÕ|∂	êÒ‹∑æ<ÆœaÇ›õÆå+ﬂ[®KÜÆ·ã.ÂYÂˇìeﬁÃ˜lÈ1Ö{<<éf_≠„AÏ¥Ë<äÇ√ ÙÍRpˆlÇˇS™ªµ¬√∆S&Ïùg,oˆ`©Çí=üÚ 0Ø¯˘ﬂg¶_h¯0¿˘ ‡j±„]Ö¶ê? µuBlC⁄:>Õ9rπ©ËÛ§aDπ–ö≥xnê.gpHdlvÊ∆ó}ˆóâ‚19L˙ÖPUÚ˘à#=XéÁ˙!†Â1B3ç¯@‰í•Èe ›@œ Á’I£Cƒ¶<GÂh!;Í¸"ﬁ&8Ì≠ !\'7!!m±ÄZïñ7O)“≥ï(Ù\°Õ¸ˆ9óùÓö_§VD*ø≈taÈÉeN¨ÈA_?™Î≠„ÌÁÉ∆≈L€4X∫nBN¥∂“¡çÌùB ÀÙ®ıæo<ˇ∞ÙoµÓ7˙5N•æ£Á,y¶‡1ÏÇÒçß®µ{ˇÛ™w6˛VßÄR∆±ıˇ†Oi§πì◊û?˚˛È˛ﬁÓp@ÿq
-?êçY0ûÏ
-î∂˝ä”◊“∂|b+=;ªW6)ºì¢Ñ1Uπä∆zdºD{jóQoP8±≠† fÄëç&ÌÆÓN¢ïgâoRoVΩ%[ö"¯¶Ò#à„lË⁄|zNÿ<CYù¢ÿºh«Í™Ÿ)õáMQÈ€Mk6‘˙yéÜjÈlˇëºˇî®gjó|‰°K|îƒΩÏC·„^¸AÓ&Nô"X≈¨V#ByN”=>7A»‡BE[c⁄4K#ª;™˚B)mµ‘˛YU,ﬂ,%/A»sî≤Èúè0·Ïèÿ'„ì©ÃÈQ»r€´€SΩÔdÆ¿I|ÇaèΩ≤Ç ¯|ä)ùπ–yXKTˆ£ÎgKhù-∂dä¢SvüMæ˚[&è⁄V‹-[äìy„©X¯ùc¢+◊¬–¸/≤úV©âQâœ¬˘©—7åNRK∏A£Úò˝ÚÄ`∞FêlÕô´ì¡ çËAü4îBi-_¨*Ç©ÿ;e0jè4õõU%Àæ¢	\]«Ì*2Ü»0èŒè¸»hÜ'ûÅ›DƒáÛ™âÀæî—‰©àÃ˙b;õâÍ(Ä^√÷§˜¬À«⁄ñáÁ≤íÔQÎ$îüRGPù≤Dõ¢ïÁd¥éÂ ËH¨\mÑ∆^í˝ﬁ<Öâ©ÎÈ´nÔˆØù∏$(_˙¸nà≤‘mk7F^∏∂j‚™Ò¬:nf!Wáçï]ºàÿ£Æv4µ≠≤ŒÄá\<kâp˘ãN"Õ`°ˆÖT b©êc=(°ø
-V6Ìä|ÿ;ëñ∆ñN√…{§©ﬂ˘”Ôn˜ˇ   ˇˇ AËRe
+                      onClick={() => setAdminLoanStatus('approved')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        adminLoanStatus === 'approved' 
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
+                      )}
+                    >
+                      Approved
+                    </button>
+                    <button
+                      onClick={() => setAdminLoanStatus('pending')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        adminLoanStatus === 'pending' 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                      )}
+                    >
+                      Pending
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setIsAddingLoan(false)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={isSubmittingAdminLoan || !selectedLoanUserId}
+                    onClick={addAdminLoan}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingAdminLoan ? (
+                      <>
+                        <Clock className="w-5 h-5 animate-spin" /> Recording...
+                      </>
+                    ) : (
+                      'Record Loan'
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+        {editingContribution && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              key="modal-edit-contrib-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingContribution(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="modal-edit-contrib-content"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Edit Contribution</h2>
+              <div className="space-y-6">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Member</p>
+                  <p className="font-bold text-slate-900">
+                    {allUsers.find(u => 
+                      (editingContribution.userId && u.uid === editingContribution.userId) || 
+                      (editingContribution.userEmail && u.email.toLowerCase() === editingContribution.userEmail.toLowerCase())
+                    )?.displayName || editingContribution.userEmail.split('@')[0]}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Period</p>
+                  <p className="font-bold text-slate-900">{format(new Date(editingContribution.year, editingContribution.month - 1), 'MMMM yyyy')}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">‚Çπ</span>
+                    <input 
+                      type="number"
+                      value={editingContribution.amount}
+                      onChange={(e) => setEditingContribution({ ...editingContribution, amount: Number(e.target.value) })}
+                      className="w-full pl-8 pr-4 py-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Status</label>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setEditingContribution({ ...editingContribution, status: 'paid' })}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl font-bold border transition-all",
+                        editingContribution.status === 'paid' 
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
+                      )}
+                    >
+                      Paid
+                    </button>
+                    <button 
+                      onClick={() => setEditingContribution({ ...editingContribution, status: 'pending' })}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl font-bold border transition-all",
+                        editingContribution.status === 'pending' 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
+                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                      )}
+                    >
+                      Pending
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setEditingContribution(null)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={updateContribution}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isAdding && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              key="modal-add-contrib-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsAdding(false);
+                setSelectedUserId(null);
+              }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="modal-add-contrib-content"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Record Contribution</h2>
+              <div className="space-y-6">
+                {isAdmin && (
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Select Member</label>
+                    <select 
+                      value={selectedUserId || ''}
+                      onChange={(e) => setSelectedUserId(e.target.value)}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="">Select a member...</option>
+                      {allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase()).map((u, uidx) => (
+                        <option key={`contrib-reg-opt-${u.email?.toLowerCase() || 'email'}-${uidx}`} value={u.uid || u.email}>
+                          {u.displayName || u.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Month</label>
+                    <select 
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <option key={`contrib-reg-month-${i + 1}`} value={i + 1}>
+                          {format(new Date(2024, i, 1), 'MMMM')}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Year</label>
+                    <select 
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(Number(e.target.value))}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      {getAppAvailableYears().map(y => (
+                        <option key={`contrib-reg-year-${y}`} value={y}>{y}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Payment Date</label>
+                    <input 
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Payment Method</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setPaymentMethod('online')}
+                        className={cn(
+                          "py-4 rounded-2xl font-bold transition-all text-sm flex items-center justify-center gap-2 border-2",
+                          paymentMethod === 'online'
+                            ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-lg shadow-indigo-100/50"
+                            : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
+                        )}
+                      >
+                        <Zap className={cn("w-4 h-4", paymentMethod === 'online' ? "fill-indigo-600" : "fill-none")} />
+                        Online
+                      </button>
+                      <button
+                        onClick={() => setPaymentMethod('cash')}
+                        className={cn(
+                          "py-4 rounded-2xl font-bold transition-all text-sm flex items-center justify-center gap-2 border-2",
+                          paymentMethod === 'cash'
+                            ? "bg-amber-50 border-amber-600 text-amber-600 shadow-lg shadow-amber-100/50"
+                            : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
+                        )}
+                      >
+                        <Banknote className="w-4 h-4" />
+                        Cash
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Base Contribution Field */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                        Subscription (‚Çπ)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">‚Çπ</span>
+                        <input
+                          type="number"
+                          value={MONTHLY_AMOUNT}
+                          disabled
+                          className="w-full pl-7 pr-3 py-2.5 bg-white rounded-xl border border-slate-200 text-slate-700 font-bold text-sm outline-none cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Separate Fine / Late Fee Field */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          Fine / Late Fee (‚Çπ)
+                        </label>
+                        <span className={cn(
+                          "text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider border",
+                          isLatePaymentDate 
+                            ? "bg-red-50 text-red-600 border-red-200" 
+                            : "bg-slate-100 text-slate-400 border-slate-200"
+                        )}>
+                          {isLatePaymentDate ? "Active (>10th)" : "Inactive (‚â§10th)"}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <span className={cn(
+                          "absolute left-3 top-1/2 -translate-y-1/2 font-bold text-sm",
+                          isLatePaymentDate ? "text-red-600" : "text-slate-400"
+                        )}>‚Çπ</span>
+                        <input
+                          type="number"
+                          value={isLatePaymentDate ? customFine : 0}
+                          onChange={(e) => {
+                            const val = Math.max(0, Number(e.target.value) || 0);
+                            setCustomFine(val);
+                            setCustomAmount(MONTHLY_AMOUNT + val);
+                          }}
+                          disabled={!isLatePaymentDate}
+                          className={cn(
+                            "w-full pl-7 pr-3 py-2.5 rounded-xl border font-bold text-sm outline-none transition-all",
+                            isLatePaymentDate
+                              ? "bg-red-50/50 border-red-300 text-red-700 focus:ring-2 focus:ring-red-400"
+                              : "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
+                          )}
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Total Amount to Pay row */}
+                  <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
+                    <div>
+                      <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Total Amount to Pay</span>
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        {isLatePaymentDate 
+                          ? `‚Çπ${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base + ‚Çπ${customFine.toLocaleString('en-IN')} Fine (Paid after 10th)` 
+                          : `‚Çπ${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base (Paid on or before 10th)`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-black text-indigo-900">
+                        ‚Çπ{(MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0)).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => {
+                      setIsAdding(false);
+                      setSelectedUserId(null);
+                    }}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  {paymentMethod === 'online' ? (
+                    <button 
+                      onClick={() => {
+                        const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
+                        if (isAdmin && selectedUserId) {
+                           // Admin recording online payment directly
+                           addContribution(selectedMonth, selectedYear, selectedUserId, 'paid', paymentDate, finalAmt, 'online');
+                        } else {
+                           handleUPIPayment(selectedMonth, selectedYear, finalAmt);
+                        }
+                      }}
+                      className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <Zap className="w-5 h-5 fill-white" /> Pay via UPI
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => {
+                        const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
+                        addContribution(selectedMonth, selectedYear, selectedUserId || undefined, isAdmin ? 'paid' : 'pending', paymentDate, finalAmt, 'cash');
+                      }}
+                      className="flex-2 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <Banknote className="w-5 h-5" /> Pay
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+          {deletingLoanId && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setDeletingLoanId(null)}
+                className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+              >
+                <div className="text-center mb-6">
+                  <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Trash2 className="w-8 h-8 text-red-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-900">Delete Loan Application?</h2>
+                  <p className="text-slate-500 mt-2">This action cannot be undone. All associated payment history for this loan will also be removed.</p>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Reason/Comments (Optional)</label>
+                  <textarea
+                    value={loanActionComment}
+                    onChange={(e) => setLoanActionComment(e.target.value)}
+                    placeholder="Enter reason for deletion..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all resize-none h-24"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setDeletingLoanId(null)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={() => {
+                      deleteLoan(deletingLoanId, loanActionComment);
+                      setDeletingLoanId(null);
+                      setLoanActionComment('');
+                    }}
+                    className="flex-2 py-4 bg-red-600 text-white rounded-2xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 active:scale-95"
+                  >
+                    Confirm Delete
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {decliningLoanId && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setDecliningLoanId(null)}
+                className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+              >
+                <div className="text-center mb-6">
+                  <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <X className="w-8 h-8 text-amber-600" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-slate-900">Decline Loan Application?</h2>
+                  <p className="text-slate-500 mt-2">Are you sure you want to decline this loan application? The user will be notified.</p>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Reason for Declining</label>
+                  <textarea
+                    value={loanActionComment}
+                    onChange={(e) => setLoanActionComment(e.target.value)}
+                    placeholder="Enter reason for declining..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all resize-none h-24"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setDecliningLoanId(null)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={!loanActionComment.trim()}
+                    onClick={() => {
+                      declineLoan(decliningLoanId, loanActionComment);
+                      setDecliningLoanId(null);
+                      setLoanActionComment('');
+                    }}
+                    className="flex-2 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Confirm Decline
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+        {isApplyingLoan && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              key="modal-apply-loan-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsApplyingLoan(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="modal-apply-loan-content"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl p-6 sm:p-8"
+            >
+              <h2 className="text-2xl font-bold text-slate-900 mb-6">Apply for Loan</h2>
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Required Amount (Max ‚Çπ50,000)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">‚Çπ</span>
+                    <input 
+                      type="number"
+                      max={50000}
+                      value={loanAmount}
+                      onChange={(e) => setLoanAmount(Math.min(50000, Number(e.target.value)))}
+                      className="w-full pl-8 pr-4 py-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold text-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    {[10000, 25000, 50000].map(amt => (
+                      <button 
+                        key={`apply-loan-quick-amt-${amt}`}
+                        onClick={() => setLoanAmount(amt)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                          loanAmount === amt ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        )}
+                      >
+                        ‚Çπ{amt.toLocaleString('en-IN')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Details (Optional)</label>
+                  <textarea 
+                    value={loanDetails}
+                    onChange={(e) => setLoanDetails(e.target.value)}
+                    placeholder="Reason for loan..."
+                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none h-32 resize-none"
+                  />
+                </div>
+
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800 leading-relaxed font-medium">
+                    Loan approval is subject to group admin verification. Interest rate is <span className="font-bold">0.5% monthly</span>.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setIsApplyingLoan(false)}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={applyLoan}
+                    disabled={isSubmittingLoan || loanAmount <= 0}
+                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50"
+                  >
+                    {isSubmittingLoan ? 'Submitting...' : 'Submit Application'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {isPayingLoan && selectedLoan && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsPayingLoan(false);
+                setSelectedLoan(null);
+              }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl shadow-2xl p-4 sm:p-6"
+            >
+              <h2 className="text-xl font-extrabold text-slate-900 mb-3">Loan Repayment</h2>
+              
+              {/* Find first unpaid installment */}
+              {(() => {
+                const payments = loanPayments.filter(p => p.loanId === selectedLoan.id);
+                let nextMonth = 1;
+                let nextYear = 2024;
+                
+                const approvedDate = selectedLoan.approvedAt?.toDate ? selectedLoan.approvedAt.toDate() : new Date();
+                // Repayment starts from the next month after approval
+                const startMonth = (approvedDate.getMonth() + 1) % 12 + 1;
+                const startYear = approvedDate.getFullYear() + (approvedDate.getMonth() === 11 ? 1 : 0);
+
+                const paidPayments = loanPayments.filter(p => p.loanId === selectedLoan.id && p.status === 'paid');
+                const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
+                const currentRemainingPrincipal = Math.max(0, selectedLoan.approvedAmount! - totalPrincipalPaid);
+
+                for (let i = 0; i < (selectedLoan.installments || 12); i++) {
+                  const m = (startMonth + i - 1) % 12 + 1;
+                  const y = startYear + Math.floor((startMonth + i - 1) / 12);
+                  // Only skip if there's a paid or pending payment
+                  if (!payments.some(p => p.month === m && p.year === y && (p.status === 'paid' || p.status === 'pending'))) {
+                    nextMonth = m;
+                    nextYear = y;
+                    break;
+                  }
+                }
+
+                const principal = customPrincipal;
+                const interest = Math.round(currentRemainingPrincipal * 0.005);
+                const total = principal + interest;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2.5">Installment Details</p>
+                      <div className="flex justify-between mb-1.5 text-sm">
+                        <span className="text-slate-600 font-medium">Month</span>
+                        <span className="font-bold text-slate-900">{format(new Date(nextYear, nextMonth - 1), 'MMMM yyyy')}</span>
+                      </div>
+                      <div className="flex justify-between items-center mb-1.5 text-sm">
+                        <span className="text-slate-600 font-medium">Principal</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400 text-xs font-bold">‚Çπ</span>
+                          <input 
+                            type="number"
+                            value={customPrincipal}
+                            onChange={(e) => setCustomPrincipal(Number(e.target.value))}
+                            className="w-20 p-1 bg-white border border-slate-200 rounded-md text-right font-bold text-slate-900 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-between mb-2.5 text-sm">
+                        <span className="text-slate-600 font-medium">Interest (0.5%)</span>
+                        <span className="font-bold text-emerald-600">+‚Çπ{Math.round(interest).toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="pt-2.5 border-t border-slate-200 flex justify-between items-center">
+                        <span className="text-sm font-bold text-slate-950">Total Amount</span>
+                        <span className="text-lg font-black text-indigo-600">‚Çπ{total.toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+
+                    {/* Payment Mode Selector for Member Loan Repayment */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Payment Mode</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setLoanRepaymentMethod('online')}
+                          className={cn(
+                            "py-2.5 rounded-xl font-bold transition-all text-xs flex items-center justify-center gap-2 border-2",
+                            loanRepaymentMethod === 'online'
+                              ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-sm"
+                              : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
+                          )}
+                        >
+                          <Zap className={cn("w-4 h-4", loanRepaymentMethod === 'online' ? "fill-indigo-600" : "fill-none")} />
+                          Online
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLoanRepaymentMethod('cash')}
+                          className={cn(
+                            "py-2.5 rounded-xl font-bold transition-all text-xs flex items-center justify-center gap-2 border-2",
+                            loanRepaymentMethod === 'cash'
+                              ? "bg-amber-50 border-amber-600 text-amber-600 shadow-sm"
+                              : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
+                          )}
+                        >
+                          <Banknote className="w-4 h-4" />
+                          Cash
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2.5 pt-2">
+                      <button 
+                        onClick={() => {
+                          setIsPayingLoan(false);
+                          setSelectedLoan(null);
+                        }}
+                        className="flex-1 py-2.5 text-slate-500 font-bold hover:bg-slate-50 rounded-xl text-sm transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setIsPayingLoan(false);
+                          if (loanRepaymentMethod === 'cash') {
+                            payLoanInstallment(selectedLoan!, nextMonth, nextYear, principal, interest, 'cash');
+                            setSelectedLoan(null);
+                          } else {
+                            handlePayLoanInstallment(selectedLoan!, nextMonth, nextYear, principal, interest, 'online');
+                          }
+                        }}
+                        className={cn(
+                          "flex-[2] py-2.5 rounded-xl font-bold text-white transition-all text-sm active:scale-95 flex items-center justify-center gap-1.5 shadow-md",
+                          loanRepaymentMethod === 'online'
+                            ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-100/30"
+                            : "bg-amber-600 hover:bg-amber-700 shadow-amber-100/30"
+                        )}
+                      >
+                        {loanRepaymentMethod === 'online' ? (
+                          <>
+                            <Zap className="w-4 h-4 fill-white animate-pulse" /> Pay Online
+                          </>
+                        ) : (
+                          <>
+                            <Banknote className="w-4 h-4" /> Pay via Cash
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </motion.div>
+          </div>
+        )}
+        {settlingLoanId && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSettlingLoanId(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl p-6 sm:p-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-amber-100 rounded-2xl">
+                    <Wallet className="w-6 h-6 text-amber-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900">Settle Loan</h3>
+                    <p className="text-xs text-slate-500 font-medium">Finalize and close this loan</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSettlingLoanId(null)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Remaining Principal (‚Çπ)</label>
+                  <input
+                    type="number"
+                    value={settlePrincipal}
+                    onChange={(e) => setSettlePrincipal(Number(e.target.value))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Final Interest (‚Çπ)</label>
+                  <input
+                    type="number"
+                    value={settleInterest}
+                    onChange={(e) => setSettleInterest(Number(e.target.value))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Settlement Date</label>
+                  <input
+                    type="date"
+                    value={settleDate}
+                    onChange={(e) => setSettleDate(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Mode</label>
+                  <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
+                    {(['Online', 'Cash'] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setSettlePaymentMode(m)}
+                        className={cn(
+                          "flex-1 py-2.5 rounded-xl text-xs font-bold transition-all",
+                          settlePaymentMode === m 
+                            ? "bg-white text-indigo-600 shadow-sm" 
+                            : "text-slate-500 hover:bg-white/50"
+                        )}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-700 uppercase">Total Settlement Amount</span>
+                    <span className="text-lg font-black text-amber-900">‚Çπ{(settlePrincipal + settleInterest).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-8">
+                <button 
+                  onClick={() => setSettlingLoanId(null)}
+                  className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={isSettlingPending || settlePrincipal < 0}
+                  onClick={() => {
+                    const l = loans.find(loan => loan.id === settlingLoanId);
+                    if (l) settleLoanImmediately(l);
+                  }}
+                  className="flex-2 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSettlingPending ? (
+                    <Clock className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5" />
+                  )}
+                  {isSettlingPending ? 'Settling...' : isAdmin ? 'Settle Now' : 'Request Settlement'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {deletingRepaymentId && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeletingRepaymentId(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Repayment?</h3>
+              <p className="text-slate-600 mb-8">This will remove the payment record and reset the loan balance. This action cannot be undone.</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setDeletingRepaymentId(null)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => deleteLoanRepayment(deletingRepaymentId)}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {deletingId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              key="modal-delete-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeletingId(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              key="modal-delete-content"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900">Delete Record?</h2>
+                <p className="text-slate-500 mt-2">This action cannot be undone. Are you sure you want to delete this contribution record?</p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button 
+                  onClick={() => setDeletingId(null)}
+                  className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => deleteContribution(deletingId)}
+                  className="flex-2 py-4 bg-red-600 text-white rounded-2xl font-bold hover:bg-red-700 transition-all shadow-lg shadow-red-100 active:scale-95"
+                >
+                  Confirm Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {adminManualRepayment.isOpen && adminManualRepayment.loan && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900">Record Loan Payment</h2>
+                  <p className="text-sm text-slate-500 font-medium">For {format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')}</p>
+                </div>
+                <button 
+                  onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Principal Amount (‚Çπ)</label>
+                  <input
+                    type="number"
+                    value={adminManualRepayment.amount}
+                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, amount: Number(e.target.value) }))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Interest (‚Çπ)</label>
+                  <input
+                    type="number"
+                    value={adminManualRepayment.interest}
+                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, interest: Number(e.target.value) }))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-emerald-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Date</label>
+                  <input
+                    type="date"
+                    value={adminManualRepayment.paymentDate}
+                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, paymentDate: e.target.value }))}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Mode</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {['cash', 'online'].map(m => (
+                      <button
+                        key={`manual-repayment-mode-${m}`}
+                        onClick={() => setAdminManualRepayment(prev => ({ ...prev, method: m as 'cash' | 'online' }))}
+                        className={cn(
+                          "py-3 rounded-2xl text-sm font-bold border-2 transition-all capitalize",
+                          adminManualRepayment.method === m 
+                            ? "bg-indigo-50 border-indigo-600 text-indigo-600" 
+                            : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                        )}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-700 uppercase">Total to Record</span>
+                  <span className="text-xl font-black text-indigo-900">‚Çπ{(adminManualRepayment.amount + adminManualRepayment.interest).toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={submitAdminManualRepayment}
+                    className="flex-[1.5] py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    <CheckCircle2 className="w-5 h-5" /> Confirm Payment
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showPhonePrompt && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+              
+              <div className="flex flex-col items-center text-center mb-8">
+                <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center mb-6 ring-8 ring-indigo-50/50">
+                  <MessageSquare className="w-10 h-10 text-indigo-600" />
+                </div>
+                <h2 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Stay Connected!</h2>
+                <p className="text-slate-600 font-medium leading-relaxed">
+                  Please provide your WhatsApp number to receive important group updates and payment reminders.
+                </p>
+              </div>
+
+              <form onSubmit={handleUpdatePhone} className="space-y-6">
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
+                    <span className="text-slate-400 font-bold group-focus-within:text-indigo-500 transition-colors">+91</span>
+                  </div>
+                  <input 
+                    type="tel"
+                    required
+                    pattern="[0-9]{10}"
+                    value={phoneInput}
+                    onChange={(e) => setPhoneInput(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="9876543210"
+                    className="w-full pl-16 pr-6 py-5 bg-slate-50 rounded-2xl border-2 border-transparent text-slate-900 font-bold text-lg focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all placeholder:text-slate-300"
+                  />
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={isUpdatingPhone || phoneInput.length !== 10}
+                  className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black text-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-indigo-200 flex items-center justify-center gap-3 active:scale-[0.98]"
+                >
+                  {isUpdatingPhone ? (
+                    <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <span>Save Number</span>
+                      <CheckCircle2 className="w-6 h-6" />
+                    </>
+                  )}
+                </button>
+                
+                <p className="text-center text-xs text-slate-400 font-bold uppercase tracking-widest">
+                  Secure & Private
+                </p>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Loan Approval / Disbursal Modal */}
+        {approvingLoanForPaymentMode && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setApprovingLoanForPaymentMode(null)}
+              className="absolute inset-0 bg-slate-900/80 backdrop-blur-xl"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[3rem] shadow-2xl p-8"
+            >
+              <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle2 className="w-10 h-10" />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 text-center mb-2">Loan Disbursal</h3>
+              <p className="text-slate-500 text-center mb-8">Please select the payment mode for this loan disbursal.</p>
+              
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <button 
+                  onClick={() => setSelectedDisbursalMode('Online')}
+                  className={cn(
+                    "flex flex-col items-center gap-3 p-6 rounded-[2rem] border-2 transition-all",
+                    selectedDisbursalMode === 'Online' 
+                      ? "bg-indigo-50 border-indigo-600 text-indigo-600" 
+                      : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                  )}
+                >
+                  <div className={cn(
+                    "p-3 rounded-2xl",
+                    selectedDisbursalMode === 'Online' ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-400"
+                  )}>
+                    <Zap className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm font-bold">Online</span>
+                </button>
+
+                <button 
+                  onClick={() => setSelectedDisbursalMode('Cash')}
+                  className={cn(
+                    "flex flex-col items-center gap-3 p-6 rounded-[2rem] border-2 transition-all",
+                    selectedDisbursalMode === 'Cash' 
+                      ? "bg-amber-50 border-amber-600 text-amber-600" 
+                      : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                  )}
+                >
+                  <div className={cn(
+                    "p-3 rounded-2xl",
+                    selectedDisbursalMode === 'Cash' ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-400"
+                  )}>
+                    <Banknote className="w-6 h-6" />
+                  </div>
+                  <span className="text-sm font-bold">Cash</span>
+                </button>
+              </div>
+              
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setApprovingLoanForPaymentMode(null)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={approveLoanWithMode}
+                  className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                >
+                  Save
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
