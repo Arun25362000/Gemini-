@@ -316,29 +316,90 @@ async function generateBackupMail(data: {
   const safeUsers = data?.users || [];
   const safeContribs = data?.contributions || [];
   const safeLoans = data?.loans || [];
-  const safePayments = data?.payments || [];
   const safeNotices = data?.notices || [];
 
+  const isSystemAdminEmail = (email?: string) => {
+    if (!email) return false;
+    const e = email.toLowerCase().trim();
+    return e === 'unnati.finance2026@gmail.com';
+  };
+
+  const safePayments = (data?.payments || []).map(p => {
+    const parentLoan = safeLoans.find(l => l.id === p.loanId);
+
+    const borrower = safeUsers.find(u => 
+      !isSystemAdminEmail(u.email) && (
+        (u.id && parentLoan?.userId && u.id === parentLoan.userId) ||
+        (u.uid && parentLoan?.userId && u.uid === parentLoan.userId) ||
+        (u.email && parentLoan?.userEmail && u.email.toLowerCase().trim() === parentLoan.userEmail.toLowerCase().trim()) ||
+        (u.id && p.userId && u.id === p.userId) ||
+        (u.uid && p.userId && u.uid === p.userId) ||
+        (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
+      )
+    );
+
+    const borrowerName = borrower?.displayName || 
+      borrower?.name || 
+      parentLoan?.userName || 
+      (parentLoan?.userEmail && !isSystemAdminEmail(parentLoan.userEmail) ? parentLoan.userEmail.split('@')[0] : null) || 
+      p.userName || 
+      (p.userEmail && !isSystemAdminEmail(p.userEmail) ? p.userEmail.split('@')[0] : null) || 
+      'Member';
+
+    const borrowerEmail = borrower?.email || 
+      (parentLoan?.userEmail && !isSystemAdminEmail(parentLoan.userEmail) ? parentLoan.userEmail : null) || 
+      (!isSystemAdminEmail(p.userEmail) ? p.userEmail : null) || 
+      (parentLoan?.userEmail || p.userEmail || 'N/A');
+
+    return {
+      ...p,
+      userName: borrowerName,
+      userEmail: borrowerEmail
+    };
+  });
+
   // Helper to format currency
-  const formatCurrency = (val: any) => typeof val === 'number' ? `₹${val.toLocaleString()}` : val;
+  const formatCurrency = (val: any) => typeof val === 'number' ? `₹${val.toLocaleString('en-IN')}` : val;
 
   // Calculate Summary Data
   const totalCollected = safeContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
   const totalInterest = safePayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (Number(p.interest) || 0), 0);
   
-  const summaryData = [
-    { Metric: 'Report Generation Date', Value: now.toLocaleString() },
-    { Metric: 'Data Source', Value: source },
-    { Metric: 'Total Registered Members', Value: safeUsers.length },
-    { Metric: 'Total Collected Savings (Paid)', Value: formatCurrency(totalCollected) },
-    { Metric: 'Total Interest Earned (Paid)', Value: formatCurrency(totalInterest) },
-    { Metric: 'Total Group Savings Pool', Value: formatCurrency(totalCollected + totalInterest) },
-    { Metric: 'Total Loan Applications', Value: safeLoans.length },
+  // Sheet with trust header helper
+  const createSheetWithTrustHeader = (sheetTitle: string, headers: string[], rows: any[][]) => {
+    const aoa = [
+      ['UNNATI TRUST (R)'],
+      [sheetTitle],
+      [`Backup Timestamp: ${now.toLocaleString()} | Data Source: ${source}`],
+      [],
+      headers,
+      ...rows
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const maxCol = Math.max(0, headers.length - 1);
+    ws['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: maxCol } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: maxCol } },
+    ];
+    return ws;
+  };
+
+  const summaryRows = [
+    ['Report Generation Date', now.toLocaleString()],
+    ['Data Source', source],
+    ['Total Registered Members', safeUsers.length],
+    ['Total Collected Savings (Paid)', formatCurrency(totalCollected)],
+    ['Total Interest Earned (Paid)', formatCurrency(totalInterest)],
+    ['Total Group Savings Pool', formatCurrency(totalCollected + totalInterest)],
+    ['Total Loan Applications', safeLoans.length]
   ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryData), "Financial_Summary");
+  const summaryWS = createSheetWithTrustHeader('FINANCIAL SYSTEM BACKUP SUMMARY', ['Metric', 'Value'], summaryRows);
+  summaryWS['!cols'] = [{ wch: 35 }, { wch: 35 }];
+  XLSX.utils.book_append_sheet(wb, summaryWS, "Financial_Summary");
 
   // Transform data for better Excel readability
-  const formatData = (items: any[] = []) => (items || []).map(item => {
+  const sanitizeItem = (item: any) => {
     if (!item || typeof item !== 'object') return item;
     const newItem = { ...item };
     Object.keys(newItem).forEach(key => {
@@ -359,13 +420,25 @@ async function generateBackupMail(data: {
       }
     });
     return newItem;
-  });
+  };
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeUsers)), "Members");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeContribs)), "Contributions");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeLoans)), "Loans");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safePayments)), "Loan_Repayments");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(formatData(safeNotices)), "Notices");
+  const createTableSheet = (title: string, items: any[]) => {
+    if (!items || items.length === 0) {
+      return createSheetWithTrustHeader(title, ['Message'], [['No records available']]);
+    }
+    const sanitized = items.map(sanitizeItem);
+    const keys = Array.from(new Set(sanitized.flatMap(it => Object.keys(it))));
+    const rows = sanitized.map(it => keys.map(k => (it[k] !== undefined && it[k] !== null ? it[k] : '')));
+    const ws = createSheetWithTrustHeader(title, keys, rows);
+    ws['!cols'] = keys.map(() => ({ wch: 22 }));
+    return ws;
+  };
+
+  XLSX.utils.book_append_sheet(wb, createTableSheet("MEMBERS DATABASE", safeUsers), "Members");
+  XLSX.utils.book_append_sheet(wb, createTableSheet("CONTRIBUTIONS DATABASE", safeContribs), "Contributions");
+  XLSX.utils.book_append_sheet(wb, createTableSheet("LOANS DATABASE", safeLoans), "Loans");
+  XLSX.utils.book_append_sheet(wb, createTableSheet("LOAN REPAYMENTS DATABASE", safePayments), "Loan_Repayments");
+  XLSX.utils.book_append_sheet(wb, createTableSheet("NOTICES DATABASE", safeNotices), "Notices");
 
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
   const monthName = now.toLocaleString('default', { month: 'long' });
@@ -374,14 +447,17 @@ async function generateBackupMail(data: {
   return {
     from: `"Unnati Automated Backup" <${process.env.SMTP_USER}>`,
     to: 'jpvenu2000@gmail.com',
-    subject: `Full Backup Report - Unnati - ${monthName} ${year}`,
+    subject: `Full Backup Report - UNNATI TRUST (R) - ${monthName} ${year}`,
     html: `
-      <div style="font-family: sans-serif; padding: 20px; color: #333; border: 1px solid #e2e8f0; border-radius: 12px; max-width: 650px;">
-        <h2 style="color: #4f46e5; margin-bottom: 20px;">Backup Report</h2>
-        <p>This is a data backup for <b>Unnati Finance System</b> generated on <b>${now.toLocaleString()}</b>.</p>
+      <div style="font-family: sans-serif; padding: 24px; color: #1e293b; border: 1px solid #e2e8f0; border-radius: 12px; max-width: 650px; background-color: #ffffff;">
+        <div style="background-color: #1e1b4b; padding: 16px 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+          <h2 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 0.5px;">UNNATI TRUST (R)</h2>
+          <p style="color: #e0e7ff; margin: 4px 0 0 0; font-size: 13px;">System Data & Financial Backup Report</p>
+        </div>
+        <p>This is a data backup for <b>UNNATI TRUST (R) Finance System</b> generated on <b>${now.toLocaleString()}</b>.</p>
         <p><b>Data Source:</b> ${source}</p>
-        <p>The attached Excel document contains a complete snapshot of all system data.</p>
-        <div style="margin-top: 20px; padding: 12px; background-color: #fefce8; border-left: 4px solid #facc15; font-size: 14px;">
+        <p>The attached Excel document contains a complete snapshot of all system data with all sheets starting with the trust header.</p>
+        <div style="margin-top: 20px; padding: 12px 16px; background-color: #fefce8; border-left: 4px solid #facc15; font-size: 14px; border-radius: 4px;">
           <b>Security Note:</b> This document contains sensitive financial information. Please ensure it is stored securely.
         </div>
         <p style="margin-top: 20px; font-size: 13px; color: #64748b;">
@@ -391,7 +467,7 @@ async function generateBackupMail(data: {
     `,
     attachments: [
       {
-        filename: `Unnati_Backup_${monthName}_${year}.xlsx`,
+        filename: `Unnati_Trust_Backup_${monthName}_${year}.xlsx`,
         content: buffer
       }
     ]

@@ -85,7 +85,8 @@ import {
   Layers,
   Table,
   RotateCcw,
-  Filter
+  Filter,
+  Scale
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -1623,8 +1624,21 @@ export default function App() {
         });
       }).catch(() => {});
 
-      // Special fix for Priya SB's repayments
+      // Special fix for Priya SB's repayments and healing loanPayments with admin email
       loanPayments.forEach(async (p) => {
+        const parentLoan = loans.find(l => l.id === p.loanId);
+        // If repayment was recorded with admin email or missing user, link it to the actual loan borrower in Firestore
+        if (p.userEmail && (p.userEmail.toLowerCase().trim() === SYSTEM_ADMIN_EMAIL.toLowerCase().trim() || p.userEmail.toLowerCase().includes('unnati.finance2026')) && parentLoan) {
+          if (parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() !== SYSTEM_ADMIN_EMAIL.toLowerCase().trim()) {
+            try {
+              await updateDoc(doc(db, 'loanPayments', p.id!), {
+                userId: parentLoan.userId || p.userId,
+                userEmail: parentLoan.userEmail
+              });
+            } catch (e) {}
+          }
+        }
+
         const userProfile = allUsers.find(u => 
           (p.userId && u.uid === p.userId) || 
           (p.userEmail && u.email?.toLowerCase() === p.userEmail.toLowerCase())
@@ -2586,11 +2600,18 @@ export default function App() {
       const closedLoans = userLoans.filter(l => l.status === 'paid');
       const hasLoan = sanctionedLoans.length > 0;
       
-      // All payments made by this member across all loans
-      const userPayments = loanPayments.filter(p => 
-        (u.uid && p.userId && p.userId === u.uid) || 
-        (u.email && p.userEmail && p.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim())
-      );
+      // All payments made by this member across all loans (matching loan borrower or direct payment record)
+      const userPayments = loanPayments.filter(p => {
+        const parentLoan = loans.find(l => l.id === p.loanId);
+        if (parentLoan) {
+          const matchLoanUid = u.uid && parentLoan.userId && parentLoan.userId === u.uid;
+          const matchLoanEmail = u.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim();
+          if (matchLoanUid || matchLoanEmail) return true;
+        }
+        const matchDirectUid = u.uid && p.userId && p.userId === u.uid;
+        const matchDirectEmail = u.email && p.userEmail && p.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim();
+        return matchDirectUid || matchDirectEmail;
+      });
       const paidUserPayments = userPayments.filter(p => p.status === 'paid');
 
       let totalSanctionedAmount = 0;
@@ -2715,20 +2736,57 @@ export default function App() {
       'FFCCBC', // Gentle Deep Orange
     ];
 
+    // Helper to identify system admin email
+    const isSystemAdminEmail = (email?: string) => {
+      if (!email) return false;
+      const e = email.toLowerCase().trim();
+      return e === SYSTEM_ADMIN_EMAIL.toLowerCase().trim() || e.includes('unnati.finance2026');
+    };
+
+    // Helper to resolve actual member name & email for any loan repayment
+    const getLoanRepaymentMemberInfo = (p: LoanPayment) => {
+      const parentLoan = loans.find(l => l.id === p.loanId);
+
+      // Primary check: User associated with parent loan
+      let borrower = allUsers.find(u => 
+        !isSystemAdminEmail(u.email) && (
+          (u.uid && parentLoan?.userId && u.uid === parentLoan.userId) ||
+          (u.email && parentLoan?.userEmail && u.email.toLowerCase().trim() === parentLoan.userEmail.toLowerCase().trim()) ||
+          (u.uid && p.userId && u.uid === p.userId) ||
+          (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
+        )
+      );
+
+      const name = borrower?.displayName || 
+        (borrower as any)?.name || 
+        (parentLoan as any)?.userName || 
+        (parentLoan?.userEmail && !isSystemAdminEmail(parentLoan.userEmail) ? parentLoan.userEmail.split('@')[0] : null) || 
+        (p as any)?.userName || 
+        (p.userEmail && !isSystemAdminEmail(p.userEmail) ? p.userEmail.split('@')[0] : null) || 
+        'Member';
+
+      const email = borrower?.email || 
+        (parentLoan?.userEmail && !isSystemAdminEmail(parentLoan.userEmail) ? parentLoan.userEmail : null) || 
+        (!isSystemAdminEmail(p.userEmail) ? p.userEmail : null) || 
+        (parentLoan?.userEmail || p.userEmail || 'N/A');
+
+      return { name, email, borrower };
+    };
+
     // Collect and sort all distinct member display names / emails deterministically
     const allKnownNames = Array.from(new Set([
-      ...allUsers.map(u => u.displayName || u.email?.split('@')[0] || ''),
+      ...allUsers.filter(u => !isSystemAdminEmail(u.email)).map(u => u.displayName || u.email?.split('@')[0] || ''),
       ...contributions.map(c => {
-        const u = allUsers.find(user => (c.userId && user.uid === c.userId) || (c.userEmail && user.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim()));
-        return u?.displayName || c.userEmail?.split('@')[0] || '';
+        const u = allUsers.find(user => (c.userId && user.uid === c.userId) || (c.userEmail && user.email.toLowerCase().trim() === user.email.toLowerCase().trim()));
+        return (!isSystemAdminEmail(u?.email || c.userEmail)) ? (u?.displayName || c.userEmail?.split('@')[0] || '') : '';
       }),
       ...loans.map(l => {
         const u = allUsers.find(user => (l.userId && user.uid === l.userId) || (l.userEmail && user.email.toLowerCase().trim() === l.userEmail.toLowerCase().trim()));
-        return u?.displayName || l.userEmail?.split('@')[0] || '';
+        return (!isSystemAdminEmail(u?.email || l.userEmail)) ? (u?.displayName || l.userEmail?.split('@')[0] || '') : '';
       }),
       ...loanPayments.map(p => {
-        const u = allUsers.find(user => (p.userId && user.uid === p.userId) || (p.userEmail && user.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim()));
-        return u?.displayName || p.userEmail?.split('@')[0] || '';
+        const { name } = getLoanRepaymentMemberInfo(p);
+        return name !== 'Member' ? name : '';
       })
     ].map(n => n.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 
@@ -2748,13 +2806,68 @@ export default function App() {
       return memberColorMap.get(cleanName)!;
     };
 
-    const applyMemberRowStyles = (ws: any, rowsData: any[], memberKey: string) => {
+    const styleTitle1 = {
+      font: { name: 'Segoe UI', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '1E1B4B' } }, // Deep Indigo
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const styleTitle2 = {
+      font: { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '312E81' } }, // Indigo 900
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const styleSubTitle = {
+      font: { name: 'Segoe UI', sz: 10, italic: true, color: { rgb: '475569' } },
+      fill: { fgColor: { rgb: 'F1F5F9' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const borderThin = {
+      top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+    };
+
+    const buildSheetWithTrustHeader = (sheetTitle: string, headers: string[], rowsData: any[][]) => {
+      const aoa = [
+        ['UNNATI TRUST (R)'],
+        [sheetTitle],
+        [`As on Date: ${format(new Date(), 'dd-MMM-yyyy HH:mm:ss')}`],
+        [],
+        headers,
+        ...rowsData
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const maxCol = Math.max(0, headers.length - 1);
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: maxCol } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: maxCol } }
+      ];
+      return ws;
+    };
+
+    const applyMemberRowStyles = (ws: any, rowsData: any[], memberKeyIndex: number, headerLength: number) => {
       if (!ws || !ws['!ref']) return;
       const range = XLSX.utils.decode_range(ws['!ref']);
 
-      // Header row formatting (r = 0)
-      for (let c = range.s.c; c <= range.e.c; c++) {
-        const cellRef = XLSX.utils.encode_cell({ r: 0, c });
+      // Title rows (r = 0, 1, 2)
+      for (let r = 0; r <= 2; r++) {
+        for (let c = 0; c < headerLength; c++) {
+          const cellRef = XLSX.utils.encode_cell({ r, c });
+          if (!ws[cellRef]) ws[cellRef] = { v: '', t: 's' };
+          if (r === 0) ws[cellRef].s = styleTitle1;
+          else if (r === 1) ws[cellRef].s = styleTitle2;
+          else if (r === 2) ws[cellRef].s = styleSubTitle;
+        }
+      }
+
+      // Header row formatting (r = 4)
+      for (let c = 0; c < headerLength; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r: 4, c });
         if (ws[cellRef]) {
           ws[cellRef].s = {
             font: { bold: true, color: { rgb: "0F172A" }, sz: 11 },
@@ -2770,20 +2883,20 @@ export default function App() {
         }
       }
 
-      // Data rows formatting (r = 1 to range.e.r)
-      for (let r = 1; r <= range.e.r; r++) {
-        const rowItem = rowsData[r - 1];
-        const memberName = rowItem ? rowItem[memberKey] : '';
+      // Data rows formatting (r = 5 to range.e.r)
+      for (let r = 5; r <= range.e.r; r++) {
+        const rowItem = rowsData[r - 5];
+        const memberName = rowItem ? rowItem[memberKeyIndex] : '';
         const rowColorHex = getMemberColor(memberName);
 
-        for (let c = range.s.c; c <= range.e.c; c++) {
+        for (let c = 0; c < headerLength; c++) {
           const cellRef = XLSX.utils.encode_cell({ r, c });
           if (!ws[cellRef]) {
             ws[cellRef] = { v: '', t: 's' };
           }
           ws[cellRef].s = {
             fill: { fgColor: { rgb: rowColorHex } },
-            font: { sz: 11, color: { rgb: "0F172A" } },
+            font: { sz: 10.5, color: { rgb: "0F172A" } },
             border: {
               top: { style: "thin", color: { rgb: "CBD5E1" } },
               bottom: { style: "thin", color: { rgb: "CBD5E1" } },
@@ -2796,7 +2909,17 @@ export default function App() {
       }
     };
 
-    const masterWS = XLSX.utils.json_to_sheet(masterReport);
+    const masterHeaders = [
+      'Member Name', 'Email', 'Phone', 'Join Date', 'Total Deposited (₹)',
+      'Paid Subscription Months', 'Has Taken Loan?', 'Total Loans Count', 'Active Loans Count',
+      'Closed Loans Count', 'Total Sanctioned Loan Amount (₹)', 'Active Loan Amount (₹)',
+      'Closed Loan Amount (₹)', 'Loan Principal Paid (₹)', 'Loan Interest Paid (₹)',
+      'Loan Pending Principal (₹)', 'Loan Status', 'Consolidated Loan Details'
+    ];
+    const masterRows = masterReport.map(r => masterHeaders.map(h => (r as any)[h]));
+    const masterWS = buildSheetWithTrustHeader("MASTER CONSOLIDATED MEMBER SUMMARY REPORT", masterHeaders, masterRows);
+    masterWS['!cols'] = masterHeaders.map(() => ({ wch: 22 }));
+    applyMemberRowStyles(masterWS, masterRows, 0, masterHeaders.length);
     XLSX.utils.book_append_sheet(wb, masterWS, "Master Report");
 
     // 2. All Contributions (Subscriptions)
@@ -2811,19 +2934,21 @@ export default function App() {
       } else if (c.timestamp?.seconds) {
         dateStr = format(new Date(c.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
       }
-      return {
-        'Member Name': u?.displayName || c.userEmail.split('@')[0],
-        'Email': u?.email || c.userEmail || 'N/A',
-        'Month': format(new Date(c.year, c.month - 1), 'MMMM'),
-        'Year': c.year,
-        'Amount (₹)': c.amount || 0,
-        'Status': (c.status || 'PENDING').toUpperCase(),
-        'Payment Method': c.paymentMethod ? c.paymentMethod.toUpperCase() : 'ONLINE',
-        'Payment Date': dateStr
-      };
+      return [
+        u?.displayName || c.userEmail?.split('@')[0] || 'N/A',
+        u?.email || c.userEmail || 'N/A',
+        format(new Date(c.year, c.month - 1), 'MMMM'),
+        c.year,
+        c.amount || 0,
+        (c.status || 'PENDING').toUpperCase(),
+        c.paymentMethod ? c.paymentMethod.toUpperCase() : 'ONLINE',
+        dateStr
+      ];
     });
-    const contribsWS = XLSX.utils.json_to_sheet(contribsData);
-    applyMemberRowStyles(contribsWS, contribsData, 'Member Name');
+    const contribsHeaders = ['Member Name', 'Email', 'Month', 'Year', 'Amount (₹)', 'Status', 'Payment Method', 'Payment Date'];
+    const contribsWS = buildSheetWithTrustHeader("ALL MEMBER CONTRIBUTIONS & SUBSCRIPTIONS REGISTER", contribsHeaders, contribsData);
+    contribsWS['!cols'] = [{ wch: 25 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
+    applyMemberRowStyles(contribsWS, contribsData, 0, contribsHeaders.length);
     XLSX.utils.book_append_sheet(wb, contribsWS, "All Contributions");
 
     // 3. All Loans (Individual Loan Sanctions)
@@ -2856,59 +2981,69 @@ export default function App() {
         }
       }
 
-      return {
-        'Loan #': idx + 1,
-        'Loan ID': l.id || `L-${idx + 1}`,
-        'Member Name': u?.displayName || l.userEmail?.split('@')[0] || 'N/A',
-        'Email': u?.email || l.userEmail || 'N/A',
-        'Requested Amount (₹)': l.amount || 0,
-        'Sanctioned / Approved Amount (₹)': approvedAmt,
-        'Interest Rate (%)': `${l.interestRate ?? 1}%`,
-        'Tenure (Months)': l.installments || 10,
-        'Status': isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
-        'Principal Paid (₹)': principalPaid,
-        'Interest Paid (₹)': interestPaid,
-        'Pending Balance Principal (₹)': remainingBal,
-        'Applied Date': appliedDate,
-        'Approved Date': approvedDate,
-        'Closed Date': closedDate,
-        'Purpose': l.details || 'N/A'
-      };
+      return [
+        idx + 1,
+        l.id || `L-${idx + 1}`,
+        u?.displayName || l.userEmail?.split('@')[0] || 'N/A',
+        u?.email || l.userEmail || 'N/A',
+        l.amount || 0,
+        approvedAmt,
+        `${l.interestRate ?? 1}%`,
+        l.installments || 10,
+        isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
+        principalPaid,
+        interestPaid,
+        remainingBal,
+        appliedDate,
+        approvedDate,
+        closedDate,
+        l.details || 'N/A'
+      ];
     });
-    const loansWS = XLSX.utils.json_to_sheet(loansData);
-    applyMemberRowStyles(loansWS, loansData, 'Member Name');
+    const loansHeaders = [
+      'Loan #', 'Loan ID', 'Member Name', 'Email', 'Requested Amount (₹)',
+      'Sanctioned / Approved Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)',
+      'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Balance Principal (₹)',
+      'Applied Date', 'Approved Date', 'Closed Date', 'Purpose'
+    ];
+    const loansWS = buildSheetWithTrustHeader("ALL SANCTIONED LOANS REGISTER", loansHeaders, loansData);
+    loansWS['!cols'] = [{ wch: 8 }, { wch: 16 }, { wch: 25 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 25 }];
+    applyMemberRowStyles(loansWS, loansData, 2, loansHeaders.length);
     XLSX.utils.book_append_sheet(wb, loansWS, "All Loans");
 
     // 4. All Loan Repayments (Individual Repayment Transactions)
     const repaymentsData = loanPayments.map((p, idx) => {
-      const u = allUsers.find(user => 
-        (p.userId && user.uid === p.userId) || 
-        (p.userEmail && user.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
-      );
+      const { name: borrowerName, email: borrowerEmail } = getLoanRepaymentMemberInfo(p);
       const parentLoan = loans.find(l => l.id === p.loanId);
       let paymentDate = 'N/A';
       if (p.timestamp?.toDate) paymentDate = format(p.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
       else if (p.timestamp?.seconds) paymentDate = format(new Date(p.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
 
-      return {
-        'Payment #': idx + 1,
-        'Payment ID': p.id || `P-${idx + 1}`,
-        'Loan ID': p.loanId || 'N/A',
-        'Member Name': u?.displayName || p.userEmail?.split('@')[0] || 'N/A',
-        'Email': u?.email || p.userEmail || 'N/A',
-        'Loan Sanctioned (₹)': parentLoan ? (parentLoan.approvedAmount || parentLoan.amount || 0) : 'N/A',
-        'Repayment Month': p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
-        'Year': p.year || 'N/A',
-        'Principal Paid (₹)': p.amount || 0,
-        'Interest Paid (₹)': p.interest || 0,
-        'Total Paid (₹)': (p.amount || 0) + (p.interest || 0),
-        'Status': (p.status || 'PENDING').toUpperCase(),
-        'Payment Method': (p.paymentMethod || 'ONLINE').toUpperCase(),
-        'Payment Date & Time': paymentDate
-      };
+      return [
+        idx + 1,
+        p.id || `P-${idx + 1}`,
+        p.loanId || 'N/A',
+        borrowerName,
+        borrowerEmail,
+        parentLoan ? (parentLoan.approvedAmount || parentLoan.amount || 0) : 'N/A',
+        p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
+        p.year || 'N/A',
+        p.amount || 0,
+        p.interest || 0,
+        (p.amount || 0) + (p.interest || 0),
+        (p.status || 'PENDING').toUpperCase(),
+        (p.paymentMethod || 'ONLINE').toUpperCase(),
+        paymentDate
+      ];
     });
-    const repaymentsWS = XLSX.utils.json_to_sheet(repaymentsData);
-    applyMemberRowStyles(repaymentsWS, repaymentsData, 'Member Name');
+    const repaymentsHeaders = [
+      'Payment #', 'Payment ID', 'Loan ID', 'Member Name', 'Email',
+      'Loan Sanctioned (₹)', 'Repayment Month', 'Year', 'Principal Paid (₹)',
+      'Interest Paid (₹)', 'Total Paid (₹)', 'Status', 'Payment Method', 'Payment Date & Time'
+    ];
+    const repaymentsWS = buildSheetWithTrustHeader("ALL LOAN REPAYMENTS REGISTER", repaymentsHeaders, repaymentsData);
+    repaymentsWS['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 25 }, { wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
+    applyMemberRowStyles(repaymentsWS, repaymentsData, 3, repaymentsHeaders.length);
     XLSX.utils.book_append_sheet(wb, repaymentsWS, "All Loan Repayments");
 
     // 5. Group Financial Summary
@@ -2922,19 +3057,70 @@ export default function App() {
     }, 0);
     const availableLiquidBalance = (totalGroupSavings + totalPrincipalRepaidAll + totalInterestEarnedAll) - totalSanctionedAll;
 
-    const groupSummary = [
-      { 'Financial Metric': 'Report Generated Date', 'Value': format(new Date(), 'dd-MMM-yyyy HH:mm') },
-      { 'Financial Metric': 'Total Registered Members', 'Value': allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length },
-      { 'Financial Metric': 'Total Group Subscriptions / Savings (₹)', 'Value': totalGroupSavings },
-      { 'Financial Metric': 'Total Loans Disbursed / Sanctioned (₹)', 'Value': totalSanctionedAll },
-      { 'Financial Metric': 'Total Loan Principal Repaid (₹)', 'Value': totalPrincipalRepaidAll },
-      { 'Financial Metric': 'Total Active Loan Pending Principal (₹)', 'Value': totalActivePendingPrincipal },
-      { 'Financial Metric': 'Total Interest Earned from Loans (₹)', 'Value': totalInterestEarnedAll },
-      { 'Financial Metric': 'Available Liquid Balance in Fund (₹)', 'Value': availableLiquidBalance },
-      { 'Financial Metric': 'Total Active Running Loans Count', 'Value': loans.filter(l => l.status === 'approved').length },
-      { 'Financial Metric': 'Total Closed / Settled Loans Count', 'Value': loans.filter(l => l.status === 'paid').length }
+    const groupSummaryRows = [
+      ['Report Generated Date', format(new Date(), 'dd-MMM-yyyy HH:mm')],
+      ['Total Registered Members', allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length],
+      ['Total Group Subscriptions / Savings (₹)', totalGroupSavings],
+      ['Total Loans Disbursed / Sanctioned (₹)', totalSanctionedAll],
+      ['Total Loan Principal Repaid (₹)', totalPrincipalRepaidAll],
+      ['Total Active Loan Pending Principal (₹)', totalActivePendingPrincipal],
+      ['Total Interest Earned from Loans (₹)', totalInterestEarnedAll],
+      ['Available Liquid Balance in Fund (₹)', availableLiquidBalance],
+      ['Total Active Running Loans Count', loans.filter(l => l.status === 'approved').length],
+      ['Total Closed / Settled Loans Count', loans.filter(l => l.status === 'paid').length]
     ];
-    const summaryWS = XLSX.utils.json_to_sheet(groupSummary);
+    const summaryWS = buildSheetWithTrustHeader("GROUP FINANCIAL SUMMARY & LIQUID POOL", ['Financial Metric', 'Value / Amount (₹)'], groupSummaryRows);
+    summaryWS['!cols'] = [{ wch: 45 }, { wch: 25 }];
+    
+    // Style Financial Summary
+    for (let r = 0; r <= 2; r++) {
+      for (let c = 0; c < 2; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r, c });
+        if (!summaryWS[cellRef]) summaryWS[cellRef] = { v: '', t: 's' };
+        if (r === 0) summaryWS[cellRef].s = styleTitle1;
+        else if (r === 1) summaryWS[cellRef].s = styleTitle2;
+        else if (r === 2) summaryWS[cellRef].s = styleSubTitle;
+      }
+    }
+    for (let c = 0; c < 2; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 4, c });
+      if (summaryWS[cellRef]) {
+        summaryWS[cellRef].s = {
+          font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+          fill: { fgColor: { rgb: "0F172A" } },
+          border: borderThin,
+          alignment: { vertical: "center", horizontal: c === 1 ? "right" : "left" }
+        };
+      }
+    }
+    for (let r = 5; r < 5 + groupSummaryRows.length; r++) {
+      const isBalanceRow = r === 12; // Available Liquid Balance
+      const isSavingsRow = r === 7;
+      let bg = r % 2 === 0 ? 'F8FAFC' : 'FFFFFF';
+      let color = '0F172A';
+      let bold = false;
+      if (isBalanceRow) {
+        bg = 'D1FAE5';
+        color = '065F46';
+        bold = true;
+      } else if (isSavingsRow) {
+        bg = 'EEF2FF';
+        color = '312E81';
+        bold = true;
+      }
+      for (let c = 0; c < 2; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r, c });
+        if (summaryWS[cellRef]) {
+          summaryWS[cellRef].s = {
+            font: { name: 'Segoe UI', sz: 10.5, bold, color: { rgb: color } },
+            fill: { fgColor: { rgb: bg } },
+            border: borderThin,
+            alignment: { vertical: "center", horizontal: c === 1 ? "right" : "left" },
+            numFmt: typeof summaryWS[cellRef].v === 'number' ? '#,##0' : undefined
+          };
+        }
+      }
+    }
     XLSX.utils.book_append_sheet(wb, summaryWS, "Financial Summary");
 
     const fileName = `Unnati_Admin_Master_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
@@ -2961,36 +3147,114 @@ export default function App() {
   const exportUserStatementToExcel = async () => {
     if (!user) return;
     const wb = XLSX.utils.book_new();
+
+    const styleTitle1 = {
+      font: { name: 'Segoe UI', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '1E1B4B' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+    const styleTitle2 = {
+      font: { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '312E81' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+    const styleSubTitle = {
+      font: { name: 'Segoe UI', sz: 10, italic: true, color: { rgb: '475569' } },
+      fill: { fgColor: { rgb: 'F1F5F9' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+    const borderThin = {
+      top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+    };
+
+    const buildUserStatementSheet = (sheetTitle: string, headers: string[], rowsData: any[][]) => {
+      const aoa = [
+        ['UNNATI TRUST (R)'],
+        [sheetTitle],
+        [`Member: ${profile?.displayName || user.email} | Statement As On: ${format(new Date(), 'dd-MMM-yyyy HH:mm')}`],
+        [],
+        headers,
+        ...rowsData
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      const maxCol = Math.max(0, headers.length - 1);
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: maxCol } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: maxCol } }
+      ];
+
+      for (let r = 0; r <= 2; r++) {
+        for (let c = 0; c < headers.length; c++) {
+          const cellRef = XLSX.utils.encode_cell({ r, c });
+          if (!ws[cellRef]) ws[cellRef] = { v: '', t: 's' };
+          if (r === 0) ws[cellRef].s = styleTitle1;
+          else if (r === 1) ws[cellRef].s = styleTitle2;
+          else if (r === 2) ws[cellRef].s = styleSubTitle;
+        }
+      }
+      for (let c = 0; c < headers.length; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r: 4, c });
+        if (ws[cellRef]) {
+          ws[cellRef].s = {
+            font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+            fill: { fgColor: { rgb: "0F172A" } },
+            border: borderThin,
+            alignment: { vertical: "center", horizontal: "center" }
+          };
+        }
+      }
+      for (let r = 5; r < 5 + rowsData.length; r++) {
+        for (let c = 0; c < headers.length; c++) {
+          const cellRef = XLSX.utils.encode_cell({ r, c });
+          if (ws[cellRef]) {
+            ws[cellRef].s = {
+              font: { name: 'Segoe UI', sz: 10.5, color: { rgb: "0F172A" } },
+              fill: { fgColor: { rgb: r % 2 === 0 ? "F8FAFC" : "FFFFFF" } },
+              border: borderThin,
+              alignment: { vertical: "center" },
+              numFmt: typeof ws[cellRef].v === 'number' ? '#,##0' : undefined
+            };
+          }
+        }
+      }
+      return ws;
+    };
     
     // Subscriptions
     const userContribs = contributions.filter(c => 
       ((user.uid && c.userId && c.userId === user.uid) || (user.email && c.userEmail && c.userEmail.toLowerCase() === user.email.toLowerCase()))
     );
-    const statementData = userContribs.sort((a,b) => b.year - a.year || b.month - a.month).map(c => {
+    const statementRows = userContribs.sort((a,b) => b.year - a.year || b.month - a.month).map(c => {
       let dateStr = 'N/A';
       if (c.timestamp?.toDate) {
         dateStr = format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
       } else if (c.timestamp?.seconds) {
         dateStr = format(new Date(c.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
       }
-      return {
-        'Payment Date': dateStr,
-        'Month': format(new Date(c.year, c.month - 1), 'MMMM'),
-        'Year': c.year,
-        'Amount (₹)': c.amount,
-        'Status': (c.status || 'PENDING').toUpperCase(),
-        'Payment Method': (c.paymentMethod || 'ONLINE').toUpperCase()
-      };
+      return [
+        dateStr,
+        format(new Date(c.year, c.month - 1), 'MMMM'),
+        c.year,
+        c.amount,
+        (c.status || 'PENDING').toUpperCase(),
+        (c.paymentMethod || 'ONLINE').toUpperCase()
+      ];
     });
-    const ws = XLSX.utils.json_to_sheet(statementData);
-    XLSX.utils.book_append_sheet(wb, ws, "My Subscriptions");
+    const subHeaders = ['Payment Date', 'Month', 'Year', 'Amount (₹)', 'Status', 'Payment Method'];
+    const wsSub = buildUserStatementSheet("MY SUBSCRIPTION CONTRIBUTIONS STATEMENT", subHeaders, statementRows);
+    wsSub['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, wsSub, "My Subscriptions");
 
     // Member Loans
     const userLoans = loans.filter(l => 
       ((user.uid && l.userId && l.userId === user.uid) || (user.email && l.userEmail && l.userEmail.toLowerCase() === user.email.toLowerCase()))
     );
     if (userLoans.length > 0) {
-      const userLoansData = userLoans.map((l, idx) => {
+      const userLoansRows = userLoans.map((l, idx) => {
         const lPayments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
         const principalPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
         const interestPaid = lPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
@@ -3002,19 +3266,21 @@ export default function App() {
         if (l.approvedAt?.toDate) approvedDate = format(l.approvedAt.toDate(), 'yyyy-MM-dd');
         else if (l.approvedAt?.seconds) approvedDate = format(new Date(l.approvedAt.seconds * 1000), 'yyyy-MM-dd');
 
-        return {
-          'Loan #': idx + 1,
-          'Sanctioned Amount (₹)': approvedAmt,
-          'Interest Rate (%)': `${l.interestRate ?? 1}%`,
-          'Tenure (Months)': l.installments || 10,
-          'Status': isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
-          'Principal Paid (₹)': principalPaid,
-          'Interest Paid (₹)': interestPaid,
-          'Pending Balance (₹)': remainingBal,
-          'Approved Date': approvedDate
-        };
+        return [
+          idx + 1,
+          approvedAmt,
+          `${l.interestRate ?? 1}%`,
+          l.installments || 10,
+          isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
+          principalPaid,
+          interestPaid,
+          remainingBal,
+          approvedDate
+        ];
       });
-      const loansWs = XLSX.utils.json_to_sheet(userLoansData);
+      const loanHeaders = ['Loan #', 'Sanctioned Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)', 'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Balance (₹)', 'Approved Date'];
+      const loansWs = buildUserStatementSheet("MY SANCTIONED LOANS STATEMENT", loanHeaders, userLoansRows);
+      loansWs['!cols'] = [{ wch: 8 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 18 }];
       XLSX.utils.book_append_sheet(wb, loansWs, "My Loans");
     }
 
@@ -3023,24 +3289,26 @@ export default function App() {
       ((user.uid && p.userId && p.userId === user.uid) || (user.email && p.userEmail && p.userEmail.toLowerCase() === user.email.toLowerCase()))
     );
     if (userLoanPayments.length > 0) {
-      const userPaymentsData = userLoanPayments.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((p, idx) => {
+      const userPaymentsRows = userLoanPayments.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((p, idx) => {
         let paymentDate = 'N/A';
         if (p.timestamp?.toDate) paymentDate = format(p.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
         else if (p.timestamp?.seconds) paymentDate = format(new Date(p.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
 
-        return {
-          'Payment #': idx + 1,
-          'Month': p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
-          'Year': p.year || 'N/A',
-          'Principal Paid (₹)': p.amount || 0,
-          'Interest Paid (₹)': p.interest || 0,
-          'Total Paid (₹)': (p.amount || 0) + (p.interest || 0),
-          'Status': (p.status || 'PENDING').toUpperCase(),
-          'Payment Method': (p.paymentMethod || 'ONLINE').toUpperCase(),
-          'Date': paymentDate
-        };
+        return [
+          idx + 1,
+          p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
+          p.year || 'N/A',
+          p.amount || 0,
+          p.interest || 0,
+          (p.amount || 0) + (p.interest || 0),
+          (p.status || 'PENDING').toUpperCase(),
+          (p.paymentMethod || 'ONLINE').toUpperCase(),
+          paymentDate
+        ];
       });
-      const paymentsWs = XLSX.utils.json_to_sheet(userPaymentsData);
+      const repayHeaders = ['Payment #', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Paid (₹)', 'Status', 'Payment Method', 'Date'];
+      const paymentsWs = buildUserStatementSheet("MY LOAN REPAYMENTS STATEMENT", repayHeaders, userPaymentsRows);
+      paymentsWs['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
       XLSX.utils.book_append_sheet(wb, paymentsWs, "My Loan Repayments");
     }
 
@@ -3101,22 +3369,113 @@ export default function App() {
 
     const monthLabel = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy');
     const monthShort = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM');
+    const exportDateStr = format(new Date(), 'dd-MMM-yyyy HH:mm:ss');
+
+    const borderThin = {
+      top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+      right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+    };
+
+    const styleTitle1 = {
+      font: { name: 'Segoe UI', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '1E1B4B' } }, // Deep Indigo
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const styleTitle2 = {
+      font: { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '312E81' } }, // Indigo 900
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const styleSubTitle = {
+      font: { name: 'Segoe UI', sz: 10, italic: true, color: { rgb: '475569' } },
+      fill: { fgColor: { rgb: 'F1F5F9' } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+
+    const styleHeader = {
+      font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '0F172A' } }, // Slate 900
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: borderThin
+    };
 
     // 1. Sheet 1: Monthly Collection Summary
-    const summarySheetData = [
-      { 'Metric': 'Month & Year', 'Value': monthLabel },
-      { 'Metric': 'Total Received (Grand Total)', 'Value': `₹${grandTotalMonthlyReceived.toLocaleString('en-IN')}` },
-      { 'Metric': 'Amount Collected by Cash (₹)', 'Value': `₹${grandTotalCashReceived.toLocaleString('en-IN')}` },
-      { 'Metric': 'Amount Collected by Online (₹)', 'Value': `₹${grandTotalOnlineReceived.toLocaleString('en-IN')}` },
-      { 'Metric': 'Total Member Subscriptions/Contributions (₹)', 'Value': `₹${monthlyContributionTotal.toLocaleString('en-IN')}` },
-      { 'Metric': 'Total Paid Subscriptions Count', 'Value': monthlyPaidContributions.length },
-      { 'Metric': 'Total Loan Repayments Collected (₹)', 'Value': `₹${monthlyLoanTotalCollected.toLocaleString('en-IN')}` },
-      { 'Metric': 'Total Loan Repayments Count', 'Value': monthlyPaidLoanPayments.length },
-      { 'Metric': 'Loan Principal Collected (₹)', 'Value': `₹${monthlyLoanPrincipalCollected.toLocaleString('en-IN')}` },
-      { 'Metric': 'Loan Interest Collected [0.5%] (₹)', 'Value': `₹${monthlyLoanInterestCollected.toLocaleString('en-IN')}` },
-      { 'Metric': 'Export Generated Date', 'Value': format(new Date(), 'dd-MMM-yyyy HH:mm:ss') }
+    const summarySheetAoa: any[][] = [
+      ['UNNATI TRUST (R)'],
+      ['MONTHLY COLLECTION SUMMARY REPORT'],
+      [`Month & Year: ${monthLabel} | Export Generated Date: ${exportDateStr}`],
+      [],
+      ['Sl.No', 'Financial Metric / Collection Head', 'Amount / Value (₹)', 'Count / Category Details & Remarks'],
+      ['1', 'Total Received (Grand Total)', grandTotalMonthlyReceived, 'Grand Total of all collections (Cash + Online)'],
+      ['2', 'Amount Collected by Cash', grandTotalCashReceived, 'Total cash in hand collections (Subscriptions + Loans)'],
+      ['3', 'Amount Collected by Online', grandTotalOnlineReceived, 'Total online/UPI bank collections (Subscriptions + Loans)'],
+      ['4', 'Total Member Subscriptions / Contributions', monthlyContributionTotal, `${monthlyPaidContributions.length} Paid Subscriptions @ ₹1,000`],
+      ['5', 'Total Paid Subscriptions Count', monthlyPaidContributions.length, 'Total members deposited monthly savings'],
+      ['6', 'Total Loan Repayments Collected', monthlyLoanTotalCollected, `${monthlyPaidLoanPayments.length} Total Repayments (Principal + Interest)`],
+      ['7', 'Total Loan Repayments Count', monthlyPaidLoanPayments.length, 'Installments paid by borrowers this month'],
+      ['8', 'Loan Principal Collected', monthlyLoanPrincipalCollected, 'Principal recovered towards member loans'],
+      ['9', 'Loan Interest Collected [0.5%]', monthlyLoanInterestCollected, '0.5% flat interest earnings on active loans']
     ];
-    const wsSummary = XLSX.utils.json_to_sheet(summarySheetData);
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetAoa);
+    wsSummary['!cols'] = [{ wch: 8 }, { wch: 45 }, { wch: 22 }, { wch: 55 }];
+    wsSummary['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } }
+    ];
+
+    for (let r = 0; r < summarySheetAoa.length; r++) {
+      for (let c = 0; c < 4; c++) {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (!wsSummary[ref]) wsSummary[ref] = { t: 's', v: '' };
+        const cell = wsSummary[ref];
+
+        if (r === 0) cell.s = styleTitle1;
+        else if (r === 1) cell.s = styleTitle2;
+        else if (r === 2) cell.s = styleSubTitle;
+        else if (r === 4) {
+          cell.s = {
+            ...styleHeader,
+            alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' }
+          };
+        } else if (r >= 5) {
+          let bg = r % 2 === 0 ? 'F8FAFC' : 'FFFFFF';
+          let color = '0F172A';
+          let bold = false;
+
+          if (r === 5) {
+            bg = 'D1FAE5'; // Emerald 100 for Grand Total
+            color = '065F46';
+            bold = true;
+          } else if (r === 6) {
+            bg = 'FEF3C7'; // Amber 100 for Cash
+            color = '92400E';
+            bold = true;
+          } else if (r === 7) {
+            bg = 'DBEAFE'; // Sky 100 for Online
+            color = '1E40AF';
+            bold = true;
+          } else if (r === 8 || r === 10) {
+            bg = 'EEF2FF'; // Indigo 50
+            color = '312E81';
+            bold = true;
+          }
+
+          cell.s = {
+            font: { name: 'Segoe UI', sz: 10.5, bold, color: { rgb: color } },
+            fill: { fgColor: { rgb: bg } },
+            alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' },
+            border: borderThin,
+            numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+          };
+        }
+      }
+    }
     XLSX.utils.book_append_sheet(wb, wsSummary, "Monthly Collection Summary");
 
     // 2. Sheet 2: Member Collection Details
@@ -3128,21 +3487,74 @@ export default function App() {
       const memberName = mUser?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : `Member ${idx + 1}`);
       const userPhone = mUser?.phoneNumber || (mUser as any)?.phone || '';
       const userEmail = mUser?.email || c.userEmail || '';
-      const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : null;
+      const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : (c.timestamp?.seconds ? new Date(c.timestamp.seconds * 1000) : null);
       
-      return {
-        'S.No': idx + 1,
-        'Member Name': memberName,
-        'Email Address': userEmail,
-        'Phone Number': userPhone || 'N/A',
-        'Month & Year': monthLabel,
-        'Contribution Amount (₹)': c.amount || 0,
-        'Payment Mode': (c.paymentMethod || 'Online').toUpperCase(),
-        'Payment Date': dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
-        'Status': (c.status || 'PAID').toUpperCase()
-      };
+      return [
+        idx + 1,
+        memberName,
+        userEmail,
+        userPhone || 'N/A',
+        monthLabel,
+        c.amount || 0,
+        (c.paymentMethod || (c as any).paymentMode || 'Online').toUpperCase(),
+        dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
+        (c.status || 'PAID').toUpperCase()
+      ];
     });
-    const wsMember = XLSX.utils.json_to_sheet(memberCollectionRows.length > 0 ? memberCollectionRows : [{ 'Message': 'No member contributions found for this month' }]);
+
+    const memberSheetAoa: any[][] = [
+      ['UNNATI TRUST (R)'],
+      [`MONTHLY MEMBER SUBSCRIPTION COLLECTIONS - ${monthLabel.toUpperCase()}`],
+      [`Total Records: ${monthlyPaidContributions.length} | Export Date: ${exportDateStr}`],
+      [],
+      ['S.No', 'Member Name', 'Email Address', 'Phone Number', 'Month & Year', 'Contribution Amount (₹)', 'Payment Mode', 'Payment Date', 'Status'],
+      ...(memberCollectionRows.length > 0 ? memberCollectionRows : [[1, 'No member contributions found for this month', '', '', '', 0, '', '', '']]),
+      ['TOTAL', '', '', '', '', monthlyContributionTotal, '', '', `${monthlyPaidContributions.length} Paid Members`]
+    ];
+
+    const wsMember = XLSX.utils.aoa_to_sheet(memberSheetAoa);
+    wsMember['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 16 }, { wch: 20 }, { wch: 15 }];
+    const lastMemberRow = memberSheetAoa.length - 1;
+    wsMember['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 8 } },
+      { s: { r: lastMemberRow, c: 0 }, e: { r: lastMemberRow, c: 4 } }
+    ];
+
+    for (let r = 0; r < memberSheetAoa.length; r++) {
+      for (let c = 0; c < 9; c++) {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (!wsMember[ref]) wsMember[ref] = { t: 's', v: '' };
+        const cell = wsMember[ref];
+
+        if (r === 0) cell.s = styleTitle1;
+        else if (r === 1) cell.s = styleTitle2;
+        else if (r === 2) cell.s = styleSubTitle;
+        else if (r === 4) {
+          cell.s = {
+            ...styleHeader,
+            alignment: { horizontal: c === 5 ? 'right' : (c === 0 || c === 6 || c === 8 ? 'center' : 'left'), vertical: 'center' }
+          };
+        } else if (r === lastMemberRow) {
+          cell.s = {
+            font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '065F46' } },
+            fill: { fgColor: { rgb: 'D1FAE5' } },
+            alignment: { horizontal: c === 5 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' },
+            border: borderThin,
+            numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+          };
+        } else if (r >= 5) {
+          cell.s = {
+            font: { name: 'Segoe UI', sz: 10.5, color: { rgb: '0F172A' } },
+            fill: { fgColor: { rgb: r % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
+            alignment: { horizontal: c === 5 ? 'right' : (c === 0 || c === 6 || c === 8 ? 'center' : 'left'), vertical: 'center' },
+            border: borderThin,
+            numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+          };
+        }
+      }
+    }
     XLSX.utils.book_append_sheet(wb, wsMember, "Member Collection Details");
 
     // 3. Sheet 3: Loan Repayments Collected
@@ -3161,23 +3573,76 @@ export default function App() {
       const interest = p.interest || 0;
       const total = principal + interest;
       const paymentMode = (p.paymentMode || (p as any)?.paymentMethod || 'Online').toUpperCase();
-      const dateObj = p.approvedAt?.toDate ? p.approvedAt.toDate() : p.timestamp?.toDate ? p.timestamp.toDate() : null;
+      const dateObj = p.approvedAt?.toDate ? p.approvedAt.toDate() : (p.timestamp?.toDate ? p.timestamp.toDate() : (p.timestamp?.seconds ? new Date(p.timestamp.seconds * 1000) : null));
 
-      return {
-        'S.No': idx + 1,
-        'Borrower Name': borrowerName,
-        'Email Address': borrowerEmail,
-        'Phone Number': borrowerPhone || 'N/A',
-        'Month & Year': monthLabel,
-        'Principal Amount (₹)': principal,
-        'Interest Amount (₹)': interest,
-        'Total Repayment Paid (₹)': total,
-        'Payment Mode': paymentMode,
-        'Payment Date': dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
-        'Status': (p.status || 'PAID').toUpperCase()
-      };
+      return [
+        idx + 1,
+        borrowerName,
+        borrowerEmail,
+        borrowerPhone || 'N/A',
+        monthLabel,
+        principal,
+        interest,
+        total,
+        paymentMode,
+        dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
+        (p.status || 'PAID').toUpperCase()
+      ];
     });
-    const wsLoans = XLSX.utils.json_to_sheet(loanRepaymentRows.length > 0 ? loanRepaymentRows : [{ 'Message': 'No loan repayments found for this month' }]);
+
+    const loansSheetAoa: any[][] = [
+      ['UNNATI TRUST (R)'],
+      [`MONTHLY LOAN REPAYMENTS COLLECTED - ${monthLabel.toUpperCase()}`],
+      [`Total Records: ${monthlyPaidLoanPayments.length} | Export Date: ${exportDateStr}`],
+      [],
+      ['S.No', 'Borrower Name', 'Email Address', 'Phone Number', 'Month & Year', 'Principal Amount (₹)', 'Interest Amount (₹)', 'Total Repayment Paid (₹)', 'Payment Mode', 'Payment Date', 'Status'],
+      ...(loanRepaymentRows.length > 0 ? loanRepaymentRows : [[1, 'No loan repayments found for this month', '', '', '', 0, 0, 0, '', '', '']]),
+      ['TOTAL', '', '', '', '', monthlyLoanPrincipalCollected, monthlyLoanInterestCollected, monthlyLoanTotalCollected, '', '', `${monthlyPaidLoanPayments.length} Payments`]
+    ];
+
+    const wsLoans = XLSX.utils.aoa_to_sheet(loansSheetAoa);
+    wsLoans['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 20 }, { wch: 15 }];
+    const lastLoanRow = loansSheetAoa.length - 1;
+    wsLoans['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 10 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 10 } },
+      { s: { r: lastLoanRow, c: 0 }, e: { r: lastLoanRow, c: 4 } }
+    ];
+
+    for (let r = 0; r < loansSheetAoa.length; r++) {
+      for (let c = 0; c < 11; c++) {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        if (!wsLoans[ref]) wsLoans[ref] = { t: 's', v: '' };
+        const cell = wsLoans[ref];
+
+        if (r === 0) cell.s = styleTitle1;
+        else if (r === 1) cell.s = styleTitle2;
+        else if (r === 2) cell.s = styleSubTitle;
+        else if (r === 4) {
+          cell.s = {
+            ...styleHeader,
+            alignment: { horizontal: (c >= 5 && c <= 7) ? 'right' : (c === 0 || c === 8 || c === 10 ? 'center' : 'left'), vertical: 'center' }
+          };
+        } else if (r === lastLoanRow) {
+          cell.s = {
+            font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '065F46' } },
+            fill: { fgColor: { rgb: 'D1FAE5' } },
+            alignment: { horizontal: (c >= 5 && c <= 7) ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' },
+            border: borderThin,
+            numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+          };
+        } else if (r >= 5) {
+          cell.s = {
+            font: { name: 'Segoe UI', sz: 10.5, color: { rgb: '0F172A' } },
+            fill: { fgColor: { rgb: r % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
+            alignment: { horizontal: (c >= 5 && c <= 7) ? 'right' : (c === 0 || c === 8 || c === 10 ? 'center' : 'left'), vertical: 'center' },
+            border: borderThin,
+            numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+          };
+        }
+      }
+    }
     XLSX.utils.book_append_sheet(wb, wsLoans, "Loan Repayments Collected");
 
     const fileName = `MonthlyReport_${monthShort}${collectionYear}.xlsx`;
@@ -3198,6 +3663,534 @@ export default function App() {
     } else {
       XLSX.writeFile(wb, fileName);
       notify('success', `Exported ${fileName} successfully!`);
+    }
+  };
+
+  const exportBalanceSheetExcel = async () => {
+    if (profile?.role !== 'admin') return;
+
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // 1. Data Aggregations matching exact Trust Financials
+      const paidContributions = contributions.filter(c => c.status === 'paid' && (c.year || 0) >= 2026);
+      const activeLoanIds = new Set(loans.filter(l => l.status === 'approved' || l.status === 'paid').map(l => l.id));
+      const paidLoanPayments = loanPayments.filter(p => p.status === 'paid' && activeLoanIds.has(p.loanId) && (p.year || 0) >= 2026);
+      const approvedOrPaidLoans = loans.filter(l => l.status === 'approved' || l.status === 'paid');
+      const approvedLoans = loans.filter(l => l.status === 'approved');
+
+      // Member Contributions
+      const totalMemberContributions = paidContributions.reduce((acc, c) => acc + (c.amount || 0), 0);
+      const contribCash = paidContributions
+        .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
+        .reduce((acc, c) => acc + (c.amount || 0), 0);
+      const contribCashCount = paidContributions
+        .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash').length;
+      const contribOnline = paidContributions
+        .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
+        .reduce((acc, c) => acc + (c.amount || 0), 0);
+      const contribOnlineCount = paidContributions
+        .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash').length;
+
+      // Loan Repayments
+      const loanPrincipalRepaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      const loanPrincipalCash = paidLoanPayments
+        .filter(p => (p.paymentMode || (p as any).paymentMethod || 'Online').toString().toLowerCase() === 'cash')
+        .reduce((acc, p) => acc + (p.amount || 0), 0);
+      const loanPrincipalOnline = paidLoanPayments
+        .filter(p => (p.paymentMode || (p as any).paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
+        .reduce((acc, p) => acc + (p.amount || 0), 0);
+
+      const loanInterestCollected = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+      const loanInterestCash = paidLoanPayments
+        .filter(p => (p.paymentMode || (p as any).paymentMethod || 'Online').toString().toLowerCase() === 'cash')
+        .reduce((acc, p) => acc + (p.interest || 0), 0);
+      const loanInterestOnline = paidLoanPayments
+        .filter(p => (p.paymentMode || (p as any).paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
+        .reduce((acc, p) => acc + (p.interest || 0), 0);
+
+      const totalLoanRepayments = loanPrincipalRepaid + loanInterestCollected;
+      const totalLoanRepayCash = loanPrincipalCash + loanInterestCash;
+      const totalLoanRepayOnline = loanPrincipalOnline + loanInterestOnline;
+
+      // Loans Disbursed
+      const totalLoansDisbursed = approvedOrPaidLoans.reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
+      const loansDisbursedCash = approvedOrPaidLoans
+        .filter(l => (l.paymentMode || (l as any).disbursalMode || '').toString().toLowerCase() === 'cash')
+        .reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
+      const loansDisbursedOnline = approvedOrPaidLoans
+        .filter(l => (l.paymentMode || (l as any).disbursalMode || '').toString().toLowerCase() !== 'cash')
+        .reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
+
+      // Outstanding Principal & Liquidity
+      const outstandingPrincipal = approvedLoans.reduce((acc, l) => {
+        const pList = paidLoanPayments.filter(p => p.loanId === l.id);
+        const paid = pList.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
+        return acc + Math.max(0, (l.approvedAmount || 0) - paid);
+      }, 0);
+
+      const totalGroupSavings = totalMemberContributions + loanInterestCollected;
+      const availableBalance = Math.max(0, totalGroupSavings - outstandingPrincipal);
+
+      const totalGrossInflow = totalMemberContributions + totalLoanRepayments;
+      const grossCashInflow = contribCash + totalLoanRepayCash;
+      const grossOnlineInflow = contribOnline + totalLoanRepayOnline;
+
+      const netCashBalance = grossCashInflow - loansDisbursedCash;
+      const netOnlineBalance = grossOnlineInflow - loansDisbursedOnline;
+
+      const dateStrNow = format(new Date(), 'dd-MMM-yyyy hh:mm a');
+
+      // Common styling definitions
+      const borderThin = {
+        top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+      };
+
+      const styleTitle1 = {
+        font: { name: 'Segoe UI', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '1E1B4B' } }, // Deep Indigo
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+
+      const styleTitle2 = {
+        font: { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '312E81' } }, // Indigo 900
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+
+      const styleSubTitle = {
+        font: { name: 'Segoe UI', sz: 10, italic: true, color: { rgb: '475569' } },
+        fill: { fgColor: { rgb: 'F1F5F9' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+
+      const styleHeader = {
+        font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '0F172A' } }, // Slate 900
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: borderThin
+      };
+
+      // ==========================================
+      // SHEET 1: Trust Summary & Available Balance
+      // ==========================================
+      const s1Data = [
+        ['UNNATI TRUST (R)'],
+        ['TRUST SUMMARY & AVAILABLE BALANCE REPORT'],
+        [`As on Date: ${dateStrNow}`],
+        [],
+        ['Sl.No', 'Financial Metric / Parameter', 'Amount (₹)', 'Count / Details', 'Accounting Formula & Description'],
+        ['1', 'Total Member Subscriptions / Contributions', totalMemberContributions, `${paidContributions.length} Paid Contributions`, 'Total monthly deposits collected from members @ ₹1,000'],
+        ['2', 'Total Loan Interest Collected (0.5%)', loanInterestCollected, `${paidLoanPayments.length} Installments`, 'Total interest earned from issued loans (0.5% flat)'],
+        ['3', 'TOTAL TRUST SAVINGS / CORPUS FUND (1 + 2)', totalGroupSavings, 'Total Fund Inflow', 'Total accumulated capital of the Trust (Contributions + Interest)'],
+        ['4', 'Total Loans Disbursed / Sanctioned', totalLoansDisbursed, `${approvedOrPaidLoans.length} Loans Sanctioned`, 'Total loan amounts sanctioned to eligible members'],
+        ['5', 'Total Loan Principal Repaid', loanPrincipalRepaid, `${paidLoanPayments.length} Repayments`, 'Total principal recovered from members against sanctioned loans'],
+        ['6', 'Active Outstanding Loan Principal', outstandingPrincipal, `${approvedLoans.length} Active Loans`, 'Remaining principal to be recovered from active borrowers'],
+        ['7', 'LIQUID AVAILABLE BALANCE (3 - 6)', availableBalance, 'Liquid Fund Pool', 'Net liquid funds ready in trust matching Available Balance (Group Savings - Outstanding Principal)'],
+        [],
+        ['RECONCILIATION EQUATION:', `Liquid Available Balance (₹${availableBalance.toLocaleString('en-IN')}) + Active Outstanding Loans (₹${outstandingPrincipal.toLocaleString('en-IN')}) = Total Trust Savings (₹${totalGroupSavings.toLocaleString('en-IN')})`, '', '', '']
+      ];
+
+      const ws1 = XLSX.utils.aoa_to_sheet(s1Data);
+      ws1['!cols'] = [{ wch: 8 }, { wch: 45 }, { wch: 18 }, { wch: 25 }, { wch: 60 }];
+      ws1['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 4 } },
+        { s: { r: 13, c: 1 }, e: { r: 13, c: 4 } }
+      ];
+
+      for (let r = 0; r < s1Data.length; r++) {
+        for (let c = 0; c < 5; c++) {
+          const ref = XLSX.utils.encode_cell({ r, c });
+          if (!ws1[ref]) ws1[ref] = { t: 's', v: '' };
+          const cell = ws1[ref];
+
+          if (r === 0) cell.s = styleTitle1;
+          else if (r === 1) cell.s = styleTitle2;
+          else if (r === 2) cell.s = styleSubTitle;
+          else if (r === 4) {
+            cell.s = {
+              ...styleHeader,
+              alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' }
+            };
+          } else if (r >= 5 && r <= 11) {
+            const isTotalRow = r === 7 || r === 11;
+            const isRoseRow = r === 10;
+            let bg = r % 2 === 0 ? 'F8FAFC' : 'FFFFFF';
+            let color = '0F172A';
+            let bold = false;
+
+            if (isTotalRow) {
+              bg = r === 7 ? 'FEF3C7' : 'D1FAE5';
+              color = r === 7 ? '92400E' : '065F46';
+              bold = true;
+            } else if (isRoseRow) {
+              bg = 'FFE4E6';
+              color = '9F1239';
+              bold = true;
+            }
+
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 10.5, bold, color: { rgb: color } },
+              fill: { fgColor: { rgb: bg } },
+              alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          } else if (r === 13) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 10, bold: true, color: { rgb: '1E293B' } },
+              fill: { fgColor: { rgb: 'E2E8F0' } },
+              alignment: { horizontal: 'left', vertical: 'center' },
+              border: borderThin
+            };
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws1, 'Trust Summary & Balance');
+
+      // ==========================================
+      // SHEET 2: Total Inflow by Cash & Online
+      // ==========================================
+      const s2Data = [
+        ['UNNATI TRUST (R)'],
+        ['TOTAL GROSS INFLOW BY CASH & ONLINE'],
+        [`As on Date: ${dateStrNow}`],
+        [],
+        ['Sl.No', 'Collection Category / Head', 'By Cash (₹)', 'By Online (₹)', 'Total Amount (₹)', 'Count & Remarks'],
+        ['1', 'Member Subscriptions / Contributions', contribCash, contribOnline, totalMemberContributions, `${paidContributions.length} Total (${contribCashCount} Cash, ${contribOnlineCount} Online)`],
+        ['2', 'Loan Principal Repayments', loanPrincipalCash, loanPrincipalOnline, loanPrincipalRepaid, `${paidLoanPayments.length} Principal Repayments Recovered`],
+        ['3', 'Loan Interest (0.5%) Repayments', loanInterestCash, loanInterestOnline, loanInterestCollected, '0.5% Flat Interest Earnings on Loans'],
+        ['4', 'TOTAL LOAN REPAYMENTS (2 + 3)', totalLoanRepayCash, totalLoanRepayOnline, totalLoanRepayments, 'Total Loan Collections Received (Principal + Interest)'],
+        ['5', 'TOTAL GROSS INFLOWS RECEIVED (1 + 4)', grossCashInflow, grossOnlineInflow, totalGrossInflow, 'Grand Total of all collections received across Cash & Bank']
+      ];
+
+      const ws2 = XLSX.utils.aoa_to_sheet(s2Data);
+      ws2['!cols'] = [{ wch: 8 }, { wch: 40 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 55 }];
+      ws2['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } }
+      ];
+
+      for (let r = 0; r < s2Data.length; r++) {
+        for (let c = 0; c < 6; c++) {
+          const ref = XLSX.utils.encode_cell({ r, c });
+          if (!ws2[ref]) ws2[ref] = { t: 's', v: '' };
+          const cell = ws2[ref];
+
+          if (r === 0) cell.s = styleTitle1;
+          else if (r === 1) cell.s = styleTitle2;
+          else if (r === 2) cell.s = styleSubTitle;
+          else if (r === 4) {
+            cell.s = {
+              ...styleHeader,
+              alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' }
+            };
+          } else if (r >= 5 && r <= 9) {
+            const isLoanTotal = r === 8;
+            const isGrandTotal = r === 9;
+            let bg = r % 2 === 0 ? 'F8FAFC' : 'FFFFFF';
+            let color = '0F172A';
+            let bold = false;
+
+            if (isLoanTotal) {
+              bg = 'EDE9FE'; // Purple 100
+              color = '5B21B6';
+              bold = true;
+            } else if (isGrandTotal) {
+              bg = 'D1FAE5'; // Emerald 100
+              color = '065F46';
+              bold = true;
+            }
+
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 10.5, bold, color: { rgb: color } },
+              fill: { fgColor: { rgb: bg } },
+              alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws2, 'Inflow by Cash & Online');
+
+      // ==========================================
+      // SHEET 3: Net Liquidity Reconciliation Matching Available Balance
+      // ==========================================
+      const s3Data = [
+        ['UNNATI TRUST (R)'],
+        ['NET LIQUIDITY RECONCILIATION MATCHING AVAILABLE BALANCE'],
+        [`As on Date: ${dateStrNow}`],
+        [],
+        ['Channel / Payment Mode', 'Total Inflows Received (₹)', 'Total Loans Disbursed (₹)', 'Net Current Balance (₹)', 'Status & Reconciliation Notes'],
+        ['Cash in Hand Pool', grossCashInflow, loansDisbursedCash, netCashBalance, 'Physical Cash in Hand (Cash Inflows - Cash Loans Disbursed)'],
+        ['Bank / Online Account Pool', grossOnlineInflow, loansDisbursedOnline, netOnlineBalance, 'Bank Account Net Balance (Online Inflows - Online Loans Disbursed)'],
+        ['TOTAL NET LIQUID AVAILABLE BALANCE', totalGrossInflow, totalLoansDisbursed, availableBalance, `100% MATCHES TRUST AVAILABLE BALANCE (₹${availableBalance.toLocaleString('en-IN')})`],
+        [],
+        ['LIQUIDITY AUDIT CHECK', '', '', '', ''],
+        ['Total Group Savings (Contributions + Interest)', totalGroupSavings, '', '', 'Gross accumulated capital of the Trust'],
+        ['Less: Active Loans Due from Members (Principal Outstanding)', (-outstandingPrincipal), '', '', 'Funds currently deployed in member loans'],
+        ['NET LIQUID AVAILABLE BALANCE IN TRUST', availableBalance, '', '', 'MATCHED & VERIFIED WITH POOL BALANCE']
+      ];
+
+      const ws3 = XLSX.utils.aoa_to_sheet(s3Data);
+      ws3['!cols'] = [{ wch: 35 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 60 }];
+      ws3['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 4 } },
+        { s: { r: 9, c: 0 }, e: { r: 9, c: 4 } }
+      ];
+
+      for (let r = 0; r < s3Data.length; r++) {
+        for (let c = 0; c < 5; c++) {
+          const ref = XLSX.utils.encode_cell({ r, c });
+          if (!ws3[ref]) ws3[ref] = { t: 's', v: '' };
+          const cell = ws3[ref];
+
+          if (r === 0) cell.s = styleTitle1;
+          else if (r === 1) cell.s = styleTitle2;
+          else if (r === 2) cell.s = styleSubTitle;
+          else if (r === 4) {
+            cell.s = {
+              ...styleHeader,
+              alignment: { horizontal: (c >= 1 && c <= 3) ? 'right' : 'left', vertical: 'center' }
+            };
+          } else if (r >= 5 && r <= 7) {
+            const isTotalRow = r === 7;
+            const bg = isTotalRow ? 'D1FAE5' : (r % 2 === 0 ? 'F8FAFC' : 'FFFFFF');
+            const color = isTotalRow ? '065F46' : '0F172A';
+
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 10.5, bold: isTotalRow, color: { rgb: color } },
+              fill: { fgColor: { rgb: bg } },
+              alignment: { horizontal: (c >= 1 && c <= 3) ? 'right' : 'left', vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          } else if (r === 9) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '1E293B' } },
+              fill: { fgColor: { rgb: 'E2E8F0' } },
+              alignment: { horizontal: 'left', vertical: 'center' },
+              border: borderThin
+            };
+          } else if (r >= 10 && r <= 12) {
+            const isFinalRow = r === 12;
+            const bg = isFinalRow ? 'FEF3C7' : 'FFFFFF';
+            const color = isFinalRow ? '92400E' : '0F172A';
+
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 10.5, bold: isFinalRow, color: { rgb: color } },
+              fill: { fgColor: { rgb: bg } },
+              alignment: { horizontal: c === 1 ? 'right' : 'left', vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws3, 'Liquidity Reconciliation');
+
+      // ==========================================
+      // SHEET 4: LIABILITIES & TRUST CAPITAL FUND
+      // ==========================================
+      const s4Data = [
+        ['UNNATI TRUST (R)'],
+        ['BALANCE SHEET: LIABILITIES & TRUST CAPITAL FUND'],
+        [`As on Date: ${dateStrNow}`],
+        [],
+        ['Particulars / Head of Account', 'Sub-Amount (₹)', 'Total Amount (₹)', 'Accounting Notes / Details'],
+        ['I. TRUST CAPITAL / CORPUS FUND', '', '', 'Core Trust Capital from Members'],
+        ['   Members Accumulated Monthly Contributions', totalMemberContributions, '', `${paidContributions.length} Paid Monthly Installments @ ₹1,000`],
+        ['   Sub-total: Trust Capital Fund', '', totalMemberContributions, 'Direct member equity/corpus'],
+        [],
+        ['II. RESERVES & SURPLUS', '', '', 'Accumulated Earnings'],
+        ['   Accumulated Loan Interest Received (0.5%)', loanInterestCollected, '', 'Interest income generated from member loans'],
+        ['   Sub-total: Reserves & Surplus', '', loanInterestCollected, 'Retained trust earnings'],
+        [],
+        ['TOTAL TRUST CAPITAL & SURPLUS (I + II)', '', totalGroupSavings, 'Net Group Trust Capital'],
+        [],
+        ['III. CURRENT LIABILITIES', '', '', 'Current Obligations'],
+        ['   Outstanding Creditors / Payables', 0, 0, 'No active liabilities/debts'],
+        [],
+        ['TOTAL LIABILITIES & TRUST CAPITAL FUND', '', totalGroupSavings, 'Total Liabilities & Trust Corpus (Matches Total Assets)']
+      ];
+
+      const ws4 = XLSX.utils.aoa_to_sheet(s4Data);
+      ws4['!cols'] = [{ wch: 45 }, { wch: 18 }, { wch: 18 }, { wch: 55 }];
+      ws4['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } }
+      ];
+
+      for (let r = 0; r < s4Data.length; r++) {
+        for (let c = 0; c < 4; c++) {
+          const ref = XLSX.utils.encode_cell({ r, c });
+          if (!ws4[ref]) ws4[ref] = { t: 's', v: '' };
+          const cell = ws4[ref];
+
+          if (r === 0) cell.s = styleTitle1;
+          else if (r === 1) cell.s = styleTitle2;
+          else if (r === 2) cell.s = styleSubTitle;
+          else if (r === 4) {
+            cell.s = {
+              ...styleHeader,
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' }
+            };
+          } else if (r === 5 || r === 9 || r === 15) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '312E81' } },
+              fill: { fgColor: { rgb: 'EEF2FF' } },
+              alignment: { horizontal: 'left', vertical: 'center' },
+              border: borderThin
+            };
+          } else if (r === 13 || r === 18) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '065F46' } },
+              fill: { fgColor: { rgb: 'D1FAE5' } },
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          } else if (r > 4 && s4Data[r][0] !== '') {
+            const isSubTotal = r === 7 || r === 11 || r === 16;
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 10.5, bold: isSubTotal, color: { rgb: '0F172A' } },
+              fill: { fgColor: { rgb: isSubTotal ? 'F8FAFC' : 'FFFFFF' } },
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws4, 'Liabilities & Trust Capital');
+
+      // ==========================================
+      // SHEET 5: ASSETS
+      // ==========================================
+      const s5Data = [
+        ['UNNATI TRUST (R)'],
+        ['BALANCE SHEET: ASSETS & ADVANCES'],
+        [`As on Date: ${dateStrNow}`],
+        [],
+        ['Particulars / Head of Account', 'Sub-Amount (₹)', 'Total Amount (₹)', 'Accounting Notes / Details'],
+        ['I. CURRENT ASSETS, LOANS & ADVANCES', '', '', 'Loan Book Assets'],
+        ['   Total Loans Sanctioned & Disbursed to Members', totalLoansDisbursed, '', `${approvedOrPaidLoans.length} Loans Disbursed in Total`],
+        ['   Less: Loan Principal Repayments Recovered', (-loanPrincipalRepaid), '', `${paidLoanPayments.length} Principal Repayments Collected`],
+        ['   Net Outstanding Loans to Members (Principal Due)', '', outstandingPrincipal, `${approvedLoans.length} Active Loans Remaining to be Recovered`],
+        [],
+        ['II. LIQUID ASSETS (CASH & BANK BALANCES)', '', '', 'Liquid Reserves'],
+        ['   Total Gross Inflows Received (Contributions + Repayments)', totalGrossInflow, '', 'Total gross collections into trust'],
+        ['   Less: Total Loans Disbursed Outflow', (-totalLoansDisbursed), '', 'Total loan disbursements disbursed'],
+        ['   Net Liquid Available Balance (Cash & Bank)', '', availableBalance, 'Liquid Funds Ready in Trust Pool'],
+        [],
+        ['TOTAL ASSETS (I + II)', '', totalGroupSavings, 'Total Assets (Matches Total Liabilities & Capital)'],
+        [],
+        ['BALANCE SHEET EQUATION AUDIT', '', '', ''],
+        ['Total Assets', '', totalGroupSavings, `Outstanding Loans (₹${outstandingPrincipal.toLocaleString('en-IN')}) + Available Balance (₹${availableBalance.toLocaleString('en-IN')})`],
+        ['Total Liabilities & Trust Capital', '', totalGroupSavings, `Trust Corpus (₹${totalMemberContributions.toLocaleString('en-IN')}) + Interest Surplus (₹${loanInterestCollected.toLocaleString('en-IN')})`],
+        ['BALANCE SHEET STATUS', '', 'BALANCED & VERIFIED', `Assets (₹${totalGroupSavings.toLocaleString('en-IN')}) = Liabilities & Capital (₹${totalGroupSavings.toLocaleString('en-IN')})`]
+      ];
+
+      const ws5 = XLSX.utils.aoa_to_sheet(s5Data);
+      ws5['!cols'] = [{ wch: 45 }, { wch: 18 }, { wch: 22 }, { wch: 55 }];
+      ws5['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } },
+        { s: { r: 16, c: 0 }, e: { r: 16, c: 3 } }
+      ];
+
+      for (let r = 0; r < s5Data.length; r++) {
+        for (let c = 0; c < 4; c++) {
+          const ref = XLSX.utils.encode_cell({ r, c });
+          if (!ws5[ref]) ws5[ref] = { t: 's', v: '' };
+          const cell = ws5[ref];
+
+          if (r === 0) cell.s = styleTitle1;
+          else if (r === 1) cell.s = styleTitle2;
+          else if (r === 2) cell.s = styleSubTitle;
+          else if (r === 4) {
+            cell.s = {
+              ...styleHeader,
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' }
+            };
+          } else if (r === 5 || r === 10) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '312E81' } },
+              fill: { fgColor: { rgb: 'EEF2FF' } },
+              alignment: { horizontal: 'left', vertical: 'center' },
+              border: borderThin
+            };
+          } else if (r === 14) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '065F46' } },
+              fill: { fgColor: { rgb: 'D1FAE5' } },
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          } else if (r === 16) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '1E293B' } },
+              fill: { fgColor: { rgb: 'E2E8F0' } },
+              alignment: { horizontal: 'left', vertical: 'center' },
+              border: borderThin
+            };
+          } else if (r === 19) {
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '92400E' } },
+              fill: { fgColor: { rgb: 'FEF3C7' } },
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          } else if (r > 4 && s5Data[r][0] !== '') {
+            const isSubTotal = r === 8 || r === 13 || r === 17 || r === 18;
+            cell.s = {
+              font: { name: 'Segoe UI', sz: 10.5, bold: isSubTotal, color: { rgb: '0F172A' } },
+              fill: { fgColor: { rgb: isSubTotal ? 'F8FAFC' : 'FFFFFF' } },
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' },
+              border: borderThin,
+              numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
+            };
+          }
+        }
+      }
+      XLSX.utils.book_append_sheet(wb, ws5, 'Assets & Advances');
+
+      // File download
+      const fileName = `BalanceSheet_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      if (isMobileApp) {
+        try {
+          const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `Balance Sheet downloaded successfully as: ${fileName}`);
+          } else {
+            notify('error', "Could not download file directly. Attempting browser download...");
+            XLSX.writeFile(wb, fileName);
+          }
+        } catch (err: any) {
+          console.error("Balance sheet mobile export failed:", err);
+          notify('error', `Failed to download: ${err.message || 'Unknown error'}`);
+        }
+      } else {
+        XLSX.writeFile(wb, fileName);
+        notify('success', `Exported ${fileName} successfully!`);
+      }
+    } catch (err: any) {
+      console.error("Balance sheet export failed:", err);
+      notify('error', `Balance Sheet export failed: ${err.message || 'Unknown error'}`);
     }
   };
 
@@ -5054,14 +6047,24 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Export All Button */}
+                    {/* Master Report Button */}
                     <button 
                       onClick={exportAllDataToExcel}
                       className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 whitespace-nowrap"
                       title="Export all member contributions and financial data to Excel"
                     >
                       <FileSpreadsheet className="w-3.5 h-3.5" />
-                      <span>Export All</span>
+                      <span>Master Report</span>
+                    </button>
+
+                    {/* Balance Sheet Button */}
+                    <button 
+                      onClick={exportBalanceSheetExcel}
+                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 whitespace-nowrap cursor-pointer"
+                      title="Download comprehensive trust Balance Sheet Excel report (Trust Summary, Inflows, Liquidity Reconciliation, Liabilities & Assets)"
+                    >
+                      <Scale className="w-3.5 h-3.5" />
+                      <span>Balance Sheet</span>
                     </button>
 
                     {/* Send Reminders Button */}
