@@ -8519,6 +8519,12 @@ export default function App() {
                 c.year === collectionYear
               );
               const monthlyContributionTotal = monthlyPaidContributions.reduce((acc, c) => acc + (c.amount || 0), 0);
+              const monthlyContribCashReceived = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
+                .reduce((acc, c) => acc + (c.amount || 0), 0);
+              const monthlyContribOnlineReceived = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
+                .reduce((acc, c) => acc + (c.amount || 0), 0);
 
               const monthlyPaidLoanPayments = loanPayments.filter(p => 
                 p.status === 'paid' && 
@@ -8529,21 +8535,17 @@ export default function App() {
               const monthlyLoanInterestCollected = monthlyPaidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
               const monthlyLoanTotalCollected = monthlyLoanPrincipalCollected + monthlyLoanInterestCollected;
 
+              const monthlyLoanCashReceived = monthlyPaidLoanPayments
+                .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() === 'cash')
+                .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+              const monthlyLoanOnlineReceived = monthlyPaidLoanPayments
+                .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
+                .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+
               const grandTotalMonthlyReceived = monthlyContributionTotal + monthlyLoanTotalCollected;
 
-              const grandTotalCashReceived = monthlyPaidContributions
-                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
-                .reduce((acc, c) => acc + (c.amount || 0), 0) +
-                monthlyPaidLoanPayments
-                  .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() === 'cash')
-                  .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
-
-              const grandTotalOnlineReceived = monthlyPaidContributions
-                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
-                .reduce((acc, c) => acc + (c.amount || 0), 0) +
-                monthlyPaidLoanPayments
-                  .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
-                  .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+              const grandTotalCashReceived = monthlyContribCashReceived + monthlyLoanCashReceived;
+              const grandTotalOnlineReceived = monthlyContribOnlineReceived + monthlyLoanOnlineReceived;
 
               // Member lookup and mapping for contributions
               const mappedContribs = monthlyPaidContributions.map((c, idx) => {
@@ -8847,16 +8849,23 @@ export default function App() {
                             <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider">
                               Member Contributions
                             </span>
-                            <div className="w-6 h-6 rounded-lg bg-indigo-100/80 text-indigo-700 flex items-center justify-center font-bold">
-                              <Wallet className="w-3.5 h-3.5" />
-                            </div>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100/80 text-indigo-700">
+                              {monthlyPaidContributions.length} Paid
+                            </span>
                           </div>
                           <p className="text-2xl font-black text-indigo-950 tracking-tight">
                             ₹{monthlyContributionTotal.toLocaleString("en-IN")}
                           </p>
-                          <p className="text-[11px] text-indigo-600 font-medium mt-1">
-                            {monthlyPaidContributions.length} Paid Members
-                          </p>
+                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-indigo-200/60 text-[11px]">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">By Cash:</span>
+                              <span className="font-black text-amber-700">₹{monthlyContribCashReceived.toLocaleString("en-IN")}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">By Online:</span>
+                              <span className="font-black text-indigo-700">₹{monthlyContribOnlineReceived.toLocaleString("en-IN")}</span>
+                            </div>
+                          </div>
                         </div>
 
                         {/* Card 3: Total Loan Repayments */}
@@ -8865,16 +8874,23 @@ export default function App() {
                             <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider">
                               Loan Repayments
                             </span>
-                            <div className="w-6 h-6 rounded-lg bg-purple-100/80 text-purple-700 flex items-center justify-center font-bold">
-                              <IndianRupee className="w-3.5 h-3.5" />
-                            </div>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100/80 text-purple-700">
+                              {monthlyPaidLoanPayments.length} Collected
+                            </span>
                           </div>
                           <p className="text-2xl font-black text-purple-950 tracking-tight">
                             ₹{monthlyLoanTotalCollected.toLocaleString("en-IN")}
                           </p>
-                          <p className="text-[11px] text-purple-600 font-medium mt-1">
-                            {monthlyPaidLoanPayments.length} Collected
-                          </p>
+                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-purple-200/60 text-[11px]">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">By Cash:</span>
+                              <span className="font-black text-amber-700">₹{monthlyLoanCashReceived.toLocaleString("en-IN")}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">By Online:</span>
+                              <span className="font-black text-indigo-700">₹{monthlyLoanOnlineReceived.toLocaleString("en-IN")}</span>
+                            </div>
+                          </div>
                         </div>
 
                         {/* Card 4: Principal & Interest Split */}
@@ -8890,9 +8906,16 @@ export default function App() {
                           <div className="text-base sm:text-lg font-black text-slate-900 truncate">
                             ₹{monthlyLoanPrincipalCollected.toLocaleString("en-IN")} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-700 font-bold">₹{monthlyLoanInterestCollected.toLocaleString("en-IN")}</span>
                           </div>
-                          <p className="text-[11px] text-amber-700 font-medium mt-1">
-                            Principal + Interest
-                          </p>
+                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-amber-200/60 text-[11px]">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">Principal:</span>
+                              <span className="font-black text-slate-700">₹{monthlyLoanPrincipalCollected.toLocaleString("en-IN")}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">Interest:</span>
+                              <span className="font-black text-amber-700">₹{monthlyLoanInterestCollected.toLocaleString("en-IN")}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}
