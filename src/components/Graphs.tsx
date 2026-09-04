@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, Cell
 } from 'recharts';
-import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet, Landmark, ArrowUpRight, ShieldCheck } from 'lucide-react';
+import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet } from 'lucide-react';
 import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
 import { cn } from '../lib/utils';
 
@@ -1216,89 +1216,6 @@ const Graphs: React.FC<GraphsProps> = ({
 
             {!collapsedGraphs['financial-health'] && (
               <div className="space-y-6">
-                {/* 5 KPI Metric Cards Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-                  {/* 1. Total Group Funds */}
-                  <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3.5 sm:p-4 rounded-2xl border border-indigo-200/80 shadow-2xs">
-                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                      <span className="text-[11px] sm:text-xs font-bold text-indigo-900 uppercase tracking-tight line-clamp-1">Total Group Funds</span>
-                      <div className="p-1.5 rounded-lg bg-indigo-100/80 text-indigo-700 shrink-0">
-                        <Landmark className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <p className="text-base sm:text-lg lg:text-xl font-black text-indigo-950 tracking-tight">
-                      ₹{financialHealthData.totalGroupFunds.toLocaleString('en-IN')}
-                    </p>
-                    <p className="text-[10px] text-indigo-700/80 font-semibold mt-0.5 truncate">
-                      Savings + Interest
-                    </p>
-                  </div>
-
-                  {/* 2. Loans Sanctioned */}
-                  <div className="bg-gradient-to-br from-violet-50/90 via-violet-50/40 to-white p-3.5 sm:p-4 rounded-2xl border border-violet-200/80 shadow-2xs">
-                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                      <span className="text-[11px] sm:text-xs font-bold text-violet-900 uppercase tracking-tight line-clamp-1">Loans Sanctioned</span>
-                      <div className="p-1.5 rounded-lg bg-violet-100/80 text-violet-700 shrink-0">
-                        <HandCoins className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <p className="text-base sm:text-lg lg:text-xl font-black text-violet-950 tracking-tight">
-                      ₹{financialHealthData.loansSanctioned.toLocaleString('en-IN')}
-                    </p>
-                    <p className="text-[10px] text-violet-700/80 font-semibold mt-0.5 truncate">
-                      Approved Principal
-                    </p>
-                  </div>
-
-                  {/* 3. Loans Repaid */}
-                  <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl border border-emerald-200/80 shadow-2xs">
-                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                      <span className="text-[11px] sm:text-xs font-bold text-emerald-900 uppercase tracking-tight line-clamp-1">Loans Repaid</span>
-                      <div className="p-1.5 rounded-lg bg-emerald-100/80 text-emerald-700 shrink-0">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <p className="text-base sm:text-lg lg:text-xl font-black text-emerald-950 tracking-tight">
-                      ₹{financialHealthData.loansRepaid.toLocaleString('en-IN')}
-                    </p>
-                    <p className="text-[10px] text-emerald-700/80 font-semibold mt-0.5 truncate">
-                      Principal Recovered
-                    </p>
-                  </div>
-
-                  {/* 4. Outstanding Loans */}
-                  <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3.5 sm:p-4 rounded-2xl border border-rose-200/80 shadow-2xs">
-                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                      <span className="text-[11px] sm:text-xs font-bold text-rose-900 uppercase tracking-tight line-clamp-1">Outstanding Loans</span>
-                      <div className="p-1.5 rounded-lg bg-rose-100/80 text-rose-700 shrink-0">
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <p className="text-base sm:text-lg lg:text-xl font-black text-rose-950 tracking-tight">
-                      ₹{financialHealthData.outstandingLoans.toLocaleString('en-IN')}
-                    </p>
-                    <p className="text-[10px] text-rose-700/80 font-semibold mt-0.5 truncate">
-                      Active Balance Due
-                    </p>
-                  </div>
-
-                  {/* 5. Available Balance */}
-                  <div className="bg-gradient-to-br from-cyan-50/90 via-cyan-50/40 to-white p-3.5 sm:p-4 rounded-2xl border border-cyan-200/80 shadow-2xs col-span-2 sm:col-span-1">
-                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                      <span className="text-[11px] sm:text-xs font-bold text-cyan-900 uppercase tracking-tight line-clamp-1">Available Balance</span>
-                      <div className="p-1.5 rounded-lg bg-cyan-100/80 text-cyan-700 shrink-0">
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                    <p className="text-base sm:text-lg lg:text-xl font-black text-cyan-950 tracking-tight">
-                      ₹{financialHealthData.availableBalance.toLocaleString('en-IN')}
-                    </p>
-                    <p className="text-[10px] text-cyan-700/80 font-semibold mt-0.5 truncate">
-                      Net Pool Liquidity
-                    </p>
-                  </div>
-                </div>
-
                 {/* Multi-Bar Graph */}
                 <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain pb-2 scrollbar-thin">
                   <div 
@@ -1419,6 +1336,31 @@ const Graphs: React.FC<GraphsProps> = ({
                               fill={entry.fill} 
                             />
                           ))}
+                          <LabelList 
+                            dataKey="totalAmount" 
+                            position="top" 
+                            content={(props: any) => {
+                              const { x, y, width, index, value } = props;
+                              const entry = financialHealthData.chartData[index];
+                              if (entry && (entry.interestAmount || 0) > 0) {
+                                return null;
+                              }
+                              const valToFormat = value !== undefined && value !== null ? value : entry?.totalAmount;
+                              const formatted = formatBarAmountValue(valToFormat);
+                              if (!formatted) return null;
+                              return (
+                                <text
+                                  x={Number(x) + Number(width) / 2}
+                                  y={Number(y) - 6}
+                                  fill="#1e293b"
+                                  textAnchor="middle"
+                                  style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700 }}
+                                >
+                                  {formatted}
+                                </text>
+                              );
+                            }}
+                          />
                         </Bar>
                         <Bar dataKey="interestAmount" name="Interest Received" stackId="healthStack" fill="url(#healthInterestGradient)" radius={[8, 8, 0, 0]} maxBarSize={55}>
                           {financialHealthData.chartData.map((entry, index) => (
@@ -1430,8 +1372,27 @@ const Graphs: React.FC<GraphsProps> = ({
                           <LabelList 
                             dataKey="totalAmount" 
                             position="top" 
-                            formatter={formatBarAmountValue} 
-                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#1e293b' }}
+                            content={(props: any) => {
+                              const { x, y, width, index, value } = props;
+                              const entry = financialHealthData.chartData[index];
+                              if (!entry || (entry.interestAmount || 0) <= 0) {
+                                return null;
+                              }
+                              const valToFormat = value !== undefined && value !== null ? value : entry?.totalAmount;
+                              const formatted = formatBarAmountValue(valToFormat);
+                              if (!formatted) return null;
+                              return (
+                                <text
+                                  x={Number(x) + Number(width) / 2}
+                                  y={Number(y) - 6}
+                                  fill="#1e293b"
+                                  textAnchor="middle"
+                                  style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700 }}
+                                >
+                                  {formatted}
+                                </text>
+                              );
+                            }}
                           />
                         </Bar>
                       </BarChart>

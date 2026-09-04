@@ -3085,6 +3085,20 @@ export default function App() {
     const monthlyLoanTotalCollected = monthlyLoanPrincipalCollected + monthlyLoanInterestCollected;
     const grandTotalMonthlyReceived = monthlyContributionTotal + monthlyLoanTotalCollected;
 
+    const grandTotalCashReceived = monthlyPaidContributions
+      .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
+      .reduce((acc, c) => acc + (c.amount || 0), 0) +
+      monthlyPaidLoanPayments
+        .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() === 'cash')
+        .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+
+    const grandTotalOnlineReceived = monthlyPaidContributions
+      .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
+      .reduce((acc, c) => acc + (c.amount || 0), 0) +
+      monthlyPaidLoanPayments
+        .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
+        .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+
     const monthLabel = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy');
     const monthShort = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM');
 
@@ -3092,6 +3106,8 @@ export default function App() {
     const summarySheetData = [
       { 'Metric': 'Month & Year', 'Value': monthLabel },
       { 'Metric': 'Total Received (Grand Total)', 'Value': `₹${grandTotalMonthlyReceived.toLocaleString('en-IN')}` },
+      { 'Metric': 'Amount Collected by Cash (₹)', 'Value': `₹${grandTotalCashReceived.toLocaleString('en-IN')}` },
+      { 'Metric': 'Amount Collected by Online (₹)', 'Value': `₹${grandTotalOnlineReceived.toLocaleString('en-IN')}` },
       { 'Metric': 'Total Member Subscriptions/Contributions (₹)', 'Value': `₹${monthlyContributionTotal.toLocaleString('en-IN')}` },
       { 'Metric': 'Total Paid Subscriptions Count', 'Value': monthlyPaidContributions.length },
       { 'Metric': 'Total Loan Repayments Collected (₹)', 'Value': `₹${monthlyLoanTotalCollected.toLocaleString('en-IN')}` },
@@ -7512,6 +7528,20 @@ export default function App() {
 
               const grandTotalMonthlyReceived = monthlyContributionTotal + monthlyLoanTotalCollected;
 
+              const grandTotalCashReceived = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
+                .reduce((acc, c) => acc + (c.amount || 0), 0) +
+                monthlyPaidLoanPayments
+                  .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() === 'cash')
+                  .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+
+              const grandTotalOnlineReceived = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
+                .reduce((acc, c) => acc + (c.amount || 0), 0) +
+                monthlyPaidLoanPayments
+                  .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
+                  .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+
               // Member lookup and mapping for contributions
               const mappedContribs = monthlyPaidContributions.map((c, idx) => {
                 const mUser = allUsers.find(u => 
@@ -7796,9 +7826,16 @@ export default function App() {
                           <p className="text-2xl font-black text-emerald-700 tracking-tight">
                             ₹{grandTotalMonthlyReceived.toLocaleString("en-IN")}
                           </p>
-                          <p className="text-[11px] text-emerald-600 font-medium mt-1">
-                            Contributions + Loans
-                          </p>
+                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-emerald-200/60 text-[11px]">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">By Cash:</span>
+                              <span className="font-black text-amber-700">₹{grandTotalCashReceived.toLocaleString("en-IN")}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10.5px] font-semibold text-slate-600">By Online:</span>
+                              <span className="font-black text-indigo-700">₹{grandTotalOnlineReceived.toLocaleString("en-IN")}</span>
+                            </div>
+                          </div>
                         </div>
 
                         {/* Card 2: Member Contributions */}
