@@ -3342,6 +3342,12 @@ export default function App() {
       c.year === collectionYear
     );
     const monthlyContributionTotal = monthlyPaidContributions.reduce((acc, c) => acc + (c.amount || 0), 0);
+    const monthlyContribCashReceived = monthlyPaidContributions
+      .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
+      .reduce((acc, c) => acc + (c.amount || 0), 0);
+    const monthlyContribOnlineReceived = monthlyPaidContributions
+      .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
+      .reduce((acc, c) => acc + (c.amount || 0), 0);
 
     const monthlyPaidLoanPayments = loanPayments.filter(p => 
       p.status === 'paid' && 
@@ -3351,21 +3357,16 @@ export default function App() {
     const monthlyLoanPrincipalCollected = monthlyPaidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
     const monthlyLoanInterestCollected = monthlyPaidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
     const monthlyLoanTotalCollected = monthlyLoanPrincipalCollected + monthlyLoanInterestCollected;
+    const monthlyLoanCashReceived = monthlyPaidLoanPayments
+      .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() === 'cash')
+      .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+    const monthlyLoanOnlineReceived = monthlyPaidLoanPayments
+      .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
+      .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+
     const grandTotalMonthlyReceived = monthlyContributionTotal + monthlyLoanTotalCollected;
-
-    const grandTotalCashReceived = monthlyPaidContributions
-      .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
-      .reduce((acc, c) => acc + (c.amount || 0), 0) +
-      monthlyPaidLoanPayments
-        .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() === 'cash')
-        .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
-
-    const grandTotalOnlineReceived = monthlyPaidContributions
-      .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
-      .reduce((acc, c) => acc + (c.amount || 0), 0) +
-      monthlyPaidLoanPayments
-        .filter(p => (p.paymentMode || p.paymentMethod || 'Online').toString().toLowerCase() !== 'cash')
-        .reduce((acc, p) => acc + (p.amount || 0) + (p.interest || 0), 0);
+    const grandTotalCashReceived = monthlyContribCashReceived + monthlyLoanCashReceived;
+    const grandTotalOnlineReceived = monthlyContribOnlineReceived + monthlyLoanOnlineReceived;
 
     const monthLabel = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMMM yyyy');
     const monthShort = format(new Date(collectionYear, collectionMonth - 1, 1), 'MMM');
@@ -3411,18 +3412,22 @@ export default function App() {
       [],
       ['Sl.No', 'Financial Metric / Collection Head', 'Amount / Value (₹)', 'Count / Category Details & Remarks'],
       ['1', 'Total Received (Grand Total)', grandTotalMonthlyReceived, 'Grand Total of all collections (Cash + Online)'],
-      ['2', 'Amount Collected by Cash', grandTotalCashReceived, 'Total cash in hand collections (Subscriptions + Loans)'],
-      ['3', 'Amount Collected by Online', grandTotalOnlineReceived, 'Total online/UPI bank collections (Subscriptions + Loans)'],
+      ['2', 'Amount Collected by Cash (Grand Total)', grandTotalCashReceived, 'Total cash in hand collections (Subscriptions + Loans)'],
+      ['3', 'Amount Collected by Online (Grand Total)', grandTotalOnlineReceived, 'Total online/UPI bank collections (Subscriptions + Loans)'],
       ['4', 'Total Member Subscriptions / Contributions', monthlyContributionTotal, `${monthlyPaidContributions.length} Paid Subscriptions @ ₹1,000`],
-      ['5', 'Total Paid Subscriptions Count', monthlyPaidContributions.length, 'Total members deposited monthly savings'],
-      ['6', 'Total Loan Repayments Collected', monthlyLoanTotalCollected, `${monthlyPaidLoanPayments.length} Total Repayments (Principal + Interest)`],
-      ['7', 'Total Loan Repayments Count', monthlyPaidLoanPayments.length, 'Installments paid by borrowers this month'],
-      ['8', 'Loan Principal Collected', monthlyLoanPrincipalCollected, 'Principal recovered towards member loans'],
-      ['9', 'Loan Interest Collected [0.5%]', monthlyLoanInterestCollected, '0.5% flat interest earnings on active loans']
+      ['5', 'Amount Collected by Cash (Member Subscriptions)', monthlyContribCashReceived, 'Cash received for monthly member subscriptions'],
+      ['6', 'Amount Collected by Online (Member Subscriptions)', monthlyContribOnlineReceived, 'Online / UPI received for monthly member subscriptions'],
+      ['7', 'Total Paid Subscriptions Count', monthlyPaidContributions.length, 'Total members deposited monthly savings'],
+      ['8', 'Total Loan Repayments Collected', monthlyLoanTotalCollected, `${monthlyPaidLoanPayments.length} Total Repayments (Principal + Interest)`],
+      ['9', 'Amount Collected by Cash (Loan Repayments)', monthlyLoanCashReceived, 'Cash received for loan repayments (Principal + Interest)'],
+      ['10', 'Amount Collected by Online (Loan Repayments)', monthlyLoanOnlineReceived, 'Online / UPI received for loan repayments (Principal + Interest)'],
+      ['11', 'Total Loan Repayments Count', monthlyPaidLoanPayments.length, 'Installments paid by borrowers this month'],
+      ['12', 'Loan Principal Collected', monthlyLoanPrincipalCollected, 'Principal recovered towards member loans'],
+      ['13', 'Loan Interest Collected [0.5%]', monthlyLoanInterestCollected, '0.5% flat interest earnings on active loans']
     ];
 
     const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetAoa);
-    wsSummary['!cols'] = [{ wch: 8 }, { wch: 45 }, { wch: 22 }, { wch: 55 }];
+    wsSummary['!cols'] = [{ wch: 8 }, { wch: 48 }, { wch: 22 }, { wch: 55 }];
     wsSummary['!merges'] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
       { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
@@ -3453,17 +3458,23 @@ export default function App() {
             color = '065F46';
             bold = true;
           } else if (r === 6) {
-            bg = 'FEF3C7'; // Amber 100 for Cash
+            bg = 'FEF3C7'; // Amber 100 for Cash Total
             color = '92400E';
             bold = true;
           } else if (r === 7) {
-            bg = 'DBEAFE'; // Sky 100 for Online
+            bg = 'DBEAFE'; // Sky 100 for Online Total
             color = '1E40AF';
             bold = true;
-          } else if (r === 8 || r === 10) {
-            bg = 'EEF2FF'; // Indigo 50
+          } else if (r === 8 || r === 12) {
+            bg = 'EEF2FF'; // Indigo 50 for Main Sections
             color = '312E81';
             bold = true;
+          } else if (r === 9 || r === 13) {
+            bg = 'FFFBEB'; // Amber 50 for Cash breakdowns
+            color = 'B45309';
+          } else if (r === 10 || r === 14) {
+            bg = 'EFF6FF'; // Blue 50 for Online breakdowns
+            color = '1D4ED8';
           }
 
           cell.s = {
