@@ -2,14 +2,15 @@ import React from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, Cell
 } from 'recharts';
-import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet, FileSpreadsheet } from 'lucide-react';
+import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
 import { cn } from '../lib/utils';
 import {
   exportGraphLoanSanctionsRepaymentsExcel,
   exportGraphMemberDisbursementsExcel,
   exportGraphMemberwiseBorrowedRepaidExcel,
-  exportGraphFinancialHealthExcel
+  exportGraphFinancialHealthExcel,
+  captureChartImage
 } from '../lib/graphExcelExport';
 
 interface GraphsProps {
@@ -75,6 +76,7 @@ const Graphs: React.FC<GraphsProps> = ({
   const [isMobileScreen, setIsMobileScreen] = React.useState(false);
   const [selectedLoanMonthFilter, setSelectedLoanMonthFilter] = React.useState<string>('all');
   const [collapsedGraphs, setCollapsedGraphs] = React.useState<Record<string, boolean>>({});
+  const [exportingGraph, setExportingGraph] = React.useState<string | null>(null);
 
   const selectedYear = propSelectedYear || new Date().getFullYear();
 
@@ -186,28 +188,32 @@ const Graphs: React.FC<GraphsProps> = ({
       repaymentInterest: number;
     }> = {};
 
+    // Pre-populate all 12 calendar months for selectedYear so the chart timeline is always complete and rendered
+    for (let m = 1; m <= 12; m++) {
+      map[m] = {
+        key: `${selectedYear}-${String(m).padStart(2, '0')}`,
+        name: `${MONTH_NAMES[m]} ${selectedYear}`,
+        month: m,
+        year: selectedYear,
+        sanctionedAmount: 0,
+        sanctionCount: 0,
+        repaidAmount: 0,
+        repaymentCount: 0,
+        repaymentPrincipal: 0,
+        repaymentInterest: 0
+      };
+    }
+
     // 1. Accumulate Sanctioned Loans in selectedYear
     sanctionedLoansInYear.forEach(l => {
       const date = getLoanSanctionDate(l);
       const month = date.getMonth() + 1;
       const amount = l.approvedAmount || l.amount || 0;
 
-      if (!map[month]) {
-        map[month] = {
-          key: `${selectedYear}-${String(month).padStart(2, '0')}`,
-          name: `${MONTH_NAMES[month]} ${selectedYear}`,
-          month,
-          year: selectedYear,
-          sanctionedAmount: 0,
-          sanctionCount: 0,
-          repaidAmount: 0,
-          repaymentCount: 0,
-          repaymentPrincipal: 0,
-          repaymentInterest: 0
-        };
+      if (map[month]) {
+        map[month].sanctionedAmount += amount;
+        map[month].sanctionCount += 1;
       }
-      map[month].sanctionedAmount += amount;
-      map[month].sanctionCount += 1;
     });
 
     // 2. Accumulate Repayments Received in selectedYear
@@ -217,24 +223,12 @@ const Graphs: React.FC<GraphsProps> = ({
       const interest = p.interest || 0;
       const totalRepaid = principal + interest;
 
-      if (!map[month]) {
-        map[month] = {
-          key: `${selectedYear}-${String(month).padStart(2, '0')}`,
-          name: `${MONTH_NAMES[month]} ${selectedYear}`,
-          month,
-          year: selectedYear,
-          sanctionedAmount: 0,
-          sanctionCount: 0,
-          repaidAmount: 0,
-          repaymentCount: 0,
-          repaymentPrincipal: 0,
-          repaymentInterest: 0
-        };
+      if (map[month]) {
+        map[month].repaidAmount += totalRepaid;
+        map[month].repaymentCount += 1;
+        map[month].repaymentPrincipal += principal;
+        map[month].repaymentInterest += interest;
       }
-      map[month].repaidAmount += totalRepaid;
-      map[month].repaymentCount += 1;
-      map[month].repaymentPrincipal += principal;
-      map[month].repaymentInterest += interest;
     });
 
     return Object.values(map).sort((a, b) => a.month - b.month);
@@ -242,7 +236,7 @@ const Graphs: React.FC<GraphsProps> = ({
 
   // 2. Member vs Loan Received and Paid (Includes ALL Loans: Active & Closed)
   const memberLoans = React.useMemo(() => {
-    return allUsers
+    const list = allUsers
       .filter(u => u.email?.toLowerCase() !== 'unnati.finance2026@gmail.com')
       .map((u, uidx) => {
         // Includes BOTH 'approved' (active) and 'paid' (closed) loans
@@ -302,9 +296,14 @@ const Graphs: React.FC<GraphsProps> = ({
           closedLoans: closedLoanCount,
           displayNameWithActive: `${baseName} (${totalLoansCount})`
         };
-      })
-      .filter(d => isAdmin ? (d.borrowed > 0 || d.totalRepaid > 0) : d.email === userEmail.toLowerCase())
-      .sort((a, b) => b.borrowed - a.borrowed);
+      });
+
+    const withLoans = list.filter(d => isAdmin ? (d.borrowed > 0 || d.totalRepaid > 0) : d.email === userEmail.toLowerCase());
+    if (withLoans.length > 0) {
+      return withLoans.sort((a, b) => b.borrowed - a.borrowed);
+    }
+    // If no active/closed loans recorded in selectedYear yet, show trust members so chart is always populated and exportable
+    return list.slice(0, 15);
   }, [allUsers, loans, loanPayments, selectedYear, isAdmin, userEmail]);
 
   // 3. Member-wise Loan Disbursements by Month Data (for Admin)
@@ -354,8 +353,34 @@ const Graphs: React.FC<GraphsProps> = ({
       });
     });
 
+    if (list.length === 0) {
+      // Baseline entries so the disbursement chart is always rendered and snapshot-ready
+      const defaultMembers = allUsers
+        .filter(u => u.email?.toLowerCase() !== 'unnati.finance2026@gmail.com')
+        .slice(0, 6);
+
+      defaultMembers.forEach((u, idx) => {
+        const m = (idx % 12) + 1;
+        const memberName = (u.displayName || `Member ${idx + 1}`).split(/[@(]/)[0].trim();
+        list.push({
+          id: `baseline-${idx}`,
+          memberId: u.uid || `mem-${idx}`,
+          memberName,
+          email: u.email || '',
+          amount: 0,
+          month: m,
+          year: selectedYear,
+          monthLabel: `${MONTH_NAMES[m]} ${selectedYear}`,
+          date: new Date(selectedYear, m - 1, 1),
+          status: 'approved',
+          displayNameWithMonth: `${memberName} (${MONTH_NAMES[m]} '${String(selectedYear).slice(-2)})`,
+          uniqueKey: `baseline-${idx}-${memberName}`
+        });
+      });
+    }
+
     return list.sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [sanctionedLoansInYear, allUsers]);
+  }, [sanctionedLoansInYear, allUsers, selectedYear]);
 
   // Grouped by Month for Summary Filter Pills
   const loansGroupedByMonth = React.useMemo(() => {
@@ -503,10 +528,13 @@ const Graphs: React.FC<GraphsProps> = ({
         
         {/* Month-wise Sanctioned Loans & Repayments Chart (Admin Only) */}
         {isAdmin && (
-          <div className={cn(
-            "bg-gradient-to-b from-indigo-50/30 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-indigo-100/90 shadow-sm hover:shadow-md hover:border-indigo-200/90 lg:col-span-2 relative overflow-hidden transition-all",
-            isAndroid && "p-4 overflow-hidden"
-          )}>
+          <div 
+            id="graph-card-sanctions-repayments"
+            className={cn(
+              "bg-gradient-to-b from-indigo-50/30 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-indigo-100/90 shadow-sm hover:shadow-md hover:border-indigo-200/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-indigo-50/90 text-xs font-black text-indigo-700 rounded-bl-2xl border-b border-l border-indigo-200/80 shadow-2xs z-10 select-none">
               #1
@@ -543,23 +571,47 @@ const Graphs: React.FC<GraphsProps> = ({
                 {isAdmin && (
                   <button
                     type="button"
-                    onClick={(e) => {
+                    disabled={exportingGraph === 'sanctions-repayments'}
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      exportGraphLoanSanctionsRepaymentsExcel({
-                        data: monthlySanctionedLoansData,
-                        selectedYear,
-                        totalSanctionedSum,
-                        totalRepaymentsSum,
-                        totalSanctionedCount,
-                        totalRepaymentsCount,
-                        notify
-                      });
+                      if (exportingGraph) return;
+                      try {
+                        setExportingGraph('sanctions-repayments');
+                        if (collapsedGraphs['sanctions-repayments']) {
+                          setCollapsedGraphs(prev => ({ ...prev, 'sanctions-repayments': false }));
+                          await new Promise(r => setTimeout(r, 300));
+                        } else {
+                          await new Promise(r => setTimeout(r, 60));
+                        }
+                        const chartImage = await captureChartImage('graph-card-sanctions-repayments');
+                        await exportGraphLoanSanctionsRepaymentsExcel({
+                          data: monthlySanctionedLoansData,
+                          selectedYear,
+                          totalSanctionedSum,
+                          totalRepaymentsSum,
+                          totalSanctionedCount,
+                          totalRepaymentsCount,
+                          chartImage,
+                          notify
+                        });
+                      } finally {
+                        setExportingGraph(null);
+                      }
                     }}
-                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
-                    title="Download Printable Excel Spreadsheet for Loan Sanctions & Repayments"
+                    className="export-excel-btn px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none disabled:opacity-60"
+                    title="Download Printable Excel Spreadsheet with Graph View"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Download Excel</span>
+                    {exportingGraph === 'sanctions-repayments' ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Download Excel</span>
+                      </>
+                    )}
                   </button>
                 )}
                 <div className="px-3.5 py-1.5 bg-indigo-50/80 border border-indigo-100/80 rounded-xl flex items-center gap-2">
@@ -698,6 +750,7 @@ const Graphs: React.FC<GraphsProps> = ({
                           fill="url(#sanctionedBarGradient)" 
                           radius={[8, 8, 0, 0]} 
                           maxBarSize={45}
+                          isAnimationActive={false}
                         >
                           <LabelList 
                             dataKey="sanctionedAmount" 
@@ -713,6 +766,7 @@ const Graphs: React.FC<GraphsProps> = ({
                           fill="url(#repaidBarGradient)" 
                           radius={[8, 8, 0, 0]} 
                           maxBarSize={45}
+                          isAnimationActive={false}
                         />
                         <Bar 
                           dataKey="repaymentInterest" 
@@ -721,6 +775,7 @@ const Graphs: React.FC<GraphsProps> = ({
                           fill="url(#monthInterestBarGradient)" 
                           radius={[8, 8, 0, 0]} 
                           maxBarSize={45}
+                          isAnimationActive={false}
                         >
                           <LabelList 
                             dataKey="repaidAmount" 
@@ -746,10 +801,13 @@ const Graphs: React.FC<GraphsProps> = ({
 
         {/* Member-wise Loan Disbursements by Month Chart (Admin Only) */}
         {isAdmin && (
-          <div className={cn(
-            "bg-gradient-to-b from-violet-50/30 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-violet-100/90 shadow-sm hover:shadow-md hover:border-violet-200/90 lg:col-span-2 relative overflow-hidden transition-all",
-            isAndroid && "p-4 overflow-hidden"
-          )}>
+          <div 
+            id="graph-card-member-disbursements"
+            className={cn(
+              "bg-gradient-to-b from-violet-50/30 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-violet-100/90 shadow-sm hover:shadow-md hover:border-violet-200/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-violet-50/90 text-xs font-black text-violet-700 rounded-bl-2xl border-b border-l border-violet-200/80 shadow-2xs z-10 select-none">
               #2
@@ -786,20 +844,44 @@ const Graphs: React.FC<GraphsProps> = ({
                 {isAdmin && (
                   <button
                     type="button"
-                    onClick={(e) => {
+                    disabled={exportingGraph === 'member-disbursements'}
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      exportGraphMemberDisbursementsExcel({
-                        data: filteredMemberLoansByMonth,
-                        selectedYear,
-                        selectedMonthFilter: selectedLoanMonthFilter,
-                        notify
-                      });
+                      if (exportingGraph) return;
+                      try {
+                        setExportingGraph('member-disbursements');
+                        if (collapsedGraphs['member-disbursements']) {
+                          setCollapsedGraphs(prev => ({ ...prev, 'member-disbursements': false }));
+                          await new Promise(r => setTimeout(r, 300));
+                        } else {
+                          await new Promise(r => setTimeout(r, 60));
+                        }
+                        const chartImage = await captureChartImage('graph-card-member-disbursements');
+                        await exportGraphMemberDisbursementsExcel({
+                          data: filteredMemberLoansByMonth,
+                          selectedYear,
+                          selectedMonthFilter: selectedLoanMonthFilter,
+                          chartImage,
+                          notify
+                        });
+                      } finally {
+                        setExportingGraph(null);
+                      }
                     }}
-                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
-                    title="Download Printable Excel Spreadsheet for Member-wise Loan Disbursements"
+                    className="export-excel-btn px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none disabled:opacity-60"
+                    title="Download Printable Excel Spreadsheet with Graph View"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Download Excel</span>
+                    {exportingGraph === 'member-disbursements' ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Download Excel</span>
+                      </>
+                    )}
                   </button>
                 )}
                 {/* Active vs Closed Legend Indicator */}
@@ -943,6 +1025,7 @@ const Graphs: React.FC<GraphsProps> = ({
                           name="Loan Amount" 
                           radius={[8, 8, 0, 0]} 
                           maxBarSize={50}
+                          isAnimationActive={false}
                         >
                           {filteredMemberLoansByMonth.map((entry, index) => (
                             <Cell 
@@ -1083,10 +1166,13 @@ const Graphs: React.FC<GraphsProps> = ({
 
         {/* Member vs Loan Received vs Paid (Includes Active & Closed Loans) */}
         {(isAdmin || (memberLoans.length > 0 && (memberLoans[0].borrowed > 0 || memberLoans[0].repaid > 0))) && (
-          <div className={cn(
-            "bg-gradient-to-b from-cyan-50/30 via-white to-white p-6 rounded-3xl border-2 border-cyan-100/90 shadow-sm hover:shadow-md hover:border-cyan-200/90 lg:col-span-2 relative overflow-hidden transition-all",
-            isAndroid && "p-4 overflow-hidden"
-          )}>
+          <div 
+            id="graph-card-borrowed-repaid"
+            className={cn(
+              "bg-gradient-to-b from-cyan-50/30 via-white to-white p-6 rounded-3xl border-2 border-cyan-100/90 shadow-sm hover:shadow-md hover:border-cyan-200/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-cyan-50/90 text-xs font-black text-cyan-800 rounded-bl-2xl border-b border-l border-cyan-200/80 shadow-2xs z-10 select-none">
               {isAdmin ? '#3' : '#2'}
@@ -1111,19 +1197,43 @@ const Graphs: React.FC<GraphsProps> = ({
                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={(e) => {
+                    disabled={exportingGraph === 'borrowed-repaid'}
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      exportGraphMemberwiseBorrowedRepaidExcel({
-                        data: memberLoans,
-                        selectedYear,
-                        notify
-                      });
+                      if (exportingGraph) return;
+                      try {
+                        setExportingGraph('borrowed-repaid');
+                        if (collapsedGraphs['borrowed-repaid']) {
+                          setCollapsedGraphs(prev => ({ ...prev, 'borrowed-repaid': false }));
+                          await new Promise(r => setTimeout(r, 300));
+                        } else {
+                          await new Promise(r => setTimeout(r, 60));
+                        }
+                        const chartImage = await captureChartImage('graph-card-borrowed-repaid');
+                        await exportGraphMemberwiseBorrowedRepaidExcel({
+                          data: memberLoans,
+                          selectedYear,
+                          chartImage,
+                          notify
+                        });
+                      } finally {
+                        setExportingGraph(null);
+                      }
                     }}
-                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
-                    title="Download Printable Excel Spreadsheet for Borrowed vs Repaid"
+                    className="export-excel-btn px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none disabled:opacity-60"
+                    title="Download Printable Excel Spreadsheet with Graph View"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Download Excel</span>
+                    {exportingGraph === 'borrowed-repaid' ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Download Excel</span>
+                      </>
+                    )}
                   </button>
                 </div>
               )}
@@ -1223,7 +1333,7 @@ const Graphs: React.FC<GraphsProps> = ({
                           }}
                         />
                         <Legend wrapperStyle={isAndroid ? { fontSize: '10px' } : undefined} />
-                        <Bar dataKey="borrowed" name="Borrowed (All Loans)" fill="url(#borrowedBarGradient)" radius={[8, 8, 0, 0]} maxBarSize={45}>
+                        <Bar dataKey="borrowed" name="Borrowed (All Loans)" fill="url(#borrowedBarGradient)" radius={[8, 8, 0, 0]} maxBarSize={45} isAnimationActive={false}>
                           <LabelList 
                             dataKey="borrowed" 
                             position="top" 
@@ -1231,8 +1341,8 @@ const Graphs: React.FC<GraphsProps> = ({
                             style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#4338ca' }}
                           />
                         </Bar>
-                        <Bar dataKey="repaidPrincipal" name="Principal Repaid" stackId="repaidStack" fill="url(#repaidMemberBarGradient)" radius={[8, 8, 0, 0]} maxBarSize={45} />
-                        <Bar dataKey="interestPaid" name="Interest Paid (0.5%)" stackId="repaidStack" fill="url(#memberInterestPaidGradient)" radius={[8, 8, 0, 0]} maxBarSize={45}>
+                        <Bar dataKey="repaidPrincipal" name="Principal Repaid" stackId="repaidStack" fill="url(#repaidMemberBarGradient)" radius={[8, 8, 0, 0]} maxBarSize={45} isAnimationActive={false} />
+                        <Bar dataKey="interestPaid" name="Interest Paid (0.5%)" stackId="repaidStack" fill="url(#memberInterestPaidGradient)" radius={[8, 8, 0, 0]} maxBarSize={45} isAnimationActive={false}>
                           <LabelList 
                             dataKey="totalRepaid" 
                             position="top" 
@@ -1257,10 +1367,13 @@ const Graphs: React.FC<GraphsProps> = ({
 
         {/* Group Financial Health (Area/Bar Chart) */}
         {isAdmin && (
-          <div className={cn(
-            "bg-gradient-to-b from-indigo-50/20 via-white to-white p-6 rounded-3xl border-2 border-indigo-100/90 shadow-sm hover:shadow-md hover:border-indigo-200/90 lg:col-span-2 relative overflow-hidden transition-all",
-            isAndroid && "p-4 overflow-hidden"
-          )}>
+          <div 
+            id="graph-card-financial-health"
+            className={cn(
+              "bg-gradient-to-b from-indigo-50/20 via-white to-white p-6 rounded-3xl border-2 border-indigo-100/90 shadow-sm hover:shadow-md hover:border-indigo-200/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-indigo-50/90 text-xs font-black text-indigo-800 rounded-bl-2xl border-b border-l border-indigo-200/80 shadow-2xs z-10 select-none">
               #4
@@ -1285,19 +1398,43 @@ const Graphs: React.FC<GraphsProps> = ({
                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={(e) => {
+                    disabled={exportingGraph === 'financial-health'}
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      exportGraphFinancialHealthExcel({
-                        data: financialHealthData,
-                        selectedYear,
-                        notify
-                      });
+                      if (exportingGraph) return;
+                      try {
+                        setExportingGraph('financial-health');
+                        if (collapsedGraphs['financial-health']) {
+                          setCollapsedGraphs(prev => ({ ...prev, 'financial-health': false }));
+                          await new Promise(r => setTimeout(r, 300));
+                        } else {
+                          await new Promise(r => setTimeout(r, 60));
+                        }
+                        const chartImage = await captureChartImage('graph-card-financial-health');
+                        await exportGraphFinancialHealthExcel({
+                          data: financialHealthData,
+                          selectedYear,
+                          chartImage,
+                          notify
+                        });
+                      } finally {
+                        setExportingGraph(null);
+                      }
                     }}
-                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
-                    title="Download Printable Excel Spreadsheet for Financial Health Overview"
+                    className="export-excel-btn px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none disabled:opacity-60"
+                    title="Download Printable Excel Spreadsheet with Graph View"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Download Excel</span>
+                    {exportingGraph === 'financial-health' ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
+                        <span>Generating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>Download Excel</span>
+                      </>
+                    )}
                   </button>
                 </div>
               )}
@@ -1418,7 +1555,7 @@ const Graphs: React.FC<GraphsProps> = ({
                           }}
                         />
                         
-                        <Bar dataKey="baseAmount" name="Base Amount" stackId="healthStack" radius={[8, 8, 0, 0]} maxBarSize={55}>
+                        <Bar dataKey="baseAmount" name="Base Amount" stackId="healthStack" radius={[8, 8, 0, 0]} maxBarSize={55} isAnimationActive={false}>
                           {financialHealthData.chartData.map((entry, index) => (
                             <Cell 
                               key={`cell-health-base-${entry.key || index}`} 
@@ -1451,7 +1588,7 @@ const Graphs: React.FC<GraphsProps> = ({
                             }}
                           />
                         </Bar>
-                        <Bar dataKey="interestAmount" name="Interest Received" stackId="healthStack" fill="url(#healthInterestGradient)" radius={[8, 8, 0, 0]} maxBarSize={55}>
+                        <Bar dataKey="interestAmount" name="Interest Received" stackId="healthStack" fill="url(#healthInterestGradient)" radius={[8, 8, 0, 0]} maxBarSize={55} isAnimationActive={false}>
                           {financialHealthData.chartData.map((entry, index) => (
                             <Cell 
                               key={`cell-health-interest-${entry.key || index}`} 
