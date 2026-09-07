@@ -85,7 +85,11 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    match /system/connection_test {
+    match /system/{document=**} {
+      allow read: if true;
+    }
+
+    match /test/{document=**} {
       allow read: if true;
     }
   }

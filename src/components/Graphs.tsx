@@ -2,9 +2,15 @@ import React from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, Cell
 } from 'recharts';
-import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet } from 'lucide-react';
+import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet, FileSpreadsheet } from 'lucide-react';
 import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
 import { cn } from '../lib/utils';
+import {
+  exportGraphLoanSanctionsRepaymentsExcel,
+  exportGraphMemberDisbursementsExcel,
+  exportGraphMemberwiseBorrowedRepaidExcel,
+  exportGraphFinancialHealthExcel
+} from '../lib/graphExcelExport';
 
 interface GraphsProps {
   allUsers: UserProfile[];
@@ -19,6 +25,7 @@ interface GraphsProps {
   userEmail: string;
   isAdmin: boolean;
   selectedYear?: number;
+  notify?: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
 const MONTH_NAMES = [
@@ -62,7 +69,8 @@ const Graphs: React.FC<GraphsProps> = ({
   financials, 
   userEmail, 
   isAdmin,
-  selectedYear: propSelectedYear
+  selectedYear: propSelectedYear,
+  notify
 }) => {
   const [isMobileScreen, setIsMobileScreen] = React.useState(false);
   const [selectedLoanMonthFilter, setSelectedLoanMonthFilter] = React.useState<string>('all');
@@ -532,6 +540,28 @@ const Graphs: React.FC<GraphsProps> = ({
 
               {/* KPI Pills */}
               <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      exportGraphLoanSanctionsRepaymentsExcel({
+                        data: monthlySanctionedLoansData,
+                        selectedYear,
+                        totalSanctionedSum,
+                        totalRepaymentsSum,
+                        totalSanctionedCount,
+                        totalRepaymentsCount,
+                        notify
+                      });
+                    }}
+                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
+                    title="Download Printable Excel Spreadsheet for Loan Sanctions & Repayments"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Download Excel</span>
+                  </button>
+                )}
                 <div className="px-3.5 py-1.5 bg-indigo-50/80 border border-indigo-100/80 rounded-xl flex items-center gap-2">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Sanctioned ({selectedYear}):</span>
                   <span className="text-xs font-black text-indigo-700">₹{totalSanctionedSum.toLocaleString('en-IN')}</span>
@@ -753,6 +783,25 @@ const Graphs: React.FC<GraphsProps> = ({
 
               {/* Status Indicator Badges & Month Selector Pills */}
               <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      exportGraphMemberDisbursementsExcel({
+                        data: filteredMemberLoansByMonth,
+                        selectedYear,
+                        selectedMonthFilter: selectedLoanMonthFilter,
+                        notify
+                      });
+                    }}
+                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
+                    title="Download Printable Excel Spreadsheet for Member-wise Loan Disbursements"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Download Excel</span>
+                  </button>
+                )}
                 {/* Active vs Closed Legend Indicator */}
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-xl border border-slate-200 text-[11px] font-bold">
                   <span className="flex items-center gap-1 text-violet-700">
@@ -1058,6 +1107,26 @@ const Graphs: React.FC<GraphsProps> = ({
                   {collapsedGraphs['borrowed-repaid'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                 </span>
               </div>
+              {isAdmin && (
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      exportGraphMemberwiseBorrowedRepaidExcel({
+                        data: memberLoans,
+                        selectedYear,
+                        notify
+                      });
+                    }}
+                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
+                    title="Download Printable Excel Spreadsheet for Borrowed vs Repaid"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Download Excel</span>
+                  </button>
+                </div>
+              )}
             </div>
             {!collapsedGraphs['borrowed-repaid'] && (
               memberLoans.length > 0 ? (
@@ -1212,6 +1281,26 @@ const Graphs: React.FC<GraphsProps> = ({
                   {collapsedGraphs['financial-health'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
                 </span>
               </div>
+              {isAdmin && (
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      exportGraphFinancialHealthExcel({
+                        data: financialHealthData,
+                        selectedYear,
+                        notify
+                      });
+                    }}
+                    className="px-3.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/90 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer select-none"
+                    title="Download Printable Excel Spreadsheet for Financial Health Overview"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Download Excel</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {!collapsedGraphs['financial-health'] && (

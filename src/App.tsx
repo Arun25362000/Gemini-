@@ -73,6 +73,7 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ExternalLink,
   Copy,
   PieChart as GraphIcon,
   QrCode,
@@ -90,6 +91,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
+import { ReportsTab } from './components/ReportsTab';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
 import { format } from 'date-fns';
@@ -434,7 +436,7 @@ export default function App() {
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [originalEditingEmail, setOriginalEditingEmail] = useState<string | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
-  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs' | 'monthlyCollection'>('contributions');
+  const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs' | 'monthlyCollection' | 'reports'>('contributions');
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments' | 'breakdown'>('applications');
   const [isApplyingLoan, setIsApplyingLoan] = useState(false);
   const [loanAmount, setLoanAmount] = useState(10000);
@@ -465,6 +467,7 @@ export default function App() {
   const [isLocalAdmin, setIsLocalAdmin] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isGoogleLoggingIn, setIsGoogleLoggingIn] = useState(false);
+  const [popupBlocked, setPopupBlocked] = useState(false);
   const [showInitButton, setShowInitButton] = useState(false);
   const [showPhonePrompt, setShowPhonePrompt] = useState(false);
   const [phoneInput, setPhoneInput] = useState('');
@@ -1290,21 +1293,18 @@ export default function App() {
 
     const testConnection = async () => {
       try {
-        // Mandatory Firestore connection test - but handle offline gracefully
-        // Using a shorter timeout for this specific test
-        const testPromise = getDocFromServer(doc(db, 'test', 'connection'));
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Connection test timed out')), 3000)
-        );
-        
-        await Promise.race([testPromise, timeoutPromise]);
+        // Test Firestore connection on app mount
+        await getDocFromServer(doc(db, 'system', 'connection_test'));
         console.log("Firestore connection verified.");
       } catch (error) {
-        // We log as warning instead of error to avoid scaring the user/system 
-        // if it's just a temporary network glitch or slow connection.
-        console.warn("Firestore connection check info:", error instanceof Error ? error.message : String(error));
-        if (error instanceof Error && (error.message.includes('the client is offline') || error.message.includes('timed out'))) {
-          console.info("Application will operate in offline mode until connection is restored.");
+        if (error instanceof Error) {
+          if (error.message.includes('the client is offline') || error.message.includes('timed out')) {
+            console.info("Firestore connection check: App operating with cached local storage.");
+          } else if (error.message.includes('PERMISSION_DENIED')) {
+            console.warn("Firestore connection check: Permission validated.");
+          } else {
+            console.warn("Firestore connection check info:", error.message);
+          }
         }
       }
 
@@ -1672,6 +1672,7 @@ export default function App() {
 
   const handleLogin = async () => {
     setIsGoogleLoggingIn(true);
+    setPopupBlocked(false);
     try {
       const provider = new GoogleAuthProvider();
       // Ensure we request the email to make it more official for Google
@@ -1681,21 +1682,23 @@ export default function App() {
       
       console.log('Login attempt started. Origin:', window.location.origin);
 
-      try {
-        // Detecting if we are in a mobile/WebView context
-        const isWebView = window.location.protocol === 'file:' || 
-                          window.location.hostname === 'localhost' || 
-                          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+      const isWebView = typeof window !== 'undefined' && (
+        window.location.protocol === 'file:' || 
+        window.location.hostname === 'localhost' || 
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+      );
 
-        if (isWebView && !window.location.hostname.includes('asia-southeast1.run.app')) {
-          console.log('Mobile/WebView environment detected - using Redirect for security');
+      try {
+        if (isWebView && !isInIframe && !window.location.hostname.includes('asia-southeast1.run.app')) {
+          console.log('Mobile standalone environment detected - using Redirect');
           await signInWithRedirect(auth, provider);
         } else {
-          console.log('Standard environment detected - using Popup');
+          // Standard environment or iframe - use Popup
           await signInWithPopup(auth, provider);
         }
       } catch (popupErr: any) {
-        console.error('Login attempt result:', popupErr.code);
+        console.warn('Login attempt status:', popupErr.code || popupErr.message);
         
         if (popupErr.code === 'auth/unauthorized-domain') {
           notify('error', 'Domain Error: Please add "localhost" and your app URL to Authorized Domains in Firebase console.');
@@ -1704,13 +1707,30 @@ export default function App() {
           popupErr.code === 'auth/operation-not-supported-in-this-environment' ||
           popupErr.code === 'auth/cancelled-popup-request'
         ) {
-          notify('info', 'Switching to secure redirection for your browser...');
-          await signInWithRedirect(auth, provider);
+          setPopupBlocked(true);
+          if (isInIframe) {
+            notify('info', 'Pop-up blocked by browser. Click "Open in New Tab" to sign in with Google, or use the Password tab.');
+          } else {
+            notify('info', 'Switching to secure redirection for your browser...');
+            try {
+              await signInWithRedirect(auth, provider);
+            } catch (redirErr: any) {
+              console.warn('Redirect fallback notice:', redirErr.message);
+            }
+          }
         } else if (popupErr.code === 'auth/disallowed-useragent' || popupErr.message?.includes('disallowed_useragent')) {
           notify('error', 'Browser Restriction: Please open the app directly in Safari or Chrome rather than inside an in-app viewer.');
-        } else if (popupErr.code !== 'auth/popup-closed-by-user' && popupErr.code !== 'auth/cancelled-by-user') {
+        } else if (popupErr.code === 'auth/popup-closed-by-user' || popupErr.code === 'auth/cancelled-by-user') {
+          // User intentionally closed the popup, no error needed
+        } else if (!isInIframe) {
           console.log('Attempting Redirect fallback...');
-          await signInWithRedirect(auth, provider);
+          try {
+            await signInWithRedirect(auth, provider);
+          } catch (redirErr: any) {
+            notify('error', redirErr.message || "Sign in failed.");
+          }
+        } else {
+          notify('error', popupErr.message || "An unexpected error occurred during login.");
         }
       }
     } catch (err: any) {
@@ -3123,7 +3143,7 @@ export default function App() {
     }
     XLSX.utils.book_append_sheet(wb, summaryWS, "Financial Summary");
 
-    const fileName = `Unnati_Admin_Master_Report_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    const fileName = `MasterReport_${format(new Date(), 'MMMyyyy')}.xlsx`;
     if (isMobileApp) {
       try {
         const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
@@ -4180,7 +4200,7 @@ export default function App() {
       XLSX.utils.book_append_sheet(wb, ws5, 'Assets & Advances');
 
       // File download
-      const fileName = `BalanceSheet_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+      const fileName = `BalanceSheet_${format(new Date(), 'MMMyyyy')}.xlsx`;
       if (isMobileApp) {
         try {
           const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
@@ -5070,30 +5090,63 @@ export default function App() {
               </div>
 
               {loginMethod === 'google' ? (
-                <button 
-                  onClick={handleLogin}
-                  disabled={isGoogleLoggingIn}
-                  className={cn(
-                    "w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95",
-                    isGoogleLoggingIn && "opacity-80 cursor-not-allowed"
+                <div className="space-y-3">
+                  {popupBlocked && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-left text-xs text-amber-900 space-y-2">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>Pop-up was blocked by your browser</span>
+                      </div>
+                      <p className="text-amber-700">
+                        Google Sign-In requires opening an authorization window. If you are inside an embedded preview or have strict pop-up blocking enabled, open the app directly in a new tab:
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => window.open(window.location.href, '_blank')}
+                        className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm text-xs"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open App in New Tab to Sign In
+                      </button>
+                    </div>
                   )}
-                >
-                  {isGoogleLoggingIn ? (
-                    <>
-                      <motion.div 
-                        animate={{ rotate: 360 }}
-                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                        className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
-                      />
-                      <span>Signing in...</span>
-                    </>
-                  ) : (
-                    <>
-                      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
-                      <span>Continue with Google</span>
-                    </>
+
+                  <button 
+                    onClick={handleLogin}
+                    disabled={isGoogleLoggingIn}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-3 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95",
+                      isGoogleLoggingIn && "opacity-80 cursor-not-allowed"
+                    )}
+                  >
+                    {isGoogleLoggingIn ? (
+                      <>
+                        <motion.div 
+                          animate={{ rotate: 360 }}
+                          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                          className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
+                        />
+                        <span>Signing in...</span>
+                      </>
+                    ) : (
+                      <>
+                        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6 bg-white rounded-full p-1" alt="Google" />
+                        <span>{popupBlocked ? "Retry Google Sign-In" : "Continue with Google"}</span>
+                      </>
+                    )}
+                  </button>
+
+                  {typeof window !== 'undefined' && window.self !== window.top && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(window.location.href, '_blank')}
+                      className="w-full py-1 text-xs font-semibold text-slate-500 hover:text-indigo-600 flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Open preview in full window
+                    </button>
                   )}
-                </button>
+                </div>
               ) : (
                 <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
                   <div>
@@ -5661,6 +5714,19 @@ export default function App() {
               <GraphIcon className="w-4 h-4" />
               Graphs
             </button>
+            <button 
+              onClick={() => setActiveTab('reports')}
+              className={cn(
+                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                isMobileVisual && "px-3 py-2 text-xs",
+                activeTab === 'reports' 
+                  ? "bg-violet-600 text-white shadow-md shadow-violet-200/60" 
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-violet-600 border border-slate-200/70 shadow-2xs"
+              )}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Reports
+            </button>
           </div>
         )}
 
@@ -5723,7 +5789,7 @@ export default function App() {
                         0.5% Interest Rate
                       </span>
                     </span>
-                  ) : activeTab === 'graphs' ? 'Data Analytics' : activeTab === 'monthlyCollection' ? 'Monthly Collection Overview' : 'Notice Board') 
+                  ) : activeTab === 'graphs' ? 'Data Analytics' : activeTab === 'monthlyCollection' ? 'Monthly Collection Overview' : activeTab === 'reports' ? 'Reports' : 'Notice Board') 
                 : (activeTab === 'contributions' ? 'Your History' : activeTab === 'graphs' ? 'Your Insights' : 'Loan Dashboard')}
             </h2>
             {isAdmin && activeTab === 'members' && !isSmtpConfigured && (
@@ -5751,7 +5817,7 @@ export default function App() {
                 </select>
               </div>
             )}
-            {isAdmin && activeTab !== 'graphs' && (
+            {isAdmin && activeTab !== 'graphs' && activeTab !== 'reports' && (
               <form 
                 onSubmit={(e) => e.preventDefault()}
                 className="relative w-full sm:w-72 md:w-80 group"
@@ -5776,17 +5842,6 @@ export default function App() {
                   )}
                 </div>
               </form>
-            )}
-            {isAdmin && activeTab === 'monthlyCollection' && (
-              <button 
-                type="button"
-                onClick={exportMonthlyCollectionsExcel}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs sm:text-xs md:text-sm font-bold tracking-tight whitespace-nowrap transition-all shadow-sm active:scale-95 cursor-pointer"
-                title="Export Monthly Collections Spreadsheet"
-              >
-                <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>Export Monthly Report</span>
-              </button>
             )}
             {!isAdmin && activeTab === 'contributions' && (
               <button 
@@ -6058,26 +6113,6 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Master Report Button */}
-                    <button 
-                      onClick={exportAllDataToExcel}
-                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 whitespace-nowrap"
-                      title="Export all member contributions and financial data to Excel"
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5" />
-                      <span>Master Report</span>
-                    </button>
-
-                    {/* Balance Sheet Button */}
-                    <button 
-                      onClick={exportBalanceSheetExcel}
-                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 whitespace-nowrap cursor-pointer"
-                      title="Download comprehensive trust Balance Sheet Excel report (Trust Summary, Inflows, Liquidity Reconciliation, Liabilities & Assets)"
-                    >
-                      <Scale className="w-3.5 h-3.5" />
-                      <span>Balance Sheet</span>
-                    </button>
-
                     {/* Send Reminders Button */}
                     <button 
                       onClick={() => setShowReminderConfirm(true)}
@@ -6091,21 +6126,6 @@ export default function App() {
                         <Mail className="w-3.5 h-3.5" />
                       )}
                       <span>{isTriggeringReminders ? 'Sending...' : 'Send Reminders'}</span>
-                    </button>
-
-                    {/* Send Backup Now Button */}
-                    <button 
-                      onClick={triggerFullBackupReport}
-                      disabled={isSendingReport || isTriggeringReminders}
-                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
-                      title="Send full financial backup report to jpvenu2000@gmail.com"
-                    >
-                      {isSendingReport ? (
-                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      ) : (
-                        <FileDown className="w-3.5 h-3.5" />
-                      )}
-                      <span>{isSendingReport ? 'Generating Backup...' : 'Send Backup Now'}</span>
                     </button>
                   </div>
                 </div>
@@ -6530,7 +6550,7 @@ export default function App() {
                       const activeLoans = sortedLoans.filter(l => l.status !== 'paid');
                       const completedLoans = sortedLoans.filter(l => l.status === 'paid');
 
-                      const renderLoanApplicationsList = (loanList: Loan[], emptyMessage: string, keyPrefix: string) => (
+                      const renderLoanApplicationsList = (loanList: Loan[], emptyMessage: string, keyPrefix: string, showActions: boolean = true) => (
                         <div className="space-y-4">
                           {/* Desktop Table View */}
                           <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
@@ -6617,7 +6637,10 @@ export default function App() {
                                       </div>
                                     </th>
                                     <th 
-                                      className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                      className={cn(
+                                        "px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group select-none",
+                                        showActions && "border-r border-slate-200/60"
+                                      )}
                                       onClick={() => handleSortLoans('paymentMode')}
                                     >
                                       <div className="flex items-center gap-1.5">
@@ -6629,14 +6652,18 @@ export default function App() {
                                         )}
                                       </div>
                                     </th>
-                                    <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                                    {showActions && (
+                                      <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                                    )}
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                   {loanList.map((l, idx) => {
                                     const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                                     const isOldestPending = l.id === oldestPendingLoanId;
-                                    const hasRepayments = loanPayments.some(p => p.loanId === l.id);
+                                    const payments = loanPayments.filter(p => p.loanId === l.id);
+                                    const paidPayments = payments.filter(p => p.status === 'paid');
+                                    const hasRepayments = payments.length > 0;
                                     return (
                                       <motion.tr 
                                         initial={{ opacity: 0, y: 10 }}
@@ -6686,7 +6713,7 @@ export default function App() {
                                             l.status === 'paid' ? "bg-indigo-50 text-indigo-600" :
                                             "bg-red-50 text-red-600"
                                           )}>
-                                            {l.status === 'paid' ? 'COMPLETED' : l.status.toUpperCase()}
+                                            {l.status === 'approved' ? 'Approved' : l.status === 'paid' ? 'COMPLETED' : l.status.toUpperCase()}
                                           </span>
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
@@ -6694,7 +6721,7 @@ export default function App() {
                                             {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
                                           </span>
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
+                                        <td className={cn("px-3 sm:px-3.5 py-3", showActions && "border-r border-slate-200/60")}>
                                           <span className={cn(
                                             "text-xs font-bold",
                                             (l.paymentMode || getInferredPaymentMode(l)) === 'Online' ? "text-indigo-600" : (l.paymentMode || getInferredPaymentMode(l)) === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
@@ -6702,47 +6729,64 @@ export default function App() {
                                             {l.paymentMode || getInferredPaymentMode(l) || '-'}
                                           </span>
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 text-right">
-                                          <div className="flex items-center justify-end gap-1.5">
-                                            {l.status === 'pending' && (
-                                              <button 
-                                                onClick={() => approveLoan(l)}
-                                                className="px-2.5 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all"
-                                              >
-                                                Approve
-                                              </button>
-                                            )}
-                                            {(l.status === 'pending' || l.status === 'approved') && !hasRepayments && (
-                                              <button 
-                                                onClick={() => {
-                                                  setDecliningLoanId(l.id!);
-                                                  setLoanActionComment('');
-                                                }}
-                                                className="px-2.5 py-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-100 transition-all"
-                                              >
-                                                Decline
-                                              </button>
-                                            )}
-                                            {!hasRepayments && (
-                                              <button 
-                                                onClick={() => {
-                                                  setDeletingLoanId(l.id!);
-                                                  setLoanActionComment('');
-                                                }}
-                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                                title="Delete Application"
-                                              >
-                                                <Trash2 className="w-4 h-4" />
-                                              </button>
-                                            )}
-                                          </div>
-                                        </td>
+                                        {showActions && (
+                                          <td className="px-3 sm:px-3.5 py-3 text-right">
+                                            <div className="flex items-center justify-end gap-1.5">
+                                              {(hasRepayments || l.status === 'paid') ? (
+                                                <button 
+                                                  onClick={() => {
+                                                    setLoanSubTab('repayments');
+                                                    setSelectedLoan(l);
+                                                  }}
+                                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-lg text-xs font-bold transition-all shadow-2xs group cursor-pointer"
+                                                  title="View Repayment Schedule & Records"
+                                                >
+                                                  <IndianRupee className="w-3.5 h-3.5 text-indigo-600" />
+                                                  <span>View Repayments</span>
+                                                  <ArrowRight className="w-3 h-3 text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
+                                                </button>
+                                              ) : (
+                                                <>
+                                                  {l.status === 'pending' && (
+                                                    <button 
+                                                      onClick={() => approveLoan(l)}
+                                                      className="px-2.5 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all cursor-pointer"
+                                                    >
+                                                      Approve
+                                                    </button>
+                                                  )}
+                                                  {(l.status === 'pending' || l.status === 'approved') && (
+                                                    <button 
+                                                      onClick={() => {
+                                                        setDecliningLoanId(l.id!);
+                                                        setLoanActionComment('');
+                                                      }}
+                                                      className="px-2.5 py-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-100 transition-all cursor-pointer"
+                                                    >
+                                                      Decline
+                                                    </button>
+                                                  )}
+                                                  <button 
+                                                    onClick={() => {
+                                                      setDeletingLoanId(l.id!);
+                                                      setLoanActionComment('');
+                                                    }}
+                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
+                                                    title="Delete Application"
+                                                  >
+                                                    <Trash2 className="w-4 h-4" />
+                                                  </button>
+                                                </>
+                                              )}
+                                            </div>
+                                          </td>
+                                        )}
                                       </motion.tr>
                                     );
                                   })}
                                   {loanList.length === 0 && (
                                     <tr>
-                                      <td colSpan={10} className="px-6 py-8 text-center text-slate-400 italic">
+                                      <td colSpan={showActions ? 8 : 7} className="px-6 py-8 text-center text-slate-400 italic">
                                         {emptyMessage}
                                       </td>
                                     </tr>
@@ -6771,7 +6815,9 @@ export default function App() {
                             {loanList.map((l, idx) => {
                               const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                               const isOldestPending = l.id === oldestPendingLoanId;
-                              const hasRepayments = loanPayments.some(p => p.loanId === l.id);
+                              const payments = loanPayments.filter(p => p.loanId === l.id);
+                              const paidPayments = payments.filter(p => p.status === 'paid');
+                              const hasRepayments = payments.length > 0;
                               return (
                                 <motion.div 
                                   key={`mobile-loan-item-${keyPrefix}-${l.id || idx}-${idx}`}
@@ -6803,7 +6849,7 @@ export default function App() {
                                       l.status === 'paid' ? "bg-indigo-50 text-indigo-600" :
                                       "bg-red-50 text-red-600"
                                     )}>
-                                      {l.status === 'paid' ? 'COMPLETED' : l.status.toUpperCase()}
+                                      {l.status === 'approved' ? 'Approved' : l.status === 'paid' ? 'COMPLETED' : l.status.toUpperCase()}
                                     </span>
                                   </div>
                                   
@@ -6829,7 +6875,7 @@ export default function App() {
                                     </div>
                                   )}
 
-                                  <div className="mb-6 grid grid-cols-2 gap-4">
+                                  <div className={cn("grid grid-cols-2 gap-4", showActions ? "mb-6" : "mb-0")}>
                                     <div>
                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Payment Mode</p>
                                        <p className={cn(
@@ -6839,38 +6885,55 @@ export default function App() {
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2">
-                                    {l.status === 'pending' && (
-                                      <button 
-                                        onClick={() => approveLoan(l)}
-                                        className="flex-1 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all"
-                                      >
-                                        Approve
-                                      </button>
-                                    )}
-                                    {(l.status === 'pending' || l.status === 'approved') && !hasRepayments && (
-                                      <button 
-                                        onClick={() => {
-                                          setDecliningLoanId(l.id!);
-                                          setLoanActionComment('');
-                                        }}
-                                        className="flex-1 py-2.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-xl hover:bg-amber-100 transition-all"
-                                      >
-                                        Decline
-                                      </button>
-                                    )}
-                                    {!hasRepayments && (
-                                      <button 
-                                        onClick={() => {
-                                          setDeletingLoanId(l.id!);
-                                          setLoanActionComment('');
-                                        }}
-                                        className="p-2.5 bg-red-50 text-red-600 rounded-xl transition-all"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                  </div>
+                                  {showActions && (
+                                    <div className="flex items-center gap-2">
+                                      {(hasRepayments || l.status === 'paid') ? (
+                                        <button 
+                                          onClick={() => {
+                                            setLoanSubTab('repayments');
+                                            setSelectedLoan(l);
+                                          }}
+                                          className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer"
+                                        >
+                                          <IndianRupee className="w-3.5 h-3.5" />
+                                          <span>View Repayments</span>
+                                          <ArrowRight className="w-3.5 h-3.5" />
+                                        </button>
+                                      ) : (
+                                        <>
+                                          {l.status === 'pending' && (
+                                            <button 
+                                              onClick={() => approveLoan(l)}
+                                              className="flex-1 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all cursor-pointer"
+                                            >
+                                              Approve
+                                            </button>
+                                          )}
+                                          {(l.status === 'pending' || l.status === 'approved') && (
+                                            <button 
+                                              onClick={() => {
+                                                setDecliningLoanId(l.id!);
+                                                setLoanActionComment('');
+                                              }}
+                                              className="flex-1 py-2.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-xl hover:bg-amber-100 transition-all cursor-pointer"
+                                            >
+                                              Decline
+                                            </button>
+                                          )}
+                                          <button 
+                                            onClick={() => {
+                                              setDeletingLoanId(l.id!);
+                                              setLoanActionComment('');
+                                            }}
+                                            className="p-2.5 bg-red-50 text-red-600 rounded-xl transition-all cursor-pointer"
+                                            title="Delete Application"
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
                                 </motion.div>
                               );
                             })}
@@ -6924,7 +6987,7 @@ export default function App() {
                                 <ChevronDown className={cn("w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-transform duration-200", !isCompletedLoansExpanded && "-rotate-90")} />
                               </button>
                             </div>
-                            {isCompletedLoansExpanded && renderLoanApplicationsList(completedLoans, "No repaid applications found.", "completed")}
+                            {isCompletedLoansExpanded && renderLoanApplicationsList(completedLoans, "No repaid applications found.", "completed", true)}
                           </div>
                         </>
                       );
@@ -8464,6 +8527,7 @@ export default function App() {
             userEmail={user?.email || ''}
             isAdmin={isAdmin}
             selectedYear={graphsYear}
+            notify={notify}
           />
         ) : activeTab === 'notices' ? (
           <div className="space-y-6">
@@ -9397,6 +9461,22 @@ export default function App() {
                 </div>              );
             })()}
           </div>
+        ) : activeTab === 'reports' ? (
+          <ReportsTab 
+            exportAllDataToExcel={exportAllDataToExcel}
+            exportBalanceSheetExcel={exportBalanceSheetExcel}
+            exportMonthlyCollectionsExcel={exportMonthlyCollectionsExcel}
+            triggerFullBackupReport={triggerFullBackupReport}
+            isSendingReport={isSendingReport}
+            isTriggeringReminders={isTriggeringReminders}
+            collectionMonth={collectionMonth}
+            setCollectionMonth={setCollectionMonth}
+            collectionYear={collectionYear}
+            setCollectionYear={setCollectionYear}
+            isSmtpConfigured={isSmtpConfigured}
+            totalMembersCount={allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
+            totalContributionsCount={contributions.length}
+          />
         ) : (
           <div className="space-y-6">
             {/* Filter Section */}

@@ -6,10 +6,17 @@ import cron from 'node-cron';
 import nodemailer from 'nodemailer';
 import admin from 'firebase-admin';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
-import { initializeApp as initializeClientApp } from 'firebase/app';
+import { initializeApp as initializeClientApp, getApps as getClientApps, getApp as getClientApp } from 'firebase/app';
 import { initializeFirestore, collection, getDocs, query, where, limit, doc, updateDoc } from 'firebase/firestore';
 import { readFileSync, existsSync } from 'fs';
 import * as XLSX from 'xlsx';
+
+process.on('uncaughtException', (err) => {
+  console.error('[Process] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 let firebaseConfig: any = {};
 try {
@@ -66,11 +73,19 @@ try {
 
 // Initialize Client SDK as a fallback
 // For Node.js environments, we sometimes need to force long polling to avoid GRPC/WebSocket issues in restricted environments
-const clientApp = initializeClientApp(firebaseConfig);
-const clientDb = initializeFirestore(clientApp, {
-  // Use long polling in the server environment to avoid potential GRPC/WebSocket issues in proxy environments
-  experimentalForceLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId || '(default)');
+let clientApp: any = null;
+let clientDb: any = null;
+try {
+  if (firebaseConfig && (firebaseConfig.apiKey || firebaseConfig.projectId)) {
+    clientApp = getClientApps().length ? getClientApp() : initializeClientApp(firebaseConfig);
+    clientDb = initializeFirestore(clientApp, {
+      // Use long polling in the server environment to avoid potential GRPC/WebSocket issues in proxy environments
+      experimentalForceLongPolling: true,
+    }, firebaseConfig.firestoreDatabaseId || '(default)');
+  }
+} catch (clientErr: any) {
+  console.warn('[Firebase Client] Initialization warning:', clientErr?.message || clientErr);
+}
 
 // Strategy helper for DB access
 let cachedDb: any = null;
@@ -758,7 +773,7 @@ async function startServer() {
       .then(async (dbInfo) => {
         console.log(`[Startup] DB warmed up. Selected Strategy: ${dbInfo.type}, DB ID/Path: ${dbInfo.dbId}`);
         // If it's the client SDK strategy, invoke a warm-up query to force the connection handshake
-        if (dbInfo.type === 'client') {
+        if (dbInfo && dbInfo.type === 'client' && dbInfo.db) {
           console.log('[Startup] Conducting professional Client SDK query warm-up/handshake...');
           try {
             await getDocs(query(collection(dbInfo.db, 'users'), limit(1)));
