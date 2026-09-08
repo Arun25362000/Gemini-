@@ -1062,7 +1062,7 @@ export async function exportGraphLoanSanctionsRepaymentsExcel({
     }
   });
 
-  const colCount = 8;
+  const colCount = 7;
   ws.columns = [
     { width: 16 }, // Month
     { width: 22 }, // Loans Sanctioned (Qty)
@@ -1070,8 +1070,7 @@ export async function exportGraphLoanSanctionsRepaymentsExcel({
     { width: 18 }, // Repayments (Qty)
     { width: 22 }, // Principal Repaid (₹)
     { width: 22 }, // Interest Collected (₹)
-    { width: 22 }, // Total Repaid (₹)
-    { width: 25 }  // Net Cashflow / Variance (₹)
+    { width: 22 }  // Total Repaid (₹)
   ];
 
   // Row 1: Main Header
@@ -1110,8 +1109,7 @@ export async function exportGraphLoanSanctionsRepaymentsExcel({
     'Repayments (Qty)',
     'Principal Repaid (₹)',
     'Interest Collected (₹)',
-    'Total Repaid (₹)',
-    'Net Cashflow / Variance (₹)'
+    'Total Repaid (₹)'
   ];
   const headerRow = ws.addRow(headers);
   headerRow.height = 26;
@@ -1133,7 +1131,6 @@ export async function exportGraphLoanSanctionsRepaymentsExcel({
   data.forEach((item, idx) => {
     totalPrincipal += item.repaymentPrincipal || 0;
     totalInterest += item.repaymentInterest || 0;
-    const netVariance = (item.repaidAmount || 0) - (item.sanctionedAmount || 0);
 
     const row = ws.addRow([
       item.name,
@@ -1142,8 +1139,7 @@ export async function exportGraphLoanSanctionsRepaymentsExcel({
       item.repaymentCount,
       item.repaymentPrincipal,
       item.repaymentInterest,
-      item.repaidAmount,
-      netVariance
+      item.repaidAmount
     ]);
     row.height = 20;
 
@@ -1167,7 +1163,6 @@ export async function exportGraphLoanSanctionsRepaymentsExcel({
   });
 
   // Total Row
-  const totalVariance = totalRepaymentsSum - totalSanctionedSum;
   const totalRow = ws.addRow([
     `TOTAL (${selectedYear})`,
     totalSanctionedCount,
@@ -1175,8 +1170,7 @@ export async function exportGraphLoanSanctionsRepaymentsExcel({
     totalRepaymentsCount,
     totalPrincipal,
     totalInterest,
-    totalRepaymentsSum,
-    totalVariance
+    totalRepaymentsSum
   ]);
   totalRow.height = 24;
   totalRow.eachCell((cell, colNumber) => {
@@ -1350,6 +1344,15 @@ export async function exportGraphMemberDisbursementsExcel({
       cell.border = BORDER_THIN;
       if (colNumber === 6 && typeof cell.value === 'number') {
         cell.numFmt = '₹#,##0';
+      }
+      // Fill column "Loan Portfolio Status" with green color when Repaid / Closed
+      if (colNumber === 7 && (item.status === 'paid' || cell.value === 'Repaid / Closed')) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFDCFCE7' }
+        };
+        cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF15803D' } };
       }
     });
   });
@@ -1558,6 +1561,15 @@ export async function exportGraphMemberwiseBorrowedRepaidExcel({
       cell.border = BORDER_THIN;
       if (colNumber >= 5 && typeof cell.value === 'number') {
         cell.numFmt = '₹#,##0';
+      }
+      // Fill column "Outstanding Principal (₹)" with green color when value is Rs 0
+      if (colNumber === 9 && (item.balancePrincipal === 0 || Number(cell.value) === 0)) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFDCFCE7' }
+        };
+        cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF15803D' } };
       }
     });
   });
