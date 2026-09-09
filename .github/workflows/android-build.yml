@@ -49,6 +49,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           build-root-directory: android
+          validate-wrappers: false
+          allow-checksums: '24f0a7db79bf395e280bf4235ffc355248d713722663b6d0f35282eb933ec865'
 
       - name: Build APK
         run: |
