@@ -16,25 +16,17 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '21'
-          distribution: 'zulu'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platforms;android-36 build-tools;36.0.0 platform-tools'
-
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+          distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci || npm install
 
       - name: Build Web Assets
         run: npm run build
@@ -42,19 +34,14 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Make Gradle Wrapper Executable
-        run: chmod +x android/gradlew
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          build-root-directory: android
-          validate-wrappers: false
-          allow-checksums: '24f0a7db79bf395e280bf4235ffc355248d713722663b6d0f35282eb933ec865'
-
-      - name: Build APK
+      - name: Configure Android SDK and Licenses
         run: |
-          cd android
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Build Debug APK
+        working-directory: android
+        run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
@@ -64,3 +51,4 @@ jobs:
           name: app-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
