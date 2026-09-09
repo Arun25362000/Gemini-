@@ -2409,7 +2409,7 @@ export default function App() {
       notify('error', "Invalid phone number for WhatsApp.");
       return;
     }
-    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment. Thanks!`;
+    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment.Ignore if already paid. Thanks!`;
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
   };
@@ -2432,7 +2432,7 @@ export default function App() {
       notify('error', "Invalid phone number for WhatsApp.");
       return;
     }
-    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of ₹${amount.toLocaleString('en-IN')} for ${month}. Please pay before the 10th to avoid late fees. Thanks!`;
+    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of ₹${amount.toLocaleString('en-IN')} for ${month}. Please pay before the 10th to avoid late fees.Ignore if already paid. Thanks!`;
     const encodedMessage = encodeURIComponent(message);
     window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
   };
@@ -3516,16 +3516,11 @@ export default function App() {
         (u.email && c.userEmail && u.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim())
       );
       const memberName = mUser?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : `Member ${idx + 1}`);
-      const userPhone = mUser?.phoneNumber || (mUser as any)?.phone || '';
-      const userEmail = mUser?.email || c.userEmail || '';
       const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : (c.timestamp?.seconds ? new Date(c.timestamp.seconds * 1000) : null);
       
       return [
         idx + 1,
         memberName,
-        userEmail,
-        userPhone || 'N/A',
-        monthLabel,
         c.amount || 0,
         (c.paymentMethod || (c as any).paymentMode || 'Online').toUpperCase(),
         dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
@@ -3538,23 +3533,48 @@ export default function App() {
       [`MONTHLY MEMBER SUBSCRIPTION COLLECTIONS - ${monthLabel.toUpperCase()}`],
       [`Total Records: ${monthlyPaidContributions.length} | Export Date: ${exportDateStr}`],
       [],
-      ['S.No', 'Member Name', 'Email Address', 'Phone Number', 'Month & Year', 'Contribution Amount (₹)', 'Payment Mode', 'Payment Date', 'Status'],
-      ...(memberCollectionRows.length > 0 ? memberCollectionRows : [[1, 'No member contributions found for this month', '', '', '', 0, '', '', '']]),
-      ['TOTAL', '', '', '', '', monthlyContributionTotal, '', '', `${monthlyPaidContributions.length} Paid Members`]
+      ['S.No', 'Member Name', 'Contribution Amount (₹)', 'Payment Mode', 'Payment Date', 'Status'],
+      ...(memberCollectionRows.length > 0 ? memberCollectionRows : [[1, 'No member contributions found for this month', 0, '', '', '']]),
+      ['TOTAL', '', monthlyContributionTotal, '', '', `${monthlyPaidContributions.length} Paid Members`]
     ];
 
     const wsMember = XLSX.utils.aoa_to_sheet(memberSheetAoa);
-    wsMember['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 16 }, { wch: 20 }, { wch: 15 }];
+    wsMember['!cols'] = [
+      { wch: 8 },  // S.No
+      { wch: 28 }, // Member Name
+      { wch: 24 }, // Contribution Amount (₹)
+      { wch: 16 }, // Payment Mode
+      { wch: 22 }, // Payment Date
+      { wch: 14 }  // Status
+    ];
     const lastMemberRow = memberSheetAoa.length - 1;
     wsMember['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
-      { s: { r: 2, c: 0 }, e: { r: 2, c: 8 } },
-      { s: { r: lastMemberRow, c: 0 }, e: { r: lastMemberRow, c: 4 } }
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } },
+      { s: { r: lastMemberRow, c: 0 }, e: { r: lastMemberRow, c: 1 } }
     ];
 
+    // Single page printable setup
+    wsMember['!pageSetup'] = {
+      paperSize: 9, // A4
+      orientation: 'portrait',
+      fitToWidth: 1,
+      fitToHeight: 1,
+      fitToPage: true
+    };
+    (wsMember as any)['!sheetPr'] = { pageSetUpPr: { fitToPage: true } };
+    wsMember['!margins'] = {
+      left: 0.4,
+      right: 0.4,
+      top: 0.4,
+      bottom: 0.4,
+      header: 0.2,
+      footer: 0.2
+    };
+
     for (let r = 0; r < memberSheetAoa.length; r++) {
-      for (let c = 0; c < 9; c++) {
+      for (let c = 0; c < 6; c++) {
         const ref = XLSX.utils.encode_cell({ r, c });
         if (!wsMember[ref]) wsMember[ref] = { t: 's', v: '' };
         const cell = wsMember[ref];
@@ -3565,13 +3585,13 @@ export default function App() {
         else if (r === 4) {
           cell.s = {
             ...styleHeader,
-            alignment: { horizontal: c === 5 ? 'right' : (c === 0 || c === 6 || c === 8 ? 'center' : 'left'), vertical: 'center' }
+            alignment: { horizontal: c === 2 ? 'right' : (c === 0 || c === 3 || c === 5 ? 'center' : 'left'), vertical: 'center' }
           };
         } else if (r === lastMemberRow) {
           cell.s = {
             font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '065F46' } },
             fill: { fgColor: { rgb: 'D1FAE5' } },
-            alignment: { horizontal: c === 5 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' },
+            alignment: { horizontal: c === 2 ? 'right' : (c === 0 || c === 5 ? 'center' : 'left'), vertical: 'center' },
             border: borderThin,
             numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
           };
@@ -3579,7 +3599,7 @@ export default function App() {
           cell.s = {
             font: { name: 'Segoe UI', sz: 10.5, color: { rgb: '0F172A' } },
             fill: { fgColor: { rgb: r % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
-            alignment: { horizontal: c === 5 ? 'right' : (c === 0 || c === 6 || c === 8 ? 'center' : 'left'), vertical: 'center' },
+            alignment: { horizontal: c === 2 ? 'right' : (c === 0 || c === 3 || c === 5 ? 'center' : 'left'), vertical: 'center' },
             border: borderThin,
             numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
           };
@@ -3598,8 +3618,6 @@ export default function App() {
         (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
       );
       const borrowerName = borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || `Borrower ${idx + 1}`;
-      const borrowerPhone = borrower?.phoneNumber || (borrower as any)?.phone || '';
-      const borrowerEmail = borrower?.email || parentLoan?.userEmail || p.userEmail || '';
       const principal = p.amount || 0;
       const interest = p.interest || 0;
       const total = principal + interest;
@@ -3609,9 +3627,6 @@ export default function App() {
       return [
         idx + 1,
         borrowerName,
-        borrowerEmail,
-        borrowerPhone || 'N/A',
-        monthLabel,
         principal,
         interest,
         total,
@@ -3626,23 +3641,50 @@ export default function App() {
       [`MONTHLY LOAN REPAYMENTS COLLECTED - ${monthLabel.toUpperCase()}`],
       [`Total Records: ${monthlyPaidLoanPayments.length} | Export Date: ${exportDateStr}`],
       [],
-      ['S.No', 'Borrower Name', 'Email Address', 'Phone Number', 'Month & Year', 'Principal Amount (₹)', 'Interest Amount (₹)', 'Total Repayment Paid (₹)', 'Payment Mode', 'Payment Date', 'Status'],
-      ...(loanRepaymentRows.length > 0 ? loanRepaymentRows : [[1, 'No loan repayments found for this month', '', '', '', 0, 0, 0, '', '', '']]),
-      ['TOTAL', '', '', '', '', monthlyLoanPrincipalCollected, monthlyLoanInterestCollected, monthlyLoanTotalCollected, '', '', `${monthlyPaidLoanPayments.length} Payments`]
+      ['S.No', 'Borrower Name', 'Principal Amount (₹)', 'Interest Amount (₹)', 'Total Repayment Paid (₹)', 'Payment Mode', 'Payment Date', 'Status'],
+      ...(loanRepaymentRows.length > 0 ? loanRepaymentRows : [[1, 'No loan repayments found for this month', 0, 0, 0, '', '', '']]),
+      ['TOTAL', '', monthlyLoanPrincipalCollected, monthlyLoanInterestCollected, monthlyLoanTotalCollected, '', '', `${monthlyPaidLoanPayments.length} Payments`]
     ];
 
     const wsLoans = XLSX.utils.aoa_to_sheet(loansSheetAoa);
-    wsLoans['!cols'] = [{ wch: 8 }, { wch: 25 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 22 }, { wch: 16 }, { wch: 20 }, { wch: 15 }];
+    wsLoans['!cols'] = [
+      { wch: 8 },  // S.No
+      { wch: 24 }, // Borrower Name
+      { wch: 20 }, // Principal Amount (₹)
+      { wch: 20 }, // Interest Amount (₹)
+      { wch: 22 }, // Total Repayment Paid (₹)
+      { wch: 16 }, // Payment Mode
+      { wch: 20 }, // Payment Date
+      { wch: 14 }  // Status
+    ];
     const lastLoanRow = loansSheetAoa.length - 1;
     wsLoans['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 10 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 10 } },
-      { s: { r: 2, c: 0 }, e: { r: 2, c: 10 } },
-      { s: { r: lastLoanRow, c: 0 }, e: { r: lastLoanRow, c: 4 } }
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 7 } },
+      { s: { r: lastLoanRow, c: 0 }, e: { r: lastLoanRow, c: 1 } }
     ];
 
+    // Single page printable setup
+    wsLoans['!pageSetup'] = {
+      paperSize: 9, // A4
+      orientation: 'landscape',
+      fitToWidth: 1,
+      fitToHeight: 1,
+      fitToPage: true
+    };
+    (wsLoans as any)['!sheetPr'] = { pageSetUpPr: { fitToPage: true } };
+    wsLoans['!margins'] = {
+      left: 0.4,
+      right: 0.4,
+      top: 0.4,
+      bottom: 0.4,
+      header: 0.2,
+      footer: 0.2
+    };
+
     for (let r = 0; r < loansSheetAoa.length; r++) {
-      for (let c = 0; c < 11; c++) {
+      for (let c = 0; c < 8; c++) {
         const ref = XLSX.utils.encode_cell({ r, c });
         if (!wsLoans[ref]) wsLoans[ref] = { t: 's', v: '' };
         const cell = wsLoans[ref];
@@ -3653,13 +3695,13 @@ export default function App() {
         else if (r === 4) {
           cell.s = {
             ...styleHeader,
-            alignment: { horizontal: (c >= 5 && c <= 7) ? 'right' : (c === 0 || c === 8 || c === 10 ? 'center' : 'left'), vertical: 'center' }
+            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 5 || c === 7 ? 'center' : 'left'), vertical: 'center' }
           };
         } else if (r === lastLoanRow) {
           cell.s = {
             font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '065F46' } },
             fill: { fgColor: { rgb: 'D1FAE5' } },
-            alignment: { horizontal: (c >= 5 && c <= 7) ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' },
+            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 7 ? 'center' : 'left'), vertical: 'center' },
             border: borderThin,
             numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
           };
@@ -3667,7 +3709,7 @@ export default function App() {
           cell.s = {
             font: { name: 'Segoe UI', sz: 10.5, color: { rgb: '0F172A' } },
             fill: { fgColor: { rgb: r % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
-            alignment: { horizontal: (c >= 5 && c <= 7) ? 'right' : (c === 0 || c === 8 || c === 10 ? 'center' : 'left'), vertical: 'center' },
+            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 5 || c === 7 ? 'center' : 'left'), vertical: 'center' },
             border: borderThin,
             numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
           };
