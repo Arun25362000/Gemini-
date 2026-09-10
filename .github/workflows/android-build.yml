@@ -17,7 +17,19 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: android
+
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" >> "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          yes 2>/dev/null | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -26,12 +38,14 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci || npm install
+        run: npm ci || npm install --legacy-peer-deps
 
       - name: Build Web Assets
         run: npm run build
 
       - name: Sync Capacitor
+        env:
+          CI: true
         run: npx cap sync android
 
       - name: Grant Execute Permission to Gradle Wrapper
@@ -45,6 +59,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
