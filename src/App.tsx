@@ -5931,21 +5931,28 @@ export default function App() {
         {activeTab === 'monthlyCollection' && (() => {
           const now = new Date();
           const currentDay = now.getDate();
-          // Monthly cycle closes at end of day 10th of every month.
-          // On or before 10th (e.g. Sep 1st - Sep 10th), the current collection cycle target is this month (Sep2026).
-          // Starting on 11th (e.g. post Sep 11th), the cycle rolls over to the next calendar month (Oct2026).
-          const isThisMonthCycle = currentDay <= 10;
-          const targetCycleDate = isThisMonthCycle 
-            ? new Date(now.getFullYear(), now.getMonth(), 1)
-            : new Date(now.getFullYear(), now.getMonth() + 1, 1);
-          const targetMonth = targetCycleDate.getMonth() + 1;
-          const targetYear = targetCycleDate.getFullYear();
-          const cycleMonthLabel = format(targetCycleDate, 'MMMyyyy');
-          const cyclePrefix = isThisMonthCycle ? 'This Month' : 'Next Month';
+          const currentCalMonth = now.getMonth() + 1;
+          const currentCalYear = now.getFullYear();
 
-          // Calculate total outstanding loan principal strictly as of the 1st of the target month
-          // Repayments made in or after targetMonth do not reduce the start-of-month principal base
-          const targetMonthStart = new Date(targetYear, targetMonth - 1, 1, 0, 0, 0, 0);
+          // Monthly Collection Interest Rules:
+          // 1. Days 1 to 10 of current month (e.g. Sep 1 - Sep 10):
+          //    - Shows "This Month(Sep2026) interest:"
+          //    - Based strictly on the outstanding loan as of the 1st of that month (Sep 1st 00:00:00).
+          //    - Any loan approved/added on or after the 1st of that month (e.g. Megha's 50K loan added on Sep 10th)
+          //      MUST BE EXCLUDED because loan repayments start from the following month (Oct).
+          //    - Retains and shows that interest value till 10th of that month.
+          // 2. From 11th of that month till month end (e.g. Sep 11 - Sep 30):
+          //    - Rolls over to upcoming cycle: "Next Month(Oct2026) interest:"
+          //    - Keeps updating interest value dynamically based on live outstanding loan amount with 0.5% interest
+          //      as members may be issued loans till end of month (e.g. Sep 30th).
+          // 3. On 1st of next month (e.g. Oct 1st):
+          //    - Rolls into "This Month(Oct2026) interest:"
+          //    - Retains interest as of Oct 1st outstanding loan (which includes all loans issued up to Sep 30th).
+          //    - Any loans issued in Oct 1st - 10th are NOT considered, as their payments start from Nov.
+          // 4. If the user selects a different month/year from dropdown, show that month's interest as of its 1st.
+
+          const isCurrentMonthView = collectionMonth === currentCalMonth && collectionYear === currentCalYear;
+          const isDay1To10 = currentDay <= 10;
 
           const getLoanDate = (l: Loan): Date | null => {
             if (l.approvedAt?.toDate) return l.approvedAt.toDate();
@@ -5965,40 +5972,145 @@ export default function App() {
             return null;
           };
 
-          const startOfMonthOutstandingPrincipal = loans.reduce((acc, l) => {
-            if (l.status !== 'approved' && l.status !== 'paid') return acc;
-            
-            const loanDate = getLoanDate(l);
-            if (loanDate) {
-              const loanYear = loanDate.getFullYear();
-              const loanMonth = loanDate.getMonth() + 1;
-              if (loanYear > targetYear || (loanYear === targetYear && loanMonth > targetMonth)) {
-                return acc;
-              }
+          const getPaymentDate = (p: any): Date | null => {
+            if (p.timestamp?.toDate) return p.timestamp.toDate();
+            if (p.timestamp?.seconds) return new Date(p.timestamp.seconds * 1000);
+            if (p.approvedAt?.toDate) return p.approvedAt.toDate();
+            if (p.approvedAt?.seconds) return new Date(p.approvedAt.seconds * 1000);
+            if (p.timestamp instanceof Date) return p.timestamp;
+            if (p.approvedAt instanceof Date) return p.approvedAt;
+            if (typeof p.timestamp === 'string') {
+              const d = new Date(p.timestamp);
+              if (!isNaN(d.getTime())) return d;
             }
+            return null;
+          };
 
-            // Only subtract principal repayments made BEFORE the start of targetMonth/targetYear (i.e. strictly before 1st of targetMonth)
-            const priorPaidPayments = loanPayments.filter(p => {
-              if (p.loanId !== l.id || p.status !== 'paid') return false;
-              
-              const pDate = p.timestamp?.toDate ? p.timestamp.toDate() : (p.timestamp?.seconds ? new Date(p.timestamp.seconds * 1000) : (p.approvedAt?.toDate ? p.approvedAt.toDate() : (p.approvedAt?.seconds ? new Date(p.approvedAt.seconds * 1000) : null)));
-              if (pDate) {
-                return pDate < targetMonthStart;
+          let cyclePrefix = 'This Month';
+          let cycleMonthLabel = format(now, 'MMMyyyy');
+          let dynamicInterest = 0;
+          let badgeText = '';
+
+          if (isCurrentMonthView) {
+            if (isDay1To10) {
+              // Current cycle: Days 1-10 (e.g. Sep 1st - Sep 10th)
+              cyclePrefix = 'This Month';
+              cycleMonthLabel = format(now, 'MMMyyyy');
+              const targetMonthStart = new Date(currentCalYear, currentCalMonth - 1, 1, 0, 0, 0, 0);
+
+              const startOfMonthOutstanding = loans.reduce((acc, l) => {
+                if (l.status !== 'approved' && l.status !== 'paid') return acc;
+
+                const loanDate = getLoanDate(l);
+                // Exclude loans issued on or after the 1st of this month (e.g. Megha's 50K loan on Sep 10th)
+                if (loanDate) {
+                  if (loanDate >= targetMonthStart) {
+                    return acc;
+                  }
+                } else {
+                  // Fallback if loan date cannot be parsed
+                  const lAny = l as any;
+                  if (lAny.approvedMonth && lAny.approvedYear) {
+                    if (lAny.approvedYear > currentCalYear || (lAny.approvedYear === currentCalYear && lAny.approvedMonth >= currentCalMonth)) {
+                      return acc;
+                    }
+                  }
+                }
+
+                // Only subtract principal repayments made strictly BEFORE the 1st of this month
+                const priorPaidPayments = loanPayments.filter(p => {
+                  if (p.loanId !== l.id || p.status !== 'paid') return false;
+
+                  const pDate = getPaymentDate(p);
+                  if (pDate) {
+                    return pDate < targetMonthStart;
+                  }
+
+                  const pYear = p.year;
+                  const pMonth = p.month;
+                  if (pYear && pMonth) {
+                    return pYear < currentCalYear || (pYear === currentCalYear && pMonth < currentCalMonth);
+                  }
+                  return false;
+                });
+
+                const priorPaidPrincipal = priorPaidPayments.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
+                const loanStartPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - priorPaidPrincipal);
+                return acc + loanStartPrincipal;
+              }, 0);
+
+              dynamicInterest = Math.round(startOfMonthOutstanding * 0.005);
+              badgeText = '0.5% on 1st of month outstanding (fixed till 10th)';
+            } else {
+              // From 11th till month-end: updates dynamically with 0.5% on live outstanding loans
+              const nextMonthDate = new Date(currentCalYear, currentCalMonth, 1);
+              cyclePrefix = 'Next Month';
+              cycleMonthLabel = format(nextMonthDate, 'MMMyyyy');
+
+              const liveOutstanding = loans.reduce((acc, l) => {
+                if (l.status !== 'approved' && l.status !== 'paid') return acc;
+
+                const loanDate = getLoanDate(l);
+                if (loanDate && loanDate > now) return acc;
+
+                // All paid principal repayments up to now
+                const paidPayments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
+                const paidPrincipal = paidPayments.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
+                const remainingPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - paidPrincipal);
+                return acc + remainingPrincipal;
+              }, 0);
+
+              dynamicInterest = Math.round(liveOutstanding * 0.005);
+              badgeText = '0.5% on live outstanding loans (updates till month end)';
+            }
+          } else {
+            // Viewing another month in the dropdown
+            const selectedMonthDate = new Date(collectionYear, collectionMonth - 1, 1);
+            cyclePrefix = 'Selected Month';
+            cycleMonthLabel = format(selectedMonthDate, 'MMMyyyy');
+            const targetMonthStart = new Date(collectionYear, collectionMonth - 1, 1, 0, 0, 0, 0);
+
+            const selectedMonthOutstanding = loans.reduce((acc, l) => {
+              if (l.status !== 'approved' && l.status !== 'paid') return acc;
+
+              const loanDate = getLoanDate(l);
+              if (loanDate) {
+                if (loanDate >= targetMonthStart) {
+                  return acc;
+                }
+              } else {
+                const lAny = l as any;
+                if (lAny.approvedMonth && lAny.approvedYear) {
+                  if (lAny.approvedYear > collectionYear || (lAny.approvedYear === collectionYear && lAny.approvedMonth >= collectionMonth)) {
+                    return acc;
+                  }
+                }
               }
 
-              const pYear = p.year;
-              const pMonth = p.month;
-              if (pYear && pMonth) {
-                return pYear < targetYear || (pYear === targetYear && pMonth < targetMonth);
-              }
-              return false;
-            });
-            const priorPaidPrincipal = priorPaidPayments.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
-            const loanStartPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - priorPaidPrincipal);
-            return acc + loanStartPrincipal;
-          }, 0);
+              const priorPaidPayments = loanPayments.filter(p => {
+                if (p.loanId !== l.id || p.status !== 'paid') return false;
 
-          const dynamicInterest = Math.round(startOfMonthOutstandingPrincipal * 0.005);
+                const pDate = getPaymentDate(p);
+                if (pDate) {
+                  return pDate < targetMonthStart;
+                }
+
+                const pYear = p.year;
+                const pMonth = p.month;
+                if (pYear && pMonth) {
+                  return pYear < collectionYear || (pYear === collectionYear && pMonth < collectionMonth);
+                }
+                return false;
+              });
+
+              const priorPaidPrincipal = priorPaidPayments.reduce((pAcc, p) => pAcc + (p.amount || 0), 0);
+              const loanStartPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - priorPaidPrincipal);
+              return acc + loanStartPrincipal;
+            }, 0);
+
+            dynamicInterest = Math.round(selectedMonthOutstanding * 0.005);
+            badgeText = '0.5% on 1st of selected month outstanding';
+          }
 
           return (
             <div className="-mt-4 mb-6 flex items-center justify-between gap-3 p-3 sm:px-4.5 sm:py-2.5 bg-gradient-to-r from-teal-50/90 via-emerald-50/60 to-cyan-50/90 border border-teal-200/90 rounded-2xl shadow-xs flex-wrap">
@@ -6011,7 +6123,7 @@ export default function App() {
                 </span>
               </div>
               <div className="text-[11px] font-bold text-teal-800/80 bg-teal-100/70 px-2.5 py-1 rounded-xl border border-teal-200/60 ml-auto select-none">
-                0.5% on start-of-month outstanding
+                {badgeText}
               </div>
             </div>
           );
