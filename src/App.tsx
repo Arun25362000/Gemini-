@@ -34,6 +34,15 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { UserProfile, Contribution, Loan, LoanPayment } from './types';
+import {
+  isPushSupported,
+  getPushPermissionState,
+  requestPushPermission,
+  sendBrowserPush,
+  triggerLoanStatusWhatsAppNotification,
+  checkAndTriggerMonthlyContributionPushReminder,
+  checkAndTriggerLoanRepaymentDuePushReminder,
+} from './lib/pushNotificationService';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
@@ -87,13 +96,16 @@ import {
   Table,
   RotateCcw,
   Filter,
-  Scale
+  Scale,
+  BarChart2,
+  Calculator
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
 import { ReportsTab } from './components/ReportsTab';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
+import { MemberContributionChart } from './components/MemberContributionChart';
 import { format } from 'date-fns';
 import { cn, getAppAvailableYears } from './lib/utils';
 import jsPDF from 'jspdf';
@@ -440,6 +452,8 @@ export default function App() {
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments' | 'breakdown'>('applications');
   const [isApplyingLoan, setIsApplyingLoan] = useState(false);
   const [loanAmount, setLoanAmount] = useState(10000);
+  const [loanTenure, setLoanTenure] = useState(10);
+  const [showLoanCalculatorSchedule, setShowLoanCalculatorSchedule] = useState(false);
   const [loanDetails, setLoanDetails] = useState('');
   const [isSubmittingLoan, setIsSubmittingLoan] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
@@ -454,6 +468,7 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedMemberForChart, setSelectedMemberForChart] = useState<UserProfile | null>(null);
   const [customAmount, setCustomAmount] = useState<number>(1000);
   const [customFine, setCustomFine] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
@@ -542,6 +557,57 @@ export default function App() {
     field: 'name' | 'amount' | 'remaining' | 'status' | 'date' | 'monthlyStatus' | 'interestRate' | 'term' | 'details' | 'paymentMode';
     direction: 'asc' | 'desc';
   }>({ field: 'date', direction: 'desc' });
+
+  // Real-time Loan Projection & EMI Calculator for application modal
+  const loanProjection = useMemo(() => {
+    const principal = Math.max(0, Number(loanAmount) || 0);
+    const tenure = Math.max(1, Number(loanTenure) || 10);
+    const monthlyPrincipal = Math.round(principal / tenure);
+
+    let remaining = principal;
+    let totalInterest = 0;
+    const schedule: Array<{
+      month: number;
+      openingBalance: number;
+      principalPayment: number;
+      interestPayment: number;
+      totalPayment: number;
+      closingBalance: number;
+    }> = [];
+
+    for (let i = 1; i <= tenure; i++) {
+      const pPayment = i === tenure ? remaining : Math.min(remaining, monthlyPrincipal);
+      const interest = Math.round(remaining * 0.005); // 0.5% monthly on reducing balance
+      const closing = Math.max(0, remaining - pPayment);
+      totalInterest += interest;
+
+      schedule.push({
+        month: i,
+        openingBalance: remaining,
+        principalPayment: pPayment,
+        interestPayment: interest,
+        totalPayment: pPayment + interest,
+        closingBalance: closing
+      });
+
+      remaining = closing;
+    }
+
+    const firstMonthPayment = schedule[0]?.totalPayment || 0;
+    const lastMonthPayment = schedule[schedule.length - 1]?.totalPayment || 0;
+    const totalRepayable = principal + totalInterest;
+
+    return {
+      principal,
+      tenure,
+      monthlyPrincipal,
+      totalInterest,
+      totalRepayable,
+      firstMonthPayment,
+      lastMonthPayment,
+      schedule
+    };
+  }, [loanAmount, loanTenure]);
 
   const [adminManualRepayment, setAdminManualRepayment] = useState<{
     isOpen: boolean;
@@ -791,6 +857,19 @@ export default function App() {
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>(getPushPermissionState());
+  const [pendingWhatsAppModal, setPendingWhatsAppModal] = useState<{
+    isOpen: boolean;
+    recipientName: string;
+    phone: string;
+    waUrl: string;
+    message: string;
+    type: 'approved' | 'declined';
+  } | null>(null);
+  const [isTriggeringContributionCheck, setIsTriggeringContributionCheck] = useState(false);
+  const [isTriggeringLoanDueCheck, setIsTriggeringLoanDueCheck] = useState(false);
+  const [reminderModalTab, setReminderModalTab] = useState<'contrib5th' | 'loanDue' | 'email1st'>('contrib5th');
+
   const [activeNoticeToast, setActiveNoticeToast] = useState<Notice | null>(null);
   const [activeNotificationToast, setActiveNotificationToast] = useState<AppNotification | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -832,7 +911,7 @@ export default function App() {
     }
   }, [notices, user]);
 
-  // Notification Toast Trigger
+  // Notification Toast & Browser Push Trigger
   useEffect(() => {
     if (notifications.length > 0 && user) {
       const latest = notifications[0];
@@ -841,11 +920,49 @@ export default function App() {
       if (latest.id !== lastSeenId && !latest.read) {
         setActiveNotificationToast(latest);
         localStorage.setItem(`last_seen_notification_${user.uid}`, latest.id!);
+        // Send browser push notification if permission granted
+        sendBrowserPush(latest.title, {
+          body: latest.message,
+          tag: latest.id || 'unnati-notification',
+          link: latest.link || '/'
+        });
         const timer = setTimeout(() => setActiveNotificationToast(null), 15000);
         return () => clearTimeout(timer);
       }
     }
   }, [notifications, user]);
+
+  // Automated Push Notification Service for members:
+  // 1. Monthly contribution (₹1,000) check on/after 5th of current month
+  // 2. Loan repayment due alerts on 5th and 9th of every month for active loans
+  useEffect(() => {
+    if (!user || loading) return;
+
+    // Check & trigger monthly contribution push reminder (₹1,000 unrecorded by 5th)
+    checkAndTriggerMonthlyContributionPushReminder(
+      user,
+      contributions,
+      db,
+      createNotification
+    ).then((res) => {
+      if (res.triggered) {
+        console.log('[Push Service] 5th-of-month contribution push reminder sent to member.');
+      }
+    });
+
+    // Check & trigger Loan Repayment Due alert (5th and 9th of month for active loans)
+    checkAndTriggerLoanRepaymentDuePushReminder(
+      user,
+      loans,
+      loanPayments,
+      db,
+      createNotification
+    ).then((res) => {
+      if (res.triggered) {
+        console.log(`[Push Service] ${res.cycle} loan repayment due alert sent to member.`);
+      }
+    });
+  }, [user, loading, contributions.length, loans.length, loanPayments.length]);
 
   const notify = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
@@ -1127,6 +1244,30 @@ export default function App() {
     }
     return totalRemaining;
   };
+
+  const membersUnpaidContributionCount = useMemo(() => {
+    return allUsers.filter(u => {
+      const uid = u.uid || u.id;
+      const email = (u.email || '').toLowerCase().trim();
+      const hasPaid = contributions.some(c => {
+        const matchesUser = c.userId === uid || (!!c.userEmail && c.userEmail.toLowerCase().trim() === email);
+        return matchesUser && c.month === currentMonth && c.year === currentYear && c.status === 'paid';
+      });
+      return !hasPaid;
+    }).length;
+  }, [allUsers, contributions, currentMonth, currentYear]);
+
+  const activeLoansPendingCurrentMonth = useMemo(() => {
+    return loans.filter(l => {
+      if (l.status !== 'approved') return false;
+      const hasPaid = loanPayments.some(p => {
+        const matchesLoan = p.loanId === l.id;
+        const matchesUser = (p.userId === l.userId) || (!!p.userEmail && !!l.userEmail && p.userEmail.toLowerCase().trim() === l.userEmail.toLowerCase().trim());
+        return (matchesLoan || matchesUser) && p.month === currentMonth && p.year === currentYear;
+      });
+      return !hasPaid;
+    });
+  }, [loans, loanPayments, currentMonth, currentYear]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -1852,6 +1993,63 @@ export default function App() {
     }
   };
 
+  const trigger5thContributionCheck = async () => {
+    if (!isAdmin) return;
+    setIsTriggeringContributionCheck(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/trigger-5th-contribution-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        notify('success', `5th contribution alert sent! ${data.notifiedCount} of ${data.totalMembers} members alerted.`);
+      } else {
+        notify('error', data.message || "Failed to trigger 5th contribution check");
+      }
+    } catch (err: any) {
+      notify('error', "Error triggering 5th contribution check: " + err.message);
+    } finally {
+      setIsTriggeringContributionCheck(false);
+    }
+  };
+
+  const triggerLoanDueCheck = async (cycle: '5th' | '9th') => {
+    if (!isAdmin) return;
+    setIsTriggeringLoanDueCheck(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/trigger-loan-due-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cycle })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        notify('success', `${cycle} Loan Repayment Due alert sent! ${data.alertedCount} members notified.`);
+      } else {
+        notify('error', data.message || `Failed to trigger ${cycle} loan due check`);
+      }
+    } catch (err: any) {
+      notify('error', `Error triggering ${cycle} loan check: ` + err.message);
+    } finally {
+      setIsTriggeringLoanDueCheck(false);
+    }
+  };
+
+  const handleEnablePushNotifications = async () => {
+    const perm = await requestPushPermission();
+    setPushPermission(perm);
+    if (perm === 'granted') {
+      notify('success', "Push notifications enabled! You will receive alerts on 5th and 9th.");
+      sendBrowserPush("Unnati Finance Notifications Enabled", {
+        body: "Push alerts active for ₹1,000 monthly contributions (5th) and loan repayments (5th & 9th).",
+        link: "/"
+      });
+    } else if (perm === 'denied') {
+      notify('error', "Push notifications are blocked in your browser settings. Please enable permissions to receive alerts.");
+    }
+  };
+
   const triggerFullBackupReport = async () => {
     if (!isAdmin) return;
     
@@ -2517,12 +2715,15 @@ export default function App() {
         userId: user.uid,
         userEmail: user.email,
         amount: loanAmount,
+        installments: loanTenure,
         details: loanDetails,
         status: 'pending',
         createdAt: serverTimestamp()
       });
       setIsApplyingLoan(false);
       setLoanAmount(10000);
+      setLoanTenure(10);
+      setShowLoanCalculatorSchedule(false);
       setLoanDetails('');
       notify('success', "Loan application submitted successfully!");
     } catch (err: any) {
@@ -2867,6 +3068,13 @@ export default function App() {
         { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
         { s: { r: 2, c: 0 }, e: { r: 2, c: maxCol } }
       ];
+      ws['!rows'] = [
+        { hpt: 26 },
+        { hpt: 22 },
+        { hpt: 18 },
+        { hpt: 8 },
+        { hpt: 32 }
+      ];
       return ws;
     };
 
@@ -2898,7 +3106,7 @@ export default function App() {
               left: { style: "thin", color: { rgb: "94A3B8" } },
               right: { style: "thin", color: { rgb: "94A3B8" } }
             },
-            alignment: { vertical: "center", horizontal: "center" }
+            alignment: { vertical: "center", horizontal: "center", wrapText: true }
           };
         }
       }
@@ -2929,16 +3137,23 @@ export default function App() {
       }
     };
 
-    const masterHeaders = [
+    const masterKeys = [
       'Member Name', 'Email', 'Phone', 'Join Date', 'Total Deposited (₹)',
       'Paid Subscription Months', 'Has Taken Loan?', 'Total Loans Count', 'Active Loans Count',
       'Closed Loans Count', 'Total Sanctioned Loan Amount (₹)', 'Active Loan Amount (₹)',
       'Closed Loan Amount (₹)', 'Loan Principal Paid (₹)', 'Loan Interest Paid (₹)',
       'Loan Pending Principal (₹)', 'Loan Status', 'Consolidated Loan Details'
     ];
-    const masterRows = masterReport.map(r => masterHeaders.map(h => (r as any)[h]));
+    const masterHeaders = [
+      'Member\nName', 'Email', 'Phone', 'Join\nDate', 'Total Deposited\n(₹)',
+      'Paid Subscription\nMonths', 'Has Taken\nLoan?', 'Total Loans\nCount', 'Active Loans\nCount',
+      'Closed Loans\nCount', 'Total Sanctioned\nLoan Amount (₹)', 'Active Loan\nAmount (₹)',
+      'Closed Loan\nAmount (₹)', 'Loan Principal\nPaid (₹)', 'Loan Interest\nPaid (₹)',
+      'Loan Pending\nPrincipal (₹)', 'Loan\nStatus', 'Consolidated\nLoan Details'
+    ];
+    const masterRows = masterReport.map(r => masterKeys.map(k => (r as any)[k]));
     const masterWS = buildSheetWithTrustHeader("MASTER CONSOLIDATED MEMBER SUMMARY REPORT", masterHeaders, masterRows);
-    masterWS['!cols'] = masterHeaders.map(() => ({ wch: 22 }));
+    masterWS['!cols'] = masterHeaders.map(() => ({ wch: 16 }));
     applyMemberRowStyles(masterWS, masterRows, 0, masterHeaders.length);
     XLSX.utils.book_append_sheet(wb, masterWS, "Master Report");
 
@@ -2965,9 +3180,9 @@ export default function App() {
         dateStr
       ];
     });
-    const contribsHeaders = ['Member Name', 'Email', 'Month', 'Year', 'Amount (₹)', 'Status', 'Payment Method', 'Payment Date'];
+    const contribsHeaders = ['Member\nName', 'Email', 'Month', 'Year', 'Amount\n(₹)', 'Status', 'Payment\nMethod', 'Payment\nDate'];
     const contribsWS = buildSheetWithTrustHeader("ALL MEMBER CONTRIBUTIONS & SUBSCRIPTIONS REGISTER", contribsHeaders, contribsData);
-    contribsWS['!cols'] = [{ wch: 25 }, { wch: 28 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
+    contribsWS['!cols'] = [{ wch: 22 }, { wch: 26 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
     applyMemberRowStyles(contribsWS, contribsData, 0, contribsHeaders.length);
     XLSX.utils.book_append_sheet(wb, contribsWS, "All Contributions");
 
@@ -3021,13 +3236,13 @@ export default function App() {
       ];
     });
     const loansHeaders = [
-      'Loan #', 'Loan ID', 'Member Name', 'Email', 'Requested Amount (₹)',
-      'Sanctioned / Approved Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)',
-      'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Balance Principal (₹)',
-      'Applied Date', 'Approved Date', 'Closed Date', 'Purpose'
+      'Loan #', 'Loan\nID', 'Member\nName', 'Email', 'Requested Amount\n(₹)',
+      'Sanctioned / Approved\nAmount (₹)', 'Interest Rate\n(%)', 'Tenure\n(Months)',
+      'Status', 'Principal Paid\n(₹)', 'Interest Paid\n(₹)', 'Pending Balance\nPrincipal (₹)',
+      'Applied\nDate', 'Approved\nDate', 'Closed\nDate', 'Purpose'
     ];
     const loansWS = buildSheetWithTrustHeader("ALL SANCTIONED LOANS REGISTER", loansHeaders, loansData);
-    loansWS['!cols'] = [{ wch: 8 }, { wch: 16 }, { wch: 25 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 25 }];
+    loansWS['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 22 }, { wch: 26 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 17 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 22 }];
     applyMemberRowStyles(loansWS, loansData, 2, loansHeaders.length);
     XLSX.utils.book_append_sheet(wb, loansWS, "All Loans");
 
@@ -3057,12 +3272,12 @@ export default function App() {
       ];
     });
     const repaymentsHeaders = [
-      'Payment #', 'Payment ID', 'Loan ID', 'Member Name', 'Email',
-      'Loan Sanctioned (₹)', 'Repayment Month', 'Year', 'Principal Paid (₹)',
-      'Interest Paid (₹)', 'Total Paid (₹)', 'Status', 'Payment Method', 'Payment Date & Time'
+      'Payment #', 'Payment\nID', 'Loan\nID', 'Member\nName', 'Email',
+      'Loan Sanctioned\n(₹)', 'Repayment\nMonth', 'Year', 'Principal Paid\n(₹)',
+      'Interest Paid\n(₹)', 'Total Paid\n(₹)', 'Status', 'Payment\nMethod', 'Payment Date\n& Time'
     ];
     const repaymentsWS = buildSheetWithTrustHeader("ALL LOAN REPAYMENTS REGISTER", repaymentsHeaders, repaymentsData);
-    repaymentsWS['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 25 }, { wch: 28 }, { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
+    repaymentsWS['!cols'] = [{ wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 26 }, { wch: 16 }, { wch: 14 }, { wch: 8 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 14 }, { wch: 18 }];
     applyMemberRowStyles(repaymentsWS, repaymentsData, 3, repaymentsHeaders.length);
     XLSX.utils.book_append_sheet(wb, repaymentsWS, "All Loan Repayments");
 
@@ -3089,7 +3304,7 @@ export default function App() {
       ['Total Active Running Loans Count', loans.filter(l => l.status === 'approved').length],
       ['Total Closed / Settled Loans Count', loans.filter(l => l.status === 'paid').length]
     ];
-    const summaryWS = buildSheetWithTrustHeader("GROUP FINANCIAL SUMMARY & LIQUID POOL", ['Financial Metric', 'Value / Amount (₹)'], groupSummaryRows);
+    const summaryWS = buildSheetWithTrustHeader("GROUP FINANCIAL SUMMARY & LIQUID POOL", ['Financial\nMetric', 'Value / Amount\n(₹)'], groupSummaryRows);
     summaryWS['!cols'] = [{ wch: 45 }, { wch: 25 }];
     
     // Style Financial Summary
@@ -3109,7 +3324,7 @@ export default function App() {
           font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
           fill: { fgColor: { rgb: "0F172A" } },
           border: borderThin,
-          alignment: { vertical: "center", horizontal: c === 1 ? "right" : "left" }
+          alignment: { vertical: "center", horizontal: c === 1 ? "right" : "left", wrapText: true }
         };
       }
     }
@@ -3164,8 +3379,29 @@ export default function App() {
     }
   };
 
-  const exportUserStatementToExcel = async () => {
-    if (!user) return;
+  const exportMemberStatementToExcel = async (targetUserOrId?: UserProfile | string) => {
+    let targetUser: UserProfile | undefined;
+    if (typeof targetUserOrId === 'object' && targetUserOrId !== null) {
+      targetUser = targetUserOrId;
+    } else if (typeof targetUserOrId === 'string') {
+      targetUser = allUsers.find(u => 
+        (u.uid && u.uid === targetUserOrId) ||
+        (u.id && u.id === targetUserOrId) ||
+        (u.email && u.email.toLowerCase().trim() === targetUserOrId.toLowerCase().trim())
+      );
+    } else {
+      targetUser = selectedMemberForChart || profile || (allUsers.length > 0 ? allUsers[0] : undefined);
+    }
+
+    if (!targetUser && user?.email) {
+      targetUser = allUsers.find(u => u.email.toLowerCase().trim() === user.email?.toLowerCase().trim());
+    }
+
+    if (!targetUser) {
+      notify('error', "Could not find member profile to export. Please select a member.");
+      return;
+    }
+
     const wb = XLSX.utils.book_new();
 
     const styleTitle1 = {
@@ -3194,7 +3430,7 @@ export default function App() {
       const aoa = [
         ['UNNATI TRUST (R)'],
         [sheetTitle],
-        [`Member: ${profile?.displayName || user.email} | Statement As On: ${format(new Date(), 'dd-MMM-yyyy HH:mm')}`],
+        [`Member: ${targetUser.displayName || targetUser.email} (${targetUser.email}) | Generated: ${format(new Date(), 'dd-MMM-yyyy HH:mm')}`],
         [],
         headers,
         ...rowsData
@@ -3205,6 +3441,13 @@ export default function App() {
         { s: { r: 0, c: 0 }, e: { r: 0, c: maxCol } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
         { s: { r: 2, c: 0 }, e: { r: 2, c: maxCol } }
+      ];
+      ws['!rows'] = [
+        { hpt: 26 },
+        { hpt: 22 },
+        { hpt: 18 },
+        { hpt: 8 },
+        { hpt: 32 }
       ];
 
       for (let r = 0; r <= 2; r++) {
@@ -3217,23 +3460,25 @@ export default function App() {
         }
       }
       for (let c = 0; c < headers.length; c++) {
-        const cellRef = XLSX.utils.encode_cell({ r: 4, c });
-        if (ws[cellRef]) {
-          ws[cellRef].s = {
+        const cellRef = XLSX.utils.encode_cell({ r, c: c });
+        const cell = XLSX.utils.encode_cell({ r: 4, c });
+        if (ws[cell]) {
+          ws[cell].s = {
             font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
             fill: { fgColor: { rgb: "0F172A" } },
             border: borderThin,
-            alignment: { vertical: "center", horizontal: "center" }
+            alignment: { vertical: "center", horizontal: "center", wrapText: true }
           };
         }
       }
       for (let r = 5; r < 5 + rowsData.length; r++) {
+        const isTotalRow = r === 5 + rowsData.length - 1 && rowsData[rowsData.length - 1]?.[0]?.toString().toLowerCase().includes('total');
         for (let c = 0; c < headers.length; c++) {
           const cellRef = XLSX.utils.encode_cell({ r, c });
           if (ws[cellRef]) {
             ws[cellRef].s = {
-              font: { name: 'Segoe UI', sz: 10.5, color: { rgb: "0F172A" } },
-              fill: { fgColor: { rgb: r % 2 === 0 ? "F8FAFC" : "FFFFFF" } },
+              font: { name: 'Segoe UI', sz: 10.5, bold: isTotalRow, color: { rgb: isTotalRow ? "1E1B4B" : "0F172A" } },
+              fill: { fgColor: { rgb: isTotalRow ? "EEF2FF" : (r % 2 === 0 ? "F8FAFC" : "FFFFFF") } },
               border: borderThin,
               alignment: { vertical: "center" },
               numFmt: typeof ws[cellRef].v === 'number' ? '#,##0' : undefined
@@ -3244,11 +3489,14 @@ export default function App() {
       return ws;
     };
     
-    // Subscriptions
+    // Member Contributions
     const userContribs = contributions.filter(c => 
-      ((user.uid && c.userId && c.userId === user.uid) || (user.email && c.userEmail && c.userEmail.toLowerCase() === user.email.toLowerCase()))
+      ((targetUser.uid && c.userId && c.userId === targetUser.uid) || (targetUser.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
     );
-    const statementRows = userContribs.sort((a,b) => b.year - a.year || b.month - a.month).map(c => {
+    const paidContribs = userContribs.filter(c => c.status === 'paid');
+    const totalDeposited = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
+
+    const statementRows = userContribs.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((c, idx) => {
       let dateStr = 'N/A';
       if (c.timestamp?.toDate) {
         dateStr = format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
@@ -3256,102 +3504,144 @@ export default function App() {
         dateStr = format(new Date(c.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
       }
       return [
-        dateStr,
+        idx + 1,
         format(new Date(c.year, c.month - 1), 'MMMM'),
         c.year,
         c.amount,
+        (c.paymentMethod || 'ONLINE').toUpperCase(),
         (c.status || 'PENDING').toUpperCase(),
-        (c.paymentMethod || 'ONLINE').toUpperCase()
+        dateStr
       ];
     });
-    const subHeaders = ['Payment Date', 'Month', 'Year', 'Amount (₹)', 'Status', 'Payment Method'];
-    const wsSub = buildUserStatementSheet("MY SUBSCRIPTION CONTRIBUTIONS STATEMENT", subHeaders, statementRows);
-    wsSub['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 10 }, { wch: 18 }, { wch: 16 }, { wch: 18 }];
-    XLSX.utils.book_append_sheet(wb, wsSub, "My Subscriptions");
+
+    if (statementRows.length > 0) {
+      statementRows.push(['Total Paid', '', '', totalDeposited, '', '', '']);
+    }
+
+    const subHeaders = ['#', 'Month', 'Year', 'Amount (₹)', 'Payment Method', 'Status', 'Transaction Date'];
+    const wsSub = buildUserStatementSheet("MEMBER CONTRIBUTION HISTORY", subHeaders, statementRows);
+    wsSub['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, wsSub, "Contributions");
 
     // Member Loans
     const userLoans = loans.filter(l => 
-      ((user.uid && l.userId && l.userId === user.uid) || (user.email && l.userEmail && l.userEmail.toLowerCase() === user.email.toLowerCase()))
+      ((targetUser.uid && l.userId && l.userId === targetUser.uid) || (targetUser.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
     );
-    if (userLoans.length > 0) {
-      const userLoansRows = userLoans.map((l, idx) => {
-        const lPayments = loanPayments.filter(p => p.loanId === l.id && p.status === 'paid');
-        const principalPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
-        const interestPaid = lPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
-        const approvedAmt = l.approvedAmount || l.amount || 0;
-        const isSettled = l.status === 'paid' || (approvedAmt > 0 && principalPaid >= approvedAmt);
-        const remainingBal = isSettled ? 0 : Math.max(0, approvedAmt - principalPaid);
-
-        let approvedDate = 'N/A';
-        if (l.approvedAt?.toDate) approvedDate = format(l.approvedAt.toDate(), 'yyyy-MM-dd');
-        else if (l.approvedAt?.seconds) approvedDate = format(new Date(l.approvedAt.seconds * 1000), 'yyyy-MM-dd');
-
-        return [
-          idx + 1,
-          approvedAmt,
-          `${l.interestRate ?? 1}%`,
-          l.installments || 10,
-          isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
-          principalPaid,
-          interestPaid,
-          remainingBal,
-          approvedDate
-        ];
-      });
-      const loanHeaders = ['Loan #', 'Sanctioned Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)', 'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Balance (₹)', 'Approved Date'];
-      const loansWs = buildUserStatementSheet("MY SANCTIONED LOANS STATEMENT", loanHeaders, userLoansRows);
-      loansWs['!cols'] = [{ wch: 8 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 18 }];
-      XLSX.utils.book_append_sheet(wb, loansWs, "My Loans");
-    }
-
+    
     // Member Loan Repayments
-    const userLoanPayments = loanPayments.filter(p => 
-      ((user.uid && p.userId && p.userId === user.uid) || (user.email && p.userEmail && p.userEmail.toLowerCase() === user.email.toLowerCase()))
-    );
-    if (userLoanPayments.length > 0) {
-      const userPaymentsRows = userLoanPayments.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((p, idx) => {
-        let paymentDate = 'N/A';
-        if (p.timestamp?.toDate) paymentDate = format(p.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
-        else if (p.timestamp?.seconds) paymentDate = format(new Date(p.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
+    const userLoanPayments = loanPayments.filter(p => {
+      const parentLoan = loans.find(l => l.id === p.loanId);
+      if (parentLoan) {
+        const matchLoanUid = targetUser.uid && parentLoan.userId && parentLoan.userId === targetUser.uid;
+        const matchLoanEmail = targetUser.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
+        if (matchLoanUid || matchLoanEmail) return true;
+      }
+      const matchDirectUid = targetUser.uid && p.userId && p.userId === targetUser.uid;
+      const matchDirectEmail = targetUser.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
+      return matchDirectUid || matchDirectEmail;
+    });
 
-        return [
-          idx + 1,
-          p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
-          p.year || 'N/A',
-          p.amount || 0,
-          p.interest || 0,
-          (p.amount || 0) + (p.interest || 0),
-          (p.status || 'PENDING').toUpperCase(),
-          (p.paymentMethod || 'ONLINE').toUpperCase(),
-          paymentDate
-        ];
-      });
-      const repayHeaders = ['Payment #', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Paid (₹)', 'Status', 'Payment Method', 'Date'];
-      const paymentsWs = buildUserStatementSheet("MY LOAN REPAYMENTS STATEMENT", repayHeaders, userPaymentsRows);
-      paymentsWs['!cols'] = [{ wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 18 }, { wch: 20 }];
-      XLSX.utils.book_append_sheet(wb, paymentsWs, "My Loan Repayments");
+    const paidLoanPayments = userLoanPayments.filter(p => p.status === 'paid');
+    const totalPrincipalPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+    const totalInterestPaid = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+    const totalRepaid = totalPrincipalPaid + totalInterestPaid;
+
+    const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
+    const totalSanctioned = sanctionedLoans.reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
+    const outstandingPrincipal = Math.max(0, totalSanctioned - totalPrincipalPaid);
+
+    const userLoansRows = userLoans.map((l, idx) => {
+      const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
+      const principalPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      const interestPaid = lPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+      const approvedAmt = l.approvedAmount || l.amount || 0;
+      const isSettled = l.status === 'paid' || (approvedAmt > 0 && principalPaid >= approvedAmt);
+      const remainingBal = isSettled ? 0 : Math.max(0, approvedAmt - principalPaid);
+
+      let approvedDate = 'N/A';
+      if (l.approvedAt?.toDate) approvedDate = format(l.approvedAt.toDate(), 'yyyy-MM-dd');
+      else if (l.approvedAt?.seconds) approvedDate = format(new Date(l.approvedAt.seconds * 1000), 'yyyy-MM-dd');
+      else if (l.createdAt?.toDate) approvedDate = format(l.createdAt.toDate(), 'yyyy-MM-dd');
+
+      return [
+        idx + 1,
+        approvedAmt,
+        `${l.interestRate ?? 1}%`,
+        l.installments || 10,
+        isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
+        principalPaid,
+        interestPaid,
+        remainingBal,
+        approvedDate
+      ];
+    });
+
+    if (userLoansRows.length > 0) {
+      userLoansRows.push(['Total Sanctioned', totalSanctioned, '', '', '', totalPrincipalPaid, totalInterestPaid, outstandingPrincipal, '']);
+    } else {
+      userLoansRows.push(['No Loans', 0, '-', '-', 'N/A', 0, 0, 0, '-']);
     }
 
-    const fileName = `My_Unnati_Statement_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    const loanHeaders = ['Loan #', 'Sanctioned Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)', 'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Principal (₹)', 'Sanction Date'];
+    const loansWs = buildUserStatementSheet("MEMBER SANCTIONED LOANS PORTFOLIO", loanHeaders, userLoansRows);
+    loansWs['!cols'] = [{ wch: 8 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, loansWs, "Loans Summary");
+
+    // Member Loan Repayments Sheet
+    const userPaymentsRows = userLoanPayments.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((p, idx) => {
+      let paymentDate = 'N/A';
+      if (p.timestamp?.toDate) paymentDate = format(p.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
+      else if (p.timestamp?.seconds) paymentDate = format(new Date(p.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
+
+      return [
+        idx + 1,
+        p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
+        p.year || 'N/A',
+        p.amount || 0,
+        p.interest || 0,
+        (p.amount || 0) + (p.interest || 0),
+        (p.paymentMethod || p.paymentMode || 'ONLINE').toUpperCase(),
+        (p.status || 'PENDING').toUpperCase(),
+        paymentDate
+      ];
+    });
+
+    if (userPaymentsRows.length > 0) {
+      userPaymentsRows.push(['Total Repaid', '', '', totalPrincipalPaid, totalInterestPaid, totalRepaid, '', '', '']);
+    } else {
+      userPaymentsRows.push(['No Payments', '-', '-', 0, 0, 0, '-', 'N/A', '-']);
+    }
+
+    const repayHeaders = ['Installment #', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Installment (₹)', 'Payment Method', 'Status', 'Payment Date & Time'];
+    const paymentsWs = buildUserStatementSheet("MEMBER LOAN REPAYMENT HISTORY", repayHeaders, userPaymentsRows);
+    paymentsWs['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, paymentsWs, "Loan Repayments");
+
+    const safeName = (targetUser.displayName || targetUser.email.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fileName = `Unnati_Statement_${safeName}_${format(new Date(), 'yyyyMMdd')}.xlsx`;
+
     if (isMobileApp) {
       try {
         const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
         const res = await downloadFileMobile(fileName, base64Data);
         if (res.success) {
-          notify('success', `Statement downloaded successfully as: ${fileName}`);
+          notify('success', `Excel Statement saved locally as: ${fileName}`);
         } else {
           notify('error', "Could not download file directly. Attempting browser download...");
           XLSX.writeFile(wb, fileName);
         }
       } catch (err: any) {
-        console.error("Export user mobile failed:", err);
-        notify('error', `Failed to download statement: ${err.message || 'Unknown error'}`);
+        console.error("Export member mobile failed:", err);
+        XLSX.writeFile(wb, fileName);
+        notify('success', `Excel Statement downloaded as: ${fileName}`);
       }
     } else {
       XLSX.writeFile(wb, fileName);
-      notify('success', "Statement exported to Excel");
+      notify('success', `Member statement exported to Excel: ${fileName}`);
     }
   };
+
+  const exportUserStatementToExcel = exportMemberStatementToExcel;
 
   const exportMonthlyCollectionsExcel = async () => {
     const wb = XLSX.utils.book_new();
@@ -3420,7 +3710,7 @@ export default function App() {
     const styleHeader = {
       font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
       fill: { fgColor: { rgb: '0F172A' } }, // Slate 900
-      alignment: { horizontal: 'center', vertical: 'center' },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
       border: borderThin
     };
 
@@ -3430,7 +3720,7 @@ export default function App() {
       ['MONTHLY COLLECTION SUMMARY REPORT'],
       [`Month & Year: ${monthLabel} | Export Generated Date: ${exportDateStr}`],
       [],
-      ['Sl.No', 'Financial Metric / Collection Head', 'Amount / Value (₹)', 'Count / Category Details & Remarks'],
+      ['Sl.No', 'Financial Metric /\nCollection Head', 'Amount / Value\n(₹)', 'Count / Category Details\n& Remarks'],
       ['1', 'Total Received (Grand Total)', grandTotalMonthlyReceived, 'Grand Total of all collections (Cash + Online)'],
       ['2', 'Amount Collected by Cash (Grand Total)', grandTotalCashReceived, 'Total cash in hand collections (Subscriptions + Loans)'],
       ['3', 'Amount Collected by Online (Grand Total)', grandTotalOnlineReceived, 'Total online/UPI bank collections (Subscriptions + Loans)'],
@@ -3447,7 +3737,14 @@ export default function App() {
     ];
 
     const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetAoa);
-    wsSummary['!cols'] = [{ wch: 8 }, { wch: 48 }, { wch: 22 }, { wch: 55 }];
+    wsSummary['!cols'] = [{ wch: 8 }, { wch: 36 }, { wch: 18 }, { wch: 45 }];
+    wsSummary['!rows'] = [
+      { hpt: 26 },
+      { hpt: 22 },
+      { hpt: 18 },
+      { hpt: 8 },
+      { hpt: 32 }
+    ];
     wsSummary['!merges'] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
       { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
@@ -3466,7 +3763,7 @@ export default function App() {
         else if (r === 4) {
           cell.s = {
             ...styleHeader,
-            alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' }
+            alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center', wrapText: true }
           };
         } else if (r >= 5) {
           let bg = r % 2 === 0 ? 'F8FAFC' : 'FFFFFF';
@@ -3533,19 +3830,26 @@ export default function App() {
       [`MONTHLY MEMBER SUBSCRIPTION COLLECTIONS - ${monthLabel.toUpperCase()}`],
       [`Total Records: ${monthlyPaidContributions.length} | Export Date: ${exportDateStr}`],
       [],
-      ['S.No', 'Member Name', 'Contribution Amount (₹)', 'Payment Mode', 'Payment Date', 'Status'],
+      ['S.No', 'Member\nName', 'Contribution Amount\n(₹)', 'Payment\nMode', 'Payment\nDate', 'Status'],
       ...(memberCollectionRows.length > 0 ? memberCollectionRows : [[1, 'No member contributions found for this month', 0, '', '', '']]),
       ['TOTAL', '', monthlyContributionTotal, '', '', `${monthlyPaidContributions.length} Paid Members`]
     ];
 
     const wsMember = XLSX.utils.aoa_to_sheet(memberSheetAoa);
     wsMember['!cols'] = [
-      { wch: 8 },  // S.No
-      { wch: 28 }, // Member Name
-      { wch: 24 }, // Contribution Amount (₹)
-      { wch: 16 }, // Payment Mode
-      { wch: 22 }, // Payment Date
-      { wch: 14 }  // Status
+      { wch: 7 },  // S.No
+      { wch: 22 }, // Member Name
+      { wch: 18 }, // Contribution Amount (₹)
+      { wch: 13 }, // Payment Mode
+      { wch: 16 }, // Payment Date
+      { wch: 11 }  // Status
+    ];
+    wsMember['!rows'] = [
+      { hpt: 26 },
+      { hpt: 22 },
+      { hpt: 18 },
+      { hpt: 8 },
+      { hpt: 32 }
     ];
     const lastMemberRow = memberSheetAoa.length - 1;
     wsMember['!merges'] = [
@@ -3585,7 +3889,7 @@ export default function App() {
         else if (r === 4) {
           cell.s = {
             ...styleHeader,
-            alignment: { horizontal: c === 2 ? 'right' : (c === 0 || c === 3 || c === 5 ? 'center' : 'left'), vertical: 'center' }
+            alignment: { horizontal: c === 2 ? 'right' : (c === 0 || c === 3 || c === 5 ? 'center' : 'left'), vertical: 'center', wrapText: true }
           };
         } else if (r === lastMemberRow) {
           cell.s = {
@@ -3641,21 +3945,28 @@ export default function App() {
       [`MONTHLY LOAN REPAYMENTS COLLECTED - ${monthLabel.toUpperCase()}`],
       [`Total Records: ${monthlyPaidLoanPayments.length} | Export Date: ${exportDateStr}`],
       [],
-      ['S.No', 'Borrower Name', 'Principal Amount (₹)', 'Interest Amount (₹)', 'Total Repayment Paid (₹)', 'Payment Mode', 'Payment Date', 'Status'],
+      ['S.No', 'Borrower\nName', 'Principal Amount\n(₹)', 'Interest Amount\n(₹)', 'Total Repayment\nPaid (₹)', 'Payment\nMode', 'Payment\nDate', 'Status'],
       ...(loanRepaymentRows.length > 0 ? loanRepaymentRows : [[1, 'No loan repayments found for this month', 0, 0, 0, '', '', '']]),
       ['TOTAL', '', monthlyLoanPrincipalCollected, monthlyLoanInterestCollected, monthlyLoanTotalCollected, '', '', `${monthlyPaidLoanPayments.length} Payments`]
     ];
 
     const wsLoans = XLSX.utils.aoa_to_sheet(loansSheetAoa);
     wsLoans['!cols'] = [
-      { wch: 8 },  // S.No
-      { wch: 24 }, // Borrower Name
-      { wch: 20 }, // Principal Amount (₹)
-      { wch: 20 }, // Interest Amount (₹)
-      { wch: 22 }, // Total Repayment Paid (₹)
-      { wch: 16 }, // Payment Mode
-      { wch: 20 }, // Payment Date
-      { wch: 14 }  // Status
+      { wch: 7 },  // S.No
+      { wch: 20 }, // Borrower Name
+      { wch: 15 }, // Principal Amount (₹)
+      { wch: 14 }, // Interest Amount (₹)
+      { wch: 16 }, // Total Repayment Paid (₹)
+      { wch: 13 }, // Payment Mode
+      { wch: 16 }, // Payment Date
+      { wch: 11 }  // Status
+    ];
+    wsLoans['!rows'] = [
+      { hpt: 26 },
+      { hpt: 22 },
+      { hpt: 18 },
+      { hpt: 8 },
+      { hpt: 32 }
     ];
     const lastLoanRow = loansSheetAoa.length - 1;
     wsLoans['!merges'] = [
@@ -3695,7 +4006,7 @@ export default function App() {
         else if (r === 4) {
           cell.s = {
             ...styleHeader,
-            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 5 || c === 7 ? 'center' : 'left'), vertical: 'center' }
+            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 5 || c === 7 ? 'center' : 'left'), vertical: 'center', wrapText: true }
           };
         } else if (r === lastLoanRow) {
           cell.s = {
@@ -3843,7 +4154,7 @@ export default function App() {
       const styleHeader = {
         font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
         fill: { fgColor: { rgb: '0F172A' } }, // Slate 900
-        alignment: { horizontal: 'center', vertical: 'center' },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
         border: borderThin
       };
 
@@ -3855,7 +4166,7 @@ export default function App() {
         ['TRUST SUMMARY & AVAILABLE BALANCE REPORT'],
         [`As on Date: ${dateStrNow}`],
         [],
-        ['Sl.No', 'Financial Metric / Parameter', 'Amount (₹)', 'Count / Details', 'Accounting Formula & Description'],
+        ['Sl.No', 'Financial Metric /\nParameter', 'Amount\n(₹)', 'Count /\nDetails', 'Accounting Formula\n& Description'],
         ['1', 'Total Member Subscriptions / Contributions', totalMemberContributions, `${paidContributions.length} Paid Contributions`, 'Total monthly deposits collected from members @ ₹1,000'],
         ['2', 'Total Loan Interest Collected (0.5%)', loanInterestCollected, `${paidLoanPayments.length} Installments`, 'Total interest earned from issued loans (0.5% flat)'],
         ['3', 'TOTAL TRUST SAVINGS / CORPUS FUND (1 + 2)', totalGroupSavings, 'Total Fund Inflow', 'Total accumulated capital of the Trust (Contributions + Interest)'],
@@ -3868,7 +4179,14 @@ export default function App() {
       ];
 
       const ws1 = XLSX.utils.aoa_to_sheet(s1Data);
-      ws1['!cols'] = [{ wch: 8 }, { wch: 45 }, { wch: 18 }, { wch: 25 }, { wch: 60 }];
+      ws1['!cols'] = [{ wch: 8 }, { wch: 38 }, { wch: 16 }, { wch: 22 }, { wch: 55 }];
+      ws1['!rows'] = [
+        { hpt: 26 },
+        { hpt: 22 },
+        { hpt: 18 },
+        { hpt: 8 },
+        { hpt: 32 }
+      ];
       ws1['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
@@ -3888,7 +4206,7 @@ export default function App() {
           else if (r === 4) {
             cell.s = {
               ...styleHeader,
-              alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' }
+              alignment: { horizontal: c === 2 ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center', wrapText: true }
             };
           } else if (r >= 5 && r <= 11) {
             const isTotalRow = r === 7 || r === 11;
@@ -3934,7 +4252,7 @@ export default function App() {
         ['TOTAL GROSS INFLOW BY CASH & ONLINE'],
         [`As on Date: ${dateStrNow}`],
         [],
-        ['Sl.No', 'Collection Category / Head', 'By Cash (₹)', 'By Online (₹)', 'Total Amount (₹)', 'Count & Remarks'],
+        ['Sl.No', 'Collection Category\n/ Head', 'By Cash\n(₹)', 'By Online\n(₹)', 'Total Amount\n(₹)', 'Count &\nRemarks'],
         ['1', 'Member Subscriptions / Contributions', contribCash, contribOnline, totalMemberContributions, `${paidContributions.length} Total (${contribCashCount} Cash, ${contribOnlineCount} Online)`],
         ['2', 'Loan Principal Repayments', loanPrincipalCash, loanPrincipalOnline, loanPrincipalRepaid, `${paidLoanPayments.length} Principal Repayments Recovered`],
         ['3', 'Loan Interest (0.5%) Repayments', loanInterestCash, loanInterestOnline, loanInterestCollected, '0.5% Flat Interest Earnings on Loans'],
@@ -3943,7 +4261,14 @@ export default function App() {
       ];
 
       const ws2 = XLSX.utils.aoa_to_sheet(s2Data);
-      ws2['!cols'] = [{ wch: 8 }, { wch: 40 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 55 }];
+      ws2['!cols'] = [{ wch: 8 }, { wch: 32 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 50 }];
+      ws2['!rows'] = [
+        { hpt: 26 },
+        { hpt: 22 },
+        { hpt: 18 },
+        { hpt: 8 },
+        { hpt: 32 }
+      ];
       ws2['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
@@ -3962,7 +4287,7 @@ export default function App() {
           else if (r === 4) {
             cell.s = {
               ...styleHeader,
-              alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center' }
+              alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 ? 'center' : 'left'), vertical: 'center', wrapText: true }
             };
           } else if (r >= 5 && r <= 9) {
             const isLoanTotal = r === 8;
@@ -4001,7 +4326,7 @@ export default function App() {
         ['NET LIQUIDITY RECONCILIATION MATCHING AVAILABLE BALANCE'],
         [`As on Date: ${dateStrNow}`],
         [],
-        ['Channel / Payment Mode', 'Total Inflows Received (₹)', 'Total Loans Disbursed (₹)', 'Net Current Balance (₹)', 'Status & Reconciliation Notes'],
+        ['Channel /\nPayment Mode', 'Total Inflows\nReceived (₹)', 'Total Loans\nDisbursed (₹)', 'Net Current\nBalance (₹)', 'Status &\nReconciliation Notes'],
         ['Cash in Hand Pool', grossCashInflow, loansDisbursedCash, netCashBalance, 'Physical Cash in Hand (Cash Inflows - Cash Loans Disbursed)'],
         ['Bank / Online Account Pool', grossOnlineInflow, loansDisbursedOnline, netOnlineBalance, 'Bank Account Net Balance (Online Inflows - Online Loans Disbursed)'],
         ['TOTAL NET LIQUID AVAILABLE BALANCE', totalGrossInflow, totalLoansDisbursed, availableBalance, `100% MATCHES TRUST AVAILABLE BALANCE (₹${availableBalance.toLocaleString('en-IN')})`],
@@ -4013,7 +4338,14 @@ export default function App() {
       ];
 
       const ws3 = XLSX.utils.aoa_to_sheet(s3Data);
-      ws3['!cols'] = [{ wch: 35 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, { wch: 60 }];
+      ws3['!cols'] = [{ wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 55 }];
+      ws3['!rows'] = [
+        { hpt: 26 },
+        { hpt: 22 },
+        { hpt: 18 },
+        { hpt: 8 },
+        { hpt: 32 }
+      ];
       ws3['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: 4 } },
@@ -4033,7 +4365,7 @@ export default function App() {
           else if (r === 4) {
             cell.s = {
               ...styleHeader,
-              alignment: { horizontal: (c >= 1 && c <= 3) ? 'right' : 'left', vertical: 'center' }
+              alignment: { horizontal: (c >= 1 && c <= 3) ? 'right' : 'left', vertical: 'center', wrapText: true }
             };
           } else if (r >= 5 && r <= 7) {
             const isTotalRow = r === 7;
@@ -4079,7 +4411,7 @@ export default function App() {
         ['BALANCE SHEET: LIABILITIES & TRUST CAPITAL FUND'],
         [`As on Date: ${dateStrNow}`],
         [],
-        ['Particulars / Head of Account', 'Sub-Amount (₹)', 'Total Amount (₹)', 'Accounting Notes / Details'],
+        ['Particulars /\nHead of Account', 'Sub-Amount\n(₹)', 'Total Amount\n(₹)', 'Accounting Notes\n/ Details'],
         ['I. TRUST CAPITAL / CORPUS FUND', '', '', 'Core Trust Capital from Members'],
         ['   Members Accumulated Monthly Contributions', totalMemberContributions, '', `${paidContributions.length} Paid Monthly Installments @ ₹1,000`],
         ['   Sub-total: Trust Capital Fund', '', totalMemberContributions, 'Direct member equity/corpus'],
@@ -4097,7 +4429,14 @@ export default function App() {
       ];
 
       const ws4 = XLSX.utils.aoa_to_sheet(s4Data);
-      ws4['!cols'] = [{ wch: 45 }, { wch: 18 }, { wch: 18 }, { wch: 55 }];
+      ws4['!cols'] = [{ wch: 38 }, { wch: 15 }, { wch: 15 }, { wch: 50 }];
+      ws4['!rows'] = [
+        { hpt: 26 },
+        { hpt: 22 },
+        { hpt: 18 },
+        { hpt: 8 },
+        { hpt: 32 }
+      ];
       ws4['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
@@ -4116,7 +4455,7 @@ export default function App() {
           else if (r === 4) {
             cell.s = {
               ...styleHeader,
-              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' }
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center', wrapText: true }
             };
           } else if (r === 5 || r === 9 || r === 15) {
             cell.s = {
@@ -4155,7 +4494,7 @@ export default function App() {
         ['BALANCE SHEET: ASSETS & ADVANCES'],
         [`As on Date: ${dateStrNow}`],
         [],
-        ['Particulars / Head of Account', 'Sub-Amount (₹)', 'Total Amount (₹)', 'Accounting Notes / Details'],
+        ['Particulars /\nHead of Account', 'Sub-Amount\n(₹)', 'Total Amount\n(₹)', 'Accounting Notes\n/ Details'],
         ['I. CURRENT ASSETS, LOANS & ADVANCES', '', '', 'Loan Book Assets'],
         ['   Total Loans Sanctioned & Disbursed to Members', totalLoansDisbursed, '', `${approvedOrPaidLoans.length} Loans Disbursed in Total`],
         ['   Less: Loan Principal Repayments Recovered', (-loanPrincipalRepaid), '', `${paidLoanPayments.length} Principal Repayments Collected`],
@@ -4175,7 +4514,14 @@ export default function App() {
       ];
 
       const ws5 = XLSX.utils.aoa_to_sheet(s5Data);
-      ws5['!cols'] = [{ wch: 45 }, { wch: 18 }, { wch: 22 }, { wch: 55 }];
+      ws5['!cols'] = [{ wch: 38 }, { wch: 15 }, { wch: 18 }, { wch: 50 }];
+      ws5['!rows'] = [
+        { hpt: 26 },
+        { hpt: 22 },
+        { hpt: 18 },
+        { hpt: 8 },
+        { hpt: 32 }
+      ];
       ws5['!merges'] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
         { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
@@ -4195,7 +4541,7 @@ export default function App() {
           else if (r === 4) {
             cell.s = {
               ...styleHeader,
-              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center' }
+              alignment: { horizontal: (c === 1 || c === 2) ? 'right' : 'left', vertical: 'center', wrapText: true }
             };
           } else if (r === 5 || r === 10) {
             cell.s = {
@@ -4488,75 +4834,114 @@ export default function App() {
     return items;
   }, [loanPayments, isAdmin, searchQuery, allUsers]);
 
-  const generateMemberStatement = async (targetUserId: string) => {
+  const generateMemberStatement = async (targetUserOrId?: UserProfile | string) => {
     try {
-      console.log("Generating statement for user:", targetUserId);
-      // Find user by UID or by email if UID is not yet set in the profile
-      const targetUser = allUsers.find(u => 
-        u.uid === targetUserId || 
-        (user?.email && u.email.toLowerCase() === user.email.toLowerCase())
-      );
+      let targetUser: UserProfile | undefined;
+      if (typeof targetUserOrId === 'object' && targetUserOrId !== null) {
+        targetUser = targetUserOrId;
+      } else if (typeof targetUserOrId === 'string') {
+        targetUser = allUsers.find(u => 
+          (u.uid && u.uid === targetUserOrId) || 
+          (u.id && u.id === targetUserOrId) ||
+          (u.email && u.email.toLowerCase().trim() === targetUserOrId.toLowerCase().trim())
+        );
+      } else {
+        targetUser = selectedMemberForChart || profile || (allUsers.length > 0 ? allUsers[0] : undefined);
+      }
+      
+      if (!targetUser && user?.email) {
+        targetUser = allUsers.find(u => u.email.toLowerCase().trim() === user.email?.toLowerCase().trim());
+      }
       
       if (!targetUser) {
-        console.error("User not found in allUsers list for statement generation. targetUserId:", targetUserId, "currentUserEmail:", user?.email);
-        notify('error', "Could not find member profile for statement. Please try refreshing.");
+        console.error("User not found for statement generation. targetUserOrId:", targetUserOrId);
+        notify('error', "Could not find member profile for statement. Please select a member.");
         return;
       }
 
-      console.log("Found targetUser:", targetUser.email);
+      console.log("Generating statement for targetUser:", targetUser.email);
 
       const doc = new jsPDF();
       const userContribs = contributions.filter(c => 
-        (targetUserId && c.userId && c.userId === targetUserId) || 
-        (targetUser.email && c.userEmail && c.userEmail.toLowerCase() === targetUser.email.toLowerCase())
+        (targetUser!.uid && c.userId && c.userId === targetUser!.uid) || 
+        (targetUser!.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim())
       );
       
       const userLoans = loans.filter(l => 
-        (targetUserId && l.userId && l.userId === targetUserId) || 
-        (targetUser.email && l.userEmail && l.userEmail.toLowerCase() === targetUser.email.toLowerCase())
+        (targetUser!.uid && l.userId && l.userId === targetUser!.uid) || 
+        (targetUser!.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim())
       );
 
-      const userLoanPayments = loanPayments.filter(p => 
-        (targetUserId && p.userId && p.userId === targetUserId) ||
-        (targetUser.email && p.userEmail && p.userEmail.toLowerCase() === targetUser.email.toLowerCase())
-      );
+      const userLoanPayments = loanPayments.filter(p => {
+        const parentLoan = loans.find(l => l.id === p.loanId);
+        if (parentLoan) {
+          const matchLoanUid = targetUser!.uid && parentLoan.userId && parentLoan.userId === targetUser!.uid;
+          const matchLoanEmail = targetUser!.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim();
+          if (matchLoanUid || matchLoanEmail) return true;
+        }
+        const matchDirectUid = targetUser!.uid && p.userId && p.userId === targetUser!.uid;
+        const matchDirectEmail = targetUser!.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim();
+        return matchDirectUid || matchDirectEmail;
+      });
 
-      console.log(`Found ${userContribs.length} contributions, ${userLoans.length} loans, and ${userLoanPayments.length} loan payments`);
-      
       // Header
-      doc.setFontSize(20);
-      doc.setTextColor(79, 70, 229); // Indigo-600
-      doc.text("UNNATI - Member Statement", 105, 20, { align: 'center' });
+      doc.setFontSize(22);
+      doc.setTextColor(30, 27, 75); // Indigo-950
+      doc.text("UNNATI TRUST (R)", 105, 18, { align: 'center' });
       
-      doc.setFontSize(10);
+      doc.setFontSize(13);
+      doc.setTextColor(79, 70, 229); // Indigo-600
+      doc.text("Member Financial Statement (Savings & Loans)", 105, 26, { align: 'center' });
+
+      doc.setFontSize(9);
       doc.setTextColor(100);
-      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 28, { align: 'center' });
+      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 33, { align: 'center' });
 
       // Member Info
-      doc.setFontSize(12);
-      doc.setTextColor(0);
-      doc.text(`Member Name: ${targetUser.displayName || 'N/A'}`, 20, 45);
-      doc.text(`Email: ${targetUser.email}`, 20, 52);
-      doc.text(`Join Date: ${targetUser.joinDate || 'N/A'}`, 20, 59);
-
-      // Summary
-      const totalSaved = userContribs.filter(c => c.status === 'paid').reduce((acc, c) => acc + (c.amount || 0), 0);
-      const totalLoanPaid = userLoanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.amount || 0), 0);
-      const totalInterestPaid = userLoanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + (p.interest || 0), 0);
-
-      doc.setDrawColor(200);
-      doc.line(20, 65, 190, 65);
+      doc.setFontSize(10.5);
+      doc.setTextColor(30);
       doc.setFont(undefined, 'bold');
-      doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString('en-IN')}`, 20, 75);
-      doc.text(`Total Loan Principal Paid: Rs. ${totalLoanPaid.toLocaleString('en-IN')}`, 20, 82);
-      doc.text(`Total Interest Paid: Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, 20, 89);
+      doc.text(`Member Name: ${targetUser.displayName || 'N/A'}`, 20, 44);
+      doc.text(`Email: ${targetUser.email}`, 20, 51);
+      doc.text(`Phone: ${targetUser.phoneNumber || (targetUser as any).phone || 'N/A'}`, 20, 58);
+      doc.text(`Join Date: ${targetUser.joinDate || 'N/A'}`, 120, 44);
+      doc.text(`Role: ${(targetUser.role || 'Member').toUpperCase()}`, 120, 51);
+      doc.setFont(undefined, 'normal');
+
+      // Calculations for Summary
+      const paidContribs = userContribs.filter(c => c.status === 'paid');
+      const totalSaved = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
+      const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
+      const totalSanctioned = sanctionedLoans.reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
+      const paidLoanPayments = userLoanPayments.filter(p => p.status === 'paid');
+      const totalLoanPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      const totalInterestPaid = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+      const outstandingPrincipal = Math.max(0, totalSanctioned - totalLoanPaid);
+
+      doc.setDrawColor(220);
+      doc.line(20, 64, 190, 64);
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(79, 70, 229);
+      doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString('en-IN')}`, 20, 72);
+      doc.setTextColor(30);
+      doc.text(`Total Loans Disbursed: Rs. ${totalSanctioned.toLocaleString('en-IN')}`, 120, 72);
+      doc.text(`Principal Repaid: Rs. ${totalLoanPaid.toLocaleString('en-IN')}`, 20, 80);
+      doc.text(`Interest Repaid: Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, 120, 80);
+      doc.setTextColor(outstandingPrincipal > 0 ? 180 : 30, outstandingPrincipal > 0 ? 30 : 30, outstandingPrincipal > 0 ? 30 : 30);
+      doc.text(`Outstanding Principal: Rs. ${outstandingPrincipal.toLocaleString('en-IN')}`, 20, 88);
       doc.setFont(undefined, 'normal');
 
       // Contributions Table
-      doc.text("Contribution History", 20, 105);
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(79, 70, 229);
+      doc.text("Contribution History", 20, 100);
+      doc.setFont(undefined, 'normal');
+
       const contributionRows = userContribs
         .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
-        .map(c => {
+        .map((c, idx) => {
           let monthName = 'N/A';
           try {
             if (c.year && c.month) {
@@ -4577,6 +4962,7 @@ export default function App() {
           }
 
           return [
+            `#${idx + 1}`,
             monthName,
             c.year || 'N/A',
             paymentDateTime,
@@ -4586,25 +4972,75 @@ export default function App() {
           ];
         });
 
+      if (contributionRows.length === 0) {
+        contributionRows.push(['-', 'No contributions recorded', '-', '-', '-', '-', '-']);
+      }
+
       autoTable(doc, {
-        startY: 110,
-        head: [['Month', 'Year', 'Date & Time', 'Payment Mode', 'Amount', 'Status']],
+        startY: 104,
+        head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Payment Mode', 'Amount', 'Status']],
         body: contributionRows,
         theme: 'striped',
         headStyles: { fillColor: [79, 70, 229] }
       });
 
-      // Loan Repayments Section
+      // Loans Summary Section
       let finalY = (doc as any).lastAutoTable?.finalY || 150;
-      if (userLoanPayments.length > 0) {
-        if (finalY > 240) {
+      if (userLoans.length > 0) {
+        if (finalY > 230) {
           doc.addPage();
           finalY = 20;
         }
-        doc.text("Loan Repayment History", 20, finalY + 15);
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(79, 70, 229);
+        doc.text("Sanctioned Loans Portfolio", 20, finalY + 12);
+        doc.setFont(undefined, 'normal');
+
+        const loanSummaryRows = userLoans.map((l, idx) => {
+          const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
+          const pPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+          const sanctionedAmt = l.approvedAmount || l.amount || 0;
+          const bal = Math.max(0, sanctionedAmt - pPaid);
+          const dateStr = l.approvedAt?.toDate ? format(l.approvedAt.toDate(), 'yyyy-MM-dd') : (l.createdAt?.toDate ? format(l.createdAt.toDate(), 'yyyy-MM-dd') : 'N/A');
+          return [
+            `Loan #${idx + 1}`,
+            dateStr,
+            `Rs. ${sanctionedAmt.toLocaleString('en-IN')}`,
+            `${l.interestRate ?? 1}%`,
+            `${l.installments || 10} Mos`,
+            `Rs. ${pPaid.toLocaleString('en-IN')}`,
+            `Rs. ${bal.toLocaleString('en-IN')}`,
+            (l.status || 'N/A').toUpperCase()
+          ];
+        });
+
+        autoTable(doc, {
+          startY: finalY + 16,
+          head: [['Loan #', 'Sanctioned Date', 'Sanctioned Amount', 'Interest', 'Tenure', 'Principal Paid', 'Pending Balance', 'Status']],
+          body: loanSummaryRows,
+          theme: 'grid',
+          headStyles: { fillColor: [79, 70, 229] }
+        });
+
+        finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
+      }
+
+      // Loan Repayments Section
+      if (userLoanPayments.length > 0) {
+        if (finalY > 230) {
+          doc.addPage();
+          finalY = 20;
+        }
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(16, 185, 129); // Emerald-600
+        doc.text("Loan Repayment History", 20, finalY + 12);
+        doc.setFont(undefined, 'normal');
+
         const loanPaymentRows = userLoanPayments
           .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
-          .map(p => {
+          .map((p, idx) => {
             let monthName = 'N/A';
             try {
               if (p.year && p.month) {
@@ -4624,54 +5060,39 @@ export default function App() {
               }
             }
 
+            const totalInstallment = (p.amount || 0) + (p.interest || 0);
+
             return [
+              `#${idx + 1}`,
               monthName,
               p.year || 'N/A',
               paymentDateTime,
-              (p.paymentMethod || 'N/A').toUpperCase(),
+              (p.paymentMethod || p.paymentMode || 'N/A').toUpperCase(),
               `Rs. ${(p.amount || 0).toLocaleString('en-IN')}`,
               `Rs. ${(p.interest || 0).toLocaleString('en-IN')}`,
+              `Rs. ${totalInstallment.toLocaleString('en-IN')}`,
               (p.status || 'N/A').toUpperCase()
             ];
           });
 
         autoTable(doc, {
-          startY: finalY + 20,
-          head: [['Month', 'Year', 'Date & Time', 'Payment Mode', 'Principal', 'Interest', 'Status']],
+          startY: finalY + 16,
+          head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Mode', 'Principal', 'Interest', 'Total Paid', 'Status']],
           body: loanPaymentRows,
           theme: 'striped',
           headStyles: { fillColor: [16, 185, 129] } // Emerald-600
         });
-        finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
       }
 
-      // Loans Summary Section
-      if (userLoans.length > 0) {
-        if (finalY > 240) {
-          doc.addPage();
-          finalY = 20;
-        }
-        doc.text("Loan Summary", 20, finalY + 15);
-        autoTable(doc, {
-          startY: finalY + 20,
-          head: [['Date & Time', 'Amount', 'Status']],
-          body: userLoans.map(l => [
-            l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy p') : 'N/A',
-            `Rs. ${(l.amount || 0).toLocaleString('en-IN')}`,
-            (l.status || 'N/A').toUpperCase()
-          ]),
-          theme: 'grid',
-          headStyles: { fillColor: [79, 70, 229] }
-        });
-      }
+      const safeName = (targetUser.displayName || targetUser.email.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `Unnati_Statement_${safeName}_${format(new Date(), 'yyyyMMdd')}.pdf`;
 
-      const fileName = `Unnati_Statement_${(targetUser.displayName || targetUser.email || 'Member').replace(/\s+/g, '_')}.pdf`;
       if (isMobileApp) {
         try {
           const base64Data = doc.output('datauristring').split(',')[1];
           const res = await downloadFileMobile(fileName, base64Data);
           if (res.success) {
-            notify('success', `PDF Statement saved locally. Check your Downloads or Documents folder.`);
+            notify('success', `PDF Statement saved locally as: ${fileName}`);
           } else {
             notify('error', "Could not download file directly. Attempting browser download...");
             doc.save(fileName);
@@ -4682,7 +5103,7 @@ export default function App() {
         }
       } else {
         doc.save(fileName);
-        notify('success', "Statement generated successfully!");
+        notify('success', `PDF Statement generated successfully: ${fileName}`);
       }
     } catch (err: any) {
       console.error("Failed to generate PDF statement:", err);
@@ -4803,7 +5224,29 @@ export default function App() {
       // Notify user
       createNotification(loan.userId, "Loan Approved", `Your loan of Rs. ${loan.amount} has been approved via ${selectedDisbursalMode}.`, 'loan');
 
-      notify('success', "Loan approved.");
+      // Automated WhatsApp notification to member on status change to 'approved'
+      const targetUser = allUsers.find(u => 
+        (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) ||
+        (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
+      );
+      const waResult = triggerLoanStatusWhatsAppNotification(
+        { ...loan, status: 'approved', approvedAmount: loan.amount, paymentMode: selectedDisbursalMode },
+        targetUser,
+        'approved',
+        { disbursalMode: selectedDisbursalMode, installments: Math.ceil(loan.amount / 5000) }
+      );
+      if (waResult.success) {
+        setPendingWhatsAppModal({
+          isOpen: true,
+          recipientName: waResult.recipientName,
+          phone: waResult.phone,
+          waUrl: waResult.waUrl,
+          message: waResult.message,
+          type: 'approved'
+        });
+      }
+
+      notify('success', "Loan approved & WhatsApp notification triggered.");
       setApprovingLoanForPaymentMode(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `loans/${loan.id}`);
@@ -4821,9 +5264,31 @@ export default function App() {
       const loan = loans.find(l => l.id === loanId);
       if (loan) {
         createNotification(loan.userId, "Loan Application Declined", `Your loan of Rs. ${loan.amount} has been declined. Reason: ${reason}`, 'loan');
+
+        // Automated WhatsApp notification to member on status change to 'declined'
+        const targetUser = allUsers.find(u => 
+          (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) ||
+          (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
+        );
+        const waResult = triggerLoanStatusWhatsAppNotification(
+          { ...loan, status: 'declined', declineReason: reason },
+          targetUser,
+          'declined',
+          { declineReason: reason }
+        );
+        if (waResult.success) {
+          setPendingWhatsAppModal({
+            isOpen: true,
+            recipientName: waResult.recipientName,
+            phone: waResult.phone,
+            waUrl: waResult.waUrl,
+            message: waResult.message,
+            type: 'declined'
+          });
+        }
       }
       
-      notify('success', "Loan application declined.");
+      notify('success', "Loan application declined & WhatsApp notification triggered.");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `loans/${loanId}`);
     }
@@ -5886,12 +6351,22 @@ export default function App() {
               </form>
             )}
             {!isAdmin && activeTab === 'contributions' && (
-              <button 
-                onClick={() => generateMemberStatement(user!.uid)}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-600 border border-indigo-100 rounded-2xl font-bold hover:bg-indigo-50 transition-all active:scale-95"
-              >
-                <FileDown className="w-5 h-5" /> PDF Statement
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button 
+                  onClick={() => generateMemberStatement(user!.uid)}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-white text-indigo-600 border border-indigo-100 rounded-2xl font-bold hover:bg-indigo-50 transition-all active:scale-95 shadow-xs cursor-pointer"
+                  title="Download PDF Financial Statement"
+                >
+                  <FileText className="w-5 h-5" /> PDF Statement
+                </button>
+                <button 
+                  onClick={() => exportMemberStatementToExcel(user!.uid)}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-2xl font-bold hover:bg-emerald-100 transition-all active:scale-95 shadow-xs cursor-pointer"
+                  title="Download Excel (.xlsx) Financial Statement"
+                >
+                  <FileSpreadsheet className="w-5 h-5" /> Excel Statement
+                </button>
+              </div>
             )}
             {isAdmin && activeTab === 'notices' && (
               <button 
@@ -6316,7 +6791,57 @@ export default function App() {
               </div>
 
               {!isMemberDetailsCollapsed && (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
+                <div className="space-y-4">
+                  {/* Visualization: 12-Month Contribution History Bar Chart */}
+                  <MemberContributionChart
+                    selectedMember={selectedMemberForChart}
+                    members={sortedMembers}
+                    contributions={contributions}
+                    loans={loans}
+                    loanPayments={loanPayments}
+                    onSelectMember={(m) => setSelectedMemberForChart(m)}
+                    onExportPDF={(m) => generateMemberStatement(m)}
+                    onExportExcel={(m) => exportMemberStatementToExcel(m)}
+                    currentMonth={currentMonth}
+                    currentYear={currentYear}
+                  />
+
+                  <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
+                  {/* Selected Member Quick Export Toolbar */}
+                  {(() => {
+                    const currentSelected = selectedMemberForChart || sortedMembers[0];
+                    if (!currentSelected) return null;
+                    return (
+                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-gradient-to-r from-indigo-50/70 via-slate-50 to-white border-b border-indigo-100">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-[10.5px] font-bold uppercase tracking-wider text-indigo-900/70">Selected Member:</span>
+                          <span className="font-bold text-slate-900 text-sm truncate">{currentSelected.displayName || currentSelected.email}</span>
+                          <span className="text-[11px] text-slate-500 font-medium hidden md:inline truncate">({currentSelected.email})</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500 font-medium hidden sm:inline">Export History:</span>
+                          <button
+                            type="button"
+                            onClick={() => generateMemberStatement(currentSelected)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
+                            title={`Export ${currentSelected.displayName || currentSelected.email}'s history as PDF`}
+                          >
+                            <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>PDF Statement</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => exportMemberStatementToExcel(currentSelected)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
+                            title={`Export ${currentSelected.displayName || currentSelected.email}'s history as Excel`}
+                          >
+                            <FileSpreadsheet className="w-3.5 h-3.5" />
+                            <span>Excel (.xlsx)</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {/* Desktop Table View */}
                   <div className="hidden lg:block w-full max-w-full overflow-hidden">
                     <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
@@ -6405,13 +6930,21 @@ export default function App() {
                       const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                         .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
                       
+                      const isSelectedForChart = selectedMemberForChart 
+                        ? ((selectedMemberForChart.uid && u.uid === selectedMemberForChart.uid) || (selectedMemberForChart.email && u.email.toLowerCase() === selectedMemberForChart.email.toLowerCase()))
+                        : idx === 0;
+
                       return (
                         <motion.tr 
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
                           key={`desktop-member-${u.id || u.uid || u.email.toLowerCase() || 'mem'}-${idx}`} 
-                          className="hover:bg-slate-50/60 transition-colors"
+                          className={cn(
+                            "hover:bg-slate-50/80 transition-colors cursor-pointer",
+                            isSelectedForChart && "bg-indigo-50/50"
+                          )}
+                          onClick={() => setSelectedMemberForChart(u)}
                         >
                           <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                             <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
@@ -6453,6 +6986,19 @@ export default function App() {
                           <td className="px-3 sm:px-3.5 py-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedMemberForChart(u);
+                                }}
+                                className={cn(
+                                  "p-1.5 rounded-lg transition-all",
+                                  isSelectedForChart ? "text-indigo-600 bg-indigo-100/90 font-bold shadow-2xs" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                )}
+                                title="View 12-Month Contribution History Chart"
+                              >
+                                <BarChart2 className="w-4 h-4" />
+                              </button>
+                              <button 
                                 onClick={() => toggleAdminRole(u)}
                                 className={cn(
                                   "p-1.5 rounded-lg transition-all",
@@ -6480,6 +7026,26 @@ export default function App() {
                                   </button>
                                 </>
                               )}
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  generateMemberStatement(u);
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+                                title="Export PDF Statement"
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  exportMemberStatementToExcel(u);
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all cursor-pointer"
+                                title="Export Excel (.xlsx) Statement"
+                              >
+                                <FileSpreadsheet className="w-4 h-4" />
+                              </button>
                               <button 
                                 onClick={() => {
                                   setSelectedLoanUserId(u.uid || u.email);
@@ -6561,13 +7127,20 @@ export default function App() {
                 const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                   .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
 
+                const isSelectedForChart = selectedMemberForChart 
+                  ? ((selectedMemberForChart.uid && u.uid === selectedMemberForChart.uid) || (selectedMemberForChart.email && u.email.toLowerCase() === selectedMemberForChart.email.toLowerCase()))
+                  : idx === 0;
+
                 return (
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
                     key={`mobile-member-${u.id || u.uid || u.email.toLowerCase() || 'mob'}-${idx}`}
-                    className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden"
+                    className={cn(
+                      "bg-white p-6 rounded-3xl border transition-all shadow-sm relative overflow-hidden",
+                      isSelectedForChart ? "border-2 border-indigo-400/90 shadow-indigo-100/50 ring-2 ring-indigo-100/60" : "border-slate-200"
+                    )}
                   >
                     <div className="absolute top-0 right-0 px-3 py-1 bg-slate-900 text-[10.5px] font-black text-white rounded-bl-xl border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
                       #{idx + 1}
@@ -6635,6 +7208,33 @@ export default function App() {
                       )}
                       <div className="w-full h-px bg-slate-100 my-1" />
                       <button 
+                        onClick={() => setSelectedMemberForChart(u)}
+                        className={cn(
+                          "p-2.5 rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1.5 text-xs font-bold",
+                          isSelectedForChart ? "bg-indigo-600 text-white shadow-2xs" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                        )}
+                        title="View 12-Month Contribution History Chart"
+                      >
+                        <BarChart2 className="w-4 h-4" />
+                        <span>Chart</span>
+                      </button>
+                      <button 
+                        onClick={() => generateMemberStatement(u)}
+                        className="p-2.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold"
+                        title="Export PDF Statement"
+                      >
+                        <FileText className="w-4 h-4 text-indigo-600" />
+                        <span>PDF</span>
+                      </button>
+                      <button 
+                        onClick={() => exportMemberStatementToExcel(u)}
+                        className="p-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold"
+                        title="Export Excel (.xlsx) Statement"
+                      >
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                        <span>Excel</span>
+                      </button>
+                      <button 
                         onClick={() => toggleAdminRole(u)}
                         className={cn(
                           "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold active:scale-95",
@@ -6690,6 +7290,7 @@ export default function App() {
                 );
               })}
             </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -10347,6 +10948,50 @@ export default function App() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                {/* Push Notification Opt-in / Status Card */}
+                {isPushSupported() && (
+                  <div className={cn(
+                    "p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all",
+                    pushPermission === 'granted'
+                      ? "bg-emerald-50/70 border-emerald-200"
+                      : "bg-indigo-50/70 border-indigo-200"
+                  )}>
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "p-2.5 rounded-xl shrink-0",
+                        pushPermission === 'granted' ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700"
+                      )}>
+                        <Bell className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-slate-900">
+                            {pushPermission === 'granted' ? 'Automated Push Notifications Active' : 'Enable Device Push Notifications'}
+                          </p>
+                          {pushPermission === 'granted' && (
+                            <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {pushPermission === 'granted'
+                            ? 'You receive instant device alerts for ₹1,000 monthly contributions (5th) and loan repayments (5th & 9th).'
+                            : 'Get alerted on the 5th for unrecorded ₹1,000 contributions & 5th/9th for loan repayments directly on your device.'}
+                        </p>
+                      </div>
+                    </div>
+                    {pushPermission !== 'granted' && (
+                      <button
+                        onClick={handleEnablePushNotifications}
+                        className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors shadow-sm self-start sm:self-auto cursor-pointer"
+                      >
+                        Enable Now
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Notices Section */}
                 <section>
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-1">Announcements</h4>
@@ -10564,6 +11209,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Automated Reminders & Alerts Hub Modal */}
         {showReminderConfirm && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
             <motion.div 
@@ -10571,32 +11217,314 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowReminderConfirm(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl p-8 text-center"
+              className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl p-7 border border-slate-100 flex flex-col max-h-[90vh] overflow-hidden"
             >
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                <Mail className="w-8 h-8" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Send Reminders?</h3>
-              <p className="text-slate-600 mb-8">This will send automated email reminders to all members who haven't paid for the current month.</p>
-              <div className="flex gap-3">
-                <button 
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shrink-0">
+                    <Bell className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-slate-900">Automated Alerts & Reminders</h3>
+                    <p className="text-xs text-slate-500">Scheduled checks & push notification dispatches</p>
+                  </div>
+                </div>
+                <button
                   onClick={() => setShowReminderConfirm(false)}
-                  className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all"
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
                 >
-                  Cancel
+                  <X className="w-5 h-5" />
                 </button>
-                <button 
-                  onClick={triggerAutomatedReminders}
-                  className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100"
+              </div>
+
+              {/* Navigation Tabs */}
+              <div className="flex bg-slate-100 p-1 rounded-2xl gap-1 mb-5">
+                <button
+                  onClick={() => setReminderModalTab('contrib5th')}
+                  className={cn(
+                    "flex-1 py-2 text-xs font-bold rounded-xl transition-all text-center cursor-pointer",
+                    reminderModalTab === 'contrib5th' ? "bg-white text-indigo-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                  )}
                 >
-                  Send Now
+                  5th Contribution Due
                 </button>
+                <button
+                  onClick={() => setReminderModalTab('loanDue')}
+                  className={cn(
+                    "flex-1 py-2 text-xs font-bold rounded-xl transition-all text-center cursor-pointer",
+                    reminderModalTab === 'loanDue' ? "bg-white text-indigo-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  Loan Repayment Due
+                </button>
+                <button
+                  onClick={() => setReminderModalTab('email1st')}
+                  className={cn(
+                    "flex-1 py-2 text-xs font-bold rounded-xl transition-all text-center cursor-pointer",
+                    reminderModalTab === 'email1st' ? "bg-white text-indigo-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                  )}
+                >
+                  Email (1st)
+                </button>
+              </div>
+
+              {/* Tab 1: 5th Monthly Contribution Push & In-App Alert */}
+              {reminderModalTab === 'contrib5th' && (
+                <div className="space-y-4 overflow-y-auto pr-1">
+                  <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200/80">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">Automated Rule</span>
+                      <span className="text-[10px] font-black bg-amber-200/70 text-amber-900 px-2 py-0.5 rounded-full">
+                        5th of Each Month (09:00 AM)
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      Sends automated push notifications and in-app alerts to members who haven't recorded their <strong>₹1,000 monthly contribution</strong> by the 5th of each month.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Members</p>
+                      <p className="text-2xl font-black text-slate-800">{allUsers.length}</p>
+                    </div>
+                    <div className="p-3.5 bg-red-50 rounded-2xl border border-red-100 text-center">
+                      <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider mb-1">Unrecorded for {format(new Date(), 'MMM')}</p>
+                      <p className="text-2xl font-black text-red-600">{membersUnpaidContributionCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600 space-y-1">
+                    <p className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      Active Channels: Device Web Push Notification + Firestore Bell Alert
+                    </p>
+                    <p className="text-[11px] text-slate-500 pl-5">
+                      Server cron automatically executes this on the 5th. You can also trigger an immediate dispatch below.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex gap-3">
+                    <button 
+                      onClick={() => setShowReminderConfirm(false)}
+                      className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button 
+                      onClick={trigger5thContributionCheck}
+                      disabled={isTriggeringContributionCheck}
+                      className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isTriggeringContributionCheck ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>Dispatching...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Bell className="w-3.5 h-3.5" />
+                          <span>Trigger 5th Alert Now</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Loan Repayment Due Alerts (5th and 9th) */}
+              {reminderModalTab === 'loanDue' && (
+                <div className="space-y-4 overflow-y-auto pr-1">
+                  <div className="p-4 bg-indigo-50/70 rounded-2xl border border-indigo-200/80">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider">Automated Due Cycle</span>
+                      <span className="text-[10px] font-black bg-indigo-200/70 text-indigo-900 px-2 py-0.5 rounded-full">
+                        5th & 9th of Every Month
+                      </span>
+                    </div>
+                    <p className="text-xs text-indigo-800 leading-relaxed">
+                      Sends automated 'Loan Repayment Due' push notifications & alerts on the <strong>5th</strong> and <strong>9th</strong> of each month to members who have an active loan and haven't recorded a payment for the current month.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Active Loans</p>
+                      <p className="text-2xl font-black text-slate-800">{loans.filter(l => l.status === 'approved').length}</p>
+                    </div>
+                    <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-100 text-center">
+                      <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">Pending Installment</p>
+                      <p className="text-2xl font-black text-amber-700">{activeLoansPendingCurrentMonth.length}</p>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600 space-y-1">
+                    <p className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      Two Automated Waves:
+                    </p>
+                    <p className="text-[11px] text-slate-500 pl-5">
+                      • <strong>5th of Month:</strong> Initial due alert reminding members to pay before 10th.
+                    </p>
+                    <p className="text-[11px] text-slate-500 pl-5">
+                      • <strong>9th of Month:</strong> Final urgent notice before late penalty charges start on the 10th.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex gap-2">
+                    <button 
+                      onClick={() => setShowReminderConfirm(false)}
+                      className="py-3 px-4 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button 
+                      onClick={() => triggerLoanDueCheck('5th')}
+                      disabled={isTriggeringLoanDueCheck}
+                      className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Bell className="w-3.5 h-3.5" />
+                      <span>Trigger 5th Alert</span>
+                    </button>
+                    <button 
+                      onClick={() => triggerLoanDueCheck('9th')}
+                      disabled={isTriggeringLoanDueCheck}
+                      className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs transition-all shadow-lg shadow-amber-100 flex items-center justify-center gap-1 disabled:opacity-50 cursor-pointer"
+                    >
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      <span>Trigger 9th Alert</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: 1st of Month Email Reminders */}
+              {reminderModalTab === 'email1st' && (
+                <div className="space-y-4 overflow-y-auto pr-1">
+                  <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                    <Mail className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-base font-bold text-slate-900 text-center">Monthly Email Reminders</h4>
+                  <p className="text-xs text-slate-600 text-center leading-relaxed">
+                    This triggers email reminders via SMTP to all members who have not yet paid their ₹1,000 contribution for {format(new Date(), 'MMMM yyyy')}.
+                  </p>
+
+                  <div className="pt-2 flex gap-3">
+                    <button 
+                      onClick={() => setShowReminderConfirm(false)}
+                      className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={triggerAutomatedReminders}
+                      disabled={isTriggeringReminders}
+                      className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold text-xs hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isTriggeringReminders ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>Send Emails Now</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+
+        {/* Automated WhatsApp Loan Status Modal */}
+        {pendingWhatsAppModal && (
+          <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPendingWhatsAppModal(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-7 border border-emerald-100"
+            >
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                  <MessageSquare className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-slate-900 text-lg">WhatsApp Status Update</h3>
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider",
+                      pendingWhatsAppModal.type === 'approved' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                    )}>
+                      {pendingWhatsAppModal.type === 'approved' ? 'Approved' : 'Declined'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">Automated notification prepared for member</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-2 mb-5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Recipient</span>
+                  <span className="font-extrabold text-slate-800">{pendingWhatsAppModal.recipientName}</span>
+                </div>
+                {pendingWhatsAppModal.phone && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Phone (WhatsApp)</span>
+                    <span className="font-mono font-bold text-emerald-600">+{pendingWhatsAppModal.phone}</span>
+                  </div>
+                )}
+                <div className="pt-2 border-t border-slate-200/60">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Message Preview</p>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 font-mono whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
+                    {pendingWhatsAppModal.message}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPendingWhatsAppModal(null)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+                {pendingWhatsAppModal.waUrl ? (
+                  <a
+                    href={pendingWhatsAppModal.waUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={() => setPendingWhatsAppModal(null)}
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Open in WhatsApp</span>
+                  </a>
+                ) : (
+                  <button
+                    disabled
+                    className="flex-1 py-3 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold"
+                  >
+                    No Phone Available
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
@@ -11544,30 +12472,83 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl p-6 sm:p-8"
+              className="relative bg-white w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-3xl shadow-2xl p-5 sm:p-7 border border-slate-100"
             >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">Apply for Loan</h2>
-              <div className="space-y-6">
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold shrink-0 shadow-xs">
+                    <Calculator className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Apply for Loan</h2>
+                    <p className="text-xs text-slate-500 font-medium">Calculate EMI & submit loan application</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsApplyingLoan(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                {/* Loan Amount Input & Presets */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Required Amount (Max ₹50,000)</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Required Amount <span className="text-slate-400 font-normal">(Max ₹50,000)</span>
+                    </label>
+                    <span className="text-xs font-black text-indigo-600">
+                      ₹{Number(loanAmount || 0).toLocaleString('en-IN')}
+                    </span>
+                  </div>
                   <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">₹</span>
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-lg">₹</span>
                     <input 
                       type="number"
                       max={50000}
-                      value={loanAmount}
-                      onChange={(e) => setLoanAmount(Math.min(50000, Number(e.target.value)))}
-                      className="w-full pl-8 pr-4 py-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold text-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                      min={1000}
+                      step={1000}
+                      value={loanAmount || ''}
+                      onChange={(e) => setLoanAmount(Math.min(50000, Math.max(0, Number(e.target.value))))}
+                      placeholder="Enter amount (e.g. 10000)"
+                      className="w-full pl-9 pr-4 py-3 sm:py-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-black text-xl sm:text-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
                     />
                   </div>
-                  <div className="mt-4 flex gap-2">
-                    {[10000, 25000, 50000].map(amt => (
+
+                  {/* Range Slider */}
+                  <div className="mt-3 px-1">
+                    <input 
+                      type="range"
+                      min={2000}
+                      max={50000}
+                      step={1000}
+                      value={loanAmount}
+                      onChange={(e) => setLoanAmount(Number(e.target.value))}
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-400 font-bold mt-1">
+                      <span>₹2,000</span>
+                      <span>₹25,000</span>
+                      <span>₹50,000</span>
+                    </div>
+                  </div>
+
+                  {/* Quick Select Chips */}
+                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                    {[5000, 10000, 20000, 25000, 50000].map(amt => (
                       <button 
                         key={`apply-loan-quick-amt-${amt}`}
+                        type="button"
                         onClick={() => setLoanAmount(amt)}
                         className={cn(
-                          "px-4 py-2 rounded-xl text-xs font-bold transition-all",
-                          loanAmount === amt ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          "px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer",
+                          loanAmount === amt 
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-xs" 
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                         )}
                       >
                         ₹{amt.toLocaleString('en-IN')}
@@ -11576,36 +12557,206 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Interactive Loan Calculator Tool */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-slate-50 border-2 border-indigo-200/80 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <Calculator className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                        Projected EMI & Repayment Calculator
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                      0.5% Monthly Reducing
+                    </span>
+                  </div>
+
+                  {/* Tenure Selection */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                        Repayment Tenure: <span className="text-indigo-600">{loanTenure} Months</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-medium">Standard is 10 Months</span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {[6, 10, 12, 15, 20].map((t) => (
+                        <button
+                          key={`calc-tenure-${t}`}
+                          type="button"
+                          onClick={() => setLoanTenure(t)}
+                          className={cn(
+                            "py-1.5 px-1 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer",
+                            loanTenure === t
+                              ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                          )}
+                        >
+                          {t}M {t === 10 ? '★' : ''}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 4 Projected Key Metric Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {/* Monthly Principal */}
+                    <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200/90 shadow-2xs">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">Principal / Mo</p>
+                      <p className="text-sm sm:text-base font-black text-slate-900 mt-0.5 truncate">
+                        ₹{loanProjection.monthlyPrincipal.toLocaleString('en-IN')}
+                      </p>
+                      <p className="text-[9.5px] text-slate-400 mt-0.5 truncate">{loanTenure} installments</p>
+                    </div>
+
+                    {/* 1st Month Payment */}
+                    <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-indigo-200/90 shadow-2xs bg-gradient-to-b from-indigo-50/30 to-white">
+                      <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider truncate">1st Month EMI</p>
+                      <p className="text-sm sm:text-base font-black text-indigo-600 mt-0.5 truncate">
+                        ₹{loanProjection.firstMonthPayment.toLocaleString('en-IN')}
+                      </p>
+                      <p className="text-[9.5px] text-indigo-500/80 mt-0.5 truncate">Peak payment</p>
+                    </div>
+
+                    {/* Total Interest */}
+                    <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-purple-200/90 shadow-2xs bg-gradient-to-b from-purple-50/30 to-white">
+                      <p className="text-[10px] font-bold text-purple-600 uppercase tracking-wider truncate">Total Interest</p>
+                      <p className="text-sm sm:text-base font-black text-purple-700 mt-0.5 truncate">
+                        ₹{loanProjection.totalInterest.toLocaleString('en-IN')}
+                      </p>
+                      <p className="text-[9.5px] text-purple-500/80 mt-0.5 truncate">Over full term</p>
+                    </div>
+
+                    {/* Total Repayable */}
+                    <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-emerald-200/90 shadow-2xs bg-gradient-to-b from-emerald-50/30 to-white">
+                      <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider truncate">Total Due</p>
+                      <p className="text-sm sm:text-base font-black text-emerald-700 mt-0.5 truncate">
+                        ₹{loanProjection.totalRepayable.toLocaleString('en-IN')}
+                      </p>
+                      <p className="text-[9.5px] text-emerald-600/80 mt-0.5 truncate">P + Interest</p>
+                    </div>
+                  </div>
+
+                  {/* Toggle Full Month-by-Month Schedule */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowLoanCalculatorSchedule(!showLoanCalculatorSchedule)}
+                      className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-slate-50 border border-indigo-200/80 rounded-xl text-xs font-bold text-indigo-700 transition-colors shadow-2xs cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Table className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>{showLoanCalculatorSchedule ? 'Hide' : 'View'} Month-by-Month Projected Schedule ({loanTenure} Months)</span>
+                      </div>
+                      <ChevronDown className={cn("w-4 h-4 text-indigo-500 transition-transform duration-200", showLoanCalculatorSchedule && "rotate-180")} />
+                    </button>
+
+                    {showLoanCalculatorSchedule && (
+                      <div className="mt-2.5 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                        <div className="max-h-56 overflow-y-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 bg-slate-50/95 backdrop-blur-xs">
+                              <tr>
+                                <th className="py-2 px-2.5">Month</th>
+                                <th className="py-2 px-2 text-right">Principal</th>
+                                <th className="py-2 px-2 text-right">Interest (0.5%)</th>
+                                <th className="py-2 px-2 text-right">Monthly Due</th>
+                                <th className="py-2 px-2.5 text-right">Balance</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                              {loanProjection.schedule.map((row) => (
+                                <tr 
+                                  key={`apply-calc-row-${row.month}`}
+                                  className={cn(
+                                    "hover:bg-slate-50/80 transition-colors",
+                                    row.month === 1 && "bg-indigo-50/30",
+                                    row.month === loanTenure && "bg-emerald-50/30"
+                                  )}
+                                >
+                                  <td className="py-1.5 px-2.5 font-bold text-slate-900">
+                                    Month {row.month}
+                                    {row.month === 1 && <span className="ml-1 text-[9px] text-indigo-600 font-semibold">(1st)</span>}
+                                    {row.month === loanTenure && <span className="ml-1 text-[9px] text-emerald-600 font-semibold">(Last)</span>}
+                                  </td>
+                                  <td className="py-1.5 px-2 text-right">₹{row.principalPayment.toLocaleString('en-IN')}</td>
+                                  <td className="py-1.5 px-2 text-right text-indigo-600 font-semibold">₹{row.interestPayment.toLocaleString('en-IN')}</td>
+                                  <td className="py-1.5 px-2 text-right font-black text-slate-900">₹{row.totalPayment.toLocaleString('en-IN')}</td>
+                                  <td className="py-1.5 px-2.5 text-right font-bold text-slate-500">
+                                    {row.closingBalance > 0 ? `₹${row.closingBalance.toLocaleString('en-IN')}` : '₹0'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot className="bg-slate-100/90 border-t border-slate-200 text-xs font-black text-slate-900">
+                              <tr>
+                                <td className="py-2 px-2.5">Total</td>
+                                <td className="py-2 px-2 text-right">₹{loanProjection.principal.toLocaleString('en-IN')}</td>
+                                <td className="py-2 px-2 text-right text-indigo-600">₹{loanProjection.totalInterest.toLocaleString('en-IN')}</td>
+                                <td className="py-2 px-2 text-right text-emerald-700">₹{loanProjection.totalRepayable.toLocaleString('en-IN')}</td>
+                                <td className="py-2 px-2.5 text-right text-slate-500">-</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                        <p className="p-2 text-[10px] text-slate-400 text-center border-t border-slate-100 bg-slate-50/50">
+                          *Installments are due between the 1st and 10th of every month. Reducing interest rate is 0.5% monthly.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Details (Optional) */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Details (Optional)</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                    Details / Purpose <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
                   <textarea 
                     value={loanDetails}
                     onChange={(e) => setLoanDetails(e.target.value)}
-                    placeholder="Reason for loan..."
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none h-32 resize-none"
+                    placeholder="Briefly describe the purpose of this loan request..."
+                    className="w-full p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none h-24 resize-none transition-all text-sm"
                   />
                 </div>
 
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                {/* Admin Verification Notice */}
+                <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200/80 flex items-start gap-3">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-800 leading-relaxed font-medium">
-                    Loan approval is subject to group admin verification. Interest rate is <span className="font-bold">0.5% monthly</span>.
+                    Loan applications are reviewed by Trust administrators. Upon approval, funds are disbursed via selected payment mode and monthly repayment begins the following month.
                   </p>
                 </div>
 
-                <div className="flex gap-3 pt-4">
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-2">
                   <button 
-                    onClick={() => setIsApplyingLoan(false)}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                    type="button"
+                    onClick={() => {
+                      setIsApplyingLoan(false);
+                      setShowLoanCalculatorSchedule(false);
+                    }}
+                    className="flex-1 py-3.5 text-slate-600 font-bold hover:bg-slate-100 rounded-2xl transition-all cursor-pointer text-sm"
                   >
                     Cancel
                   </button>
                   <button 
+                    type="button"
                     onClick={applyLoan}
-                    disabled={isSubmittingLoan || loanAmount <= 0}
-                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50"
+                    disabled={isSubmittingLoan || !loanAmount || loanAmount <= 0}
+                    className="flex-2 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2 text-sm"
                   >
-                    {isSubmittingLoan ? 'Submitting...' : 'Submit Application'}
+                    {isSubmittingLoan ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Submitting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Calculator className="w-4 h-4" />
+                        <span>Submit Loan (₹{Number(loanAmount || 0).toLocaleString('en-IN')})</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

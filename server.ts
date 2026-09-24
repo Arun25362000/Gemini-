@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 import admin from 'firebase-admin';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { initializeApp as initializeClientApp, getApps as getClientApps, getApp as getClientApp } from 'firebase/app';
-import { initializeFirestore, collection, getDocs, query, where, limit, doc, updateDoc } from 'firebase/firestore';
+import { initializeFirestore, collection, getDocs, query, where, limit, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { readFileSync, existsSync } from 'fs';
 import * as XLSX from 'xlsx';
 
@@ -316,6 +316,197 @@ async function sendMonthlyReminders() {
 cron.schedule('0 9 1 * *', () => {
   sendMonthlyReminders();
 });
+
+// Automated push notification & alert service for monthly contribution (5th of month)
+async function sendContributionDue5thReminders() {
+  console.log('[Automation] Running 5th-of-month contribution due notifications check...');
+  const { type, db } = await getDb();
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const monthName = now.toLocaleString('default', { month: 'long' });
+
+  try {
+    let users: any[] = [];
+    if (type === 'admin') {
+      const snap = await (db as admin.firestore.Firestore).collection('users').get();
+      users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } else {
+      const snap = await getDocs(collection(db as any, 'users'));
+      users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+
+    let paidUserIds = new Set<string>();
+    let paidUserEmails = new Set<string>();
+    if (type === 'admin') {
+      const snap = await (db as admin.firestore.Firestore).collection('contributions')
+        .where('month', '==', currentMonth)
+        .where('year', '==', currentYear)
+        .where('status', '==', 'paid')
+        .get();
+      paidUserIds = new Set(snap.docs.map(d => d.data().userId).filter(Boolean));
+      paidUserEmails = new Set(snap.docs.map(d => (d.data().userEmail || '').toLowerCase().trim()).filter(Boolean));
+    } else {
+      const q = query(
+        collection(db as any, 'contributions'),
+        where('month', '==', currentMonth),
+        where('year', '==', currentYear),
+        where('status', '==', 'paid')
+      );
+      const snap = await getDocs(q);
+      paidUserIds = new Set(snap.docs.map(d => d.data().userId).filter(Boolean));
+      paidUserEmails = new Set(snap.docs.map(d => (d.data().userEmail || '').toLowerCase().trim()).filter(Boolean));
+    }
+
+    let notifiedCount = 0;
+    for (const u of users) {
+      const uid = u.uid || u.id;
+      const email = (u.email || '').toLowerCase().trim();
+      const hasPaid = (uid && paidUserIds.has(uid)) || (email && paidUserEmails.has(email));
+
+      if (!hasPaid && uid) {
+        const title = 'Monthly Contribution Due (₹1,000)';
+        const message = `Reminder: Your ₹1,000 monthly contribution for ${monthName} ${currentYear} has not been recorded by the 5th. Please record payment before the 10th to avoid late fees.`;
+
+        if (type === 'admin') {
+          await (db as admin.firestore.Firestore).collection('notifications').add({
+            userId: uid,
+            title,
+            message,
+            type: 'payment',
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            link: '/'
+          });
+        } else {
+          await addDoc(collection(db as any, 'notifications'), {
+            userId: uid,
+            title,
+            message,
+            type: 'payment',
+            read: false,
+            createdAt: serverTimestamp(),
+            link: '/'
+          });
+        }
+        notifiedCount++;
+      }
+    }
+
+    console.log(`[Automation] 5th-of-month contribution check complete: ${notifiedCount} members alerted.`);
+    return { success: true, notifiedCount, totalMembers: users.length };
+  } catch (err: any) {
+    console.error('[Automation] Error in sendContributionDue5thReminders:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+// Automated notification feature for 'Loan Repayment Due' (5th and 9th of month)
+async function sendLoanRepaymentDueReminders(cycle: '5th' | '9th' = '5th') {
+  console.log(`[Automation] Running ${cycle} Loan Repayment Due check...`);
+  const { type, db } = await getDb();
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+  const monthName = now.toLocaleString('default', { month: 'long' });
+
+  try {
+    let loans: any[] = [];
+    let payments: any[] = [];
+
+    if (type === 'admin') {
+      const adminDb = db as admin.firestore.Firestore;
+      const loansSnap = await adminDb.collection('loans').where('status', '==', 'approved').get();
+      loans = loansSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const paymentsSnap = await adminDb.collection('loanPayments')
+        .where('month', '==', currentMonth)
+        .where('year', '==', currentYear)
+        .get();
+      payments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } else {
+      const loansSnap = await getDocs(query(collection(db as any, 'loans'), where('status', '==', 'approved')));
+      loans = loansSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      const paymentsSnap = await getDocs(query(
+        collection(db as any, 'loanPayments'),
+        where('month', '==', currentMonth),
+        where('year', '==', currentYear)
+      ));
+      payments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+
+    const paidLoanIds = new Set(payments.map(p => p.loanId).filter(Boolean));
+    const paidUserIds = new Set(payments.map(p => p.userId).filter(Boolean));
+    const paidUserEmails = new Set(payments.map(p => (p.userEmail || '').toLowerCase().trim()).filter(Boolean));
+
+    let alertedCount = 0;
+    for (const loan of loans) {
+      const loanId = loan.id;
+      const loanUserId = loan.userId;
+      const loanUserEmail = (loan.userEmail || '').toLowerCase().trim();
+
+      const hasPaid = (loanId && paidLoanIds.has(loanId)) ||
+        (loanUserId && paidUserIds.has(loanUserId)) ||
+        (loanUserEmail && paidUserEmails.has(loanUserEmail));
+
+      if (!hasPaid && loanUserId) {
+        const title = cycle === '9th'
+          ? 'Loan Repayment Due - Final Alert (9th of Month)'
+          : 'Loan Repayment Due (5th of Month)';
+
+        const message = cycle === '9th'
+          ? `Urgent Notice: Your Unnati loan repayment for ${monthName} ${currentYear} is due. Please pay today to avoid late fees starting tomorrow (10th).`
+          : `Reminder: Your monthly Unnati loan repayment for ${monthName} ${currentYear} is due. Please record your installment before the 10th.`;
+
+        if (type === 'admin') {
+          await (db as admin.firestore.Firestore).collection('notifications').add({
+            userId: loanUserId,
+            title,
+            message,
+            type: 'loan',
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            link: '/loans'
+          });
+        } else {
+          await addDoc(collection(db as any, 'notifications'), {
+            userId: loanUserId,
+            title,
+            message,
+            type: 'loan',
+            read: false,
+            createdAt: serverTimestamp(),
+            link: '/loans'
+          });
+        }
+        alertedCount++;
+      }
+    }
+
+    console.log(`[Automation] ${cycle} Loan Repayment Due check complete: ${alertedCount} members alerted.`);
+    return { success: true, cycle, alertedCount, totalActiveLoans: loans.length };
+  } catch (err: any) {
+    console.error(`[Automation] Error in sendLoanRepaymentDueReminders (${cycle}):`, err);
+    return { success: false, message: err.message };
+  }
+}
+
+// Schedule task on the 5th of every month at 9:00 AM:
+// Alerts members missing monthly contribution (₹1,000) and members with loan repayment due
+cron.schedule('0 9 5 * *', async () => {
+  console.log('[Cron] 5th of month trigger: Running automated contribution & loan repayment checks...');
+  await sendContributionDue5thReminders();
+  await sendLoanRepaymentDueReminders('5th');
+});
+
+// Schedule task on the 9th of every month at 9:00 AM:
+// Alerts members with active loan without current month payment (final reminder before 10th)
+cron.schedule('0 9 9 * *', async () => {
+  console.log('[Cron] 9th of month trigger: Running automated 2nd loan repayment due check...');
+  await sendLoanRepaymentDueReminders('9th');
+});
+
 
 // Helper to generate Excel Buffer and Mail Options from Data
 async function generateBackupMail(data: {
@@ -722,6 +913,30 @@ async function startServer() {
       res.status(500).json({ message: 'Internal server error: ' + err.message });
     }
   });
+
+  // Manual trigger for 5th of month contribution check
+  app.post('/api/admin/trigger-5th-contribution-check', async (req, res) => {
+    try {
+      const result = await sendContributionDue5thReminders();
+      res.json(result);
+    } catch (err: any) {
+      console.error('API Error in trigger-5th-contribution-check:', err);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Manual trigger for loan repayment due check (5th or 9th)
+  app.post('/api/admin/trigger-loan-due-check', async (req, res) => {
+    try {
+      const cycle = req.body.cycle === '9th' ? '9th' : '5th';
+      const result = await sendLoanRepaymentDueReminders(cycle);
+      res.json(result);
+    } catch (err: any) {
+      console.error('API Error in trigger-loan-due-check:', err);
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
 
   // New endpoint to receive data from client and send backup email
   app.post('/api/admin/send-backup-report-data', async (req, res) => {

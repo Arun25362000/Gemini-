@@ -108,3 +108,49 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+// Push Notification Event Listener
+self.addEventListener('push', (event) => {
+  let title = 'Unnati Finance';
+  let options = {
+    body: 'You have a new update from Unnati Finance.',
+    icon: '/brand-unnati-official.png',
+    badge: '/brand-unnati-official.png',
+    data: { url: '/' },
+    vibrate: [100, 50, 100],
+    requireInteraction: false
+  };
+
+  if (event.data) {
+    try {
+      const payload = event.data.json();
+      if (payload.title) title = payload.title;
+      if (payload.message || payload.body) options.body = payload.message || payload.body;
+      if (payload.link || payload.url) options.data = { url: payload.link || payload.url };
+    } catch (e) {
+      options.body = event.data.text();
+    }
+  }
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Notification Click Event Listener
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
+

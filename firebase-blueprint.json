@@ -61,6 +61,21 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["loanId", "userId", "month", "year", "amount", "interest", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Push and in-app notifications for contributions, loans, and system alerts.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["loan", "payment", "notice", "system"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "link": { "type": "string" }
+      },
+      "required": ["userId", "title", "message", "type", "read"]
     }
   },
   "firestore": {
@@ -79,6 +94,10 @@
     "/loanPayments/{paymentId}": {
       "schema": "LoanPayment",
       "description": "Monthly loan repayment records."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "In-app and push notifications for users."
     }
   }
 }

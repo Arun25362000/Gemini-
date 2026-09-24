@@ -44,17 +44,20 @@ jobs:
       - name: Build Web Assets
         run: npm run build
 
-      - name: Sync Capacitor
+      - name: Clean Stale Android Assets & Sync Capacitor
         env:
           CI: true
-        run: npx cap sync android
+        run: |
+          rm -rf android/app/src/main/assets/public/*
+          npx cap sync android
+          rm -f android/app/src/main/assets/public/server.cjs android/app/src/main/assets/public/server.cjs.map
 
       - name: Grant Execute Permission to Gradle Wrapper
         run: chmod +x android/gradlew
 
       - name: Build Debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace -Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
