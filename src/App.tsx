@@ -42,6 +42,7 @@ import {
   triggerLoanStatusWhatsAppNotification,
   checkAndTriggerMonthlyContributionPushReminder,
   checkAndTriggerLoanRepaymentDuePushReminder,
+  isExemptAdministrator,
 } from './lib/pushNotificationService';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -105,7 +106,6 @@ import Graphs from './components/Graphs';
 import { ReportsTab } from './components/ReportsTab';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
-import { MemberContributionChart } from './components/MemberContributionChart';
 import { format } from 'date-fns';
 import { cn, getAppAvailableYears } from './lib/utils';
 import jsPDF from 'jspdf';
@@ -468,7 +468,6 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [paymentDate, setPaymentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [selectedMemberForChart, setSelectedMemberForChart] = useState<UserProfile | null>(null);
   const [customAmount, setCustomAmount] = useState<number>(1000);
   const [customFine, setCustomFine] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
@@ -497,14 +496,14 @@ export default function App() {
   const [adminLoanPaymentMode, setAdminLoanPaymentMode] = useState<'Online' | 'Cash'>('Online');
   const [isSubmittingAdminLoan, setIsSubmittingAdminLoan] = useState(false);
   const [loanDate, setLoanDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
+  const [filterYear, setFilterYear] = useState<number | 'all'>(new Date().getFullYear());
   const [repaymentMonth, setRepaymentMonth] = useState(new Date().getMonth() + 1);
   const [repaymentYear, setRepaymentYear] = useState(new Date().getFullYear());
   const [collectionMonth, setCollectionMonth] = useState(new Date().getMonth() + 1);
   const [collectionYear, setCollectionYear] = useState(new Date().getFullYear());
   const [graphsYear, setGraphsYear] = useState<number>(Math.max(2026, new Date().getFullYear()));
-  const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number } | null>(null);
+  const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number | 'all' } | null>({ month: 'all', year: new Date().getFullYear() });
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
@@ -517,6 +516,7 @@ export default function App() {
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
   const [isMemberActionsCollapsed, setIsMemberActionsCollapsed] = useState<boolean>(false);
   const [isMemberDetailsCollapsed, setIsMemberDetailsCollapsed] = useState<boolean>(false);
+  const [filterActiveLoansOnly, setFilterActiveLoansOnly] = useState<boolean>(false);
 
   const [deletingRepaymentId, setDeletingRepaymentId] = useState<string | null>(null);
 
@@ -868,7 +868,38 @@ export default function App() {
   } | null>(null);
   const [isTriggeringContributionCheck, setIsTriggeringContributionCheck] = useState(false);
   const [isTriggeringLoanDueCheck, setIsTriggeringLoanDueCheck] = useState(false);
-  const [reminderModalTab, setReminderModalTab] = useState<'contrib5th' | 'loanDue' | 'email1st'>('contrib5th');
+  const [reminderModalTab, setReminderModalTab] = useState<'contrib5th' | 'loanDue' | 'email5th'>('contrib5th');
+
+  const isAdmin = isLocalAdmin || (!!user && (profile?.role === 'admin' || (!!user.email && ADMIN_EMAILS.includes(user.email.toLowerCase()))));
+  const isSystemAdmin = user?.email?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase();
+  const isUserAdminExempt = isAdmin || isSystemAdmin || isExemptAdministrator({ ...user, role: profile?.role });
+
+  // Clean up any legacy reminder notifications for administrator unnati
+  useEffect(() => {
+    if (isUserAdminExempt && user && notifications.length > 0) {
+      notifications.forEach(n => {
+        const isReminder = 
+          (n.type === 'payment' || n.type === 'loan') && 
+          ((n.title && (n.title.toLowerCase().includes('due') || n.title.toLowerCase().includes('reminder'))) || 
+           (n.message && (n.message.toLowerCase().includes('reminder') || n.message.toLowerCase().includes('due') || n.message.toLowerCase().includes('₹1,000'))));
+        if (isReminder && !n.read && n.id) {
+          updateDoc(doc(db, 'notifications', n.id), { read: true }).catch(() => {});
+        }
+      });
+    }
+  }, [isUserAdminExempt, user, notifications]);
+
+  // Visible notifications filtering out reminder alerts for administrator unnati
+  const visibleNotifications = useMemo(() => {
+    if (!isUserAdminExempt) return notifications;
+    return notifications.filter(n => {
+      const isReminder = 
+        (n.type === 'payment' || n.type === 'loan') && 
+        ((n.title && (n.title.toLowerCase().includes('due') || n.title.toLowerCase().includes('reminder'))) || 
+         (n.message && (n.message.toLowerCase().includes('reminder') || n.message.toLowerCase().includes('due') || n.message.toLowerCase().includes('₹1,000'))));
+      return !isReminder;
+    });
+  }, [notifications, isUserAdminExempt]);
 
   const [activeNoticeToast, setActiveNoticeToast] = useState<Notice | null>(null);
   const [activeNotificationToast, setActiveNotificationToast] = useState<AppNotification | null>(null);
@@ -911,11 +942,21 @@ export default function App() {
     }
   }, [notices, user]);
 
-  // Notification Toast & Browser Push Trigger
+  // Notification Toast & Browser Push Trigger (strictly suppressing reminders for administrator unnati)
   useEffect(() => {
     if (notifications.length > 0 && user) {
       const latest = notifications[0];
       const lastSeenId = localStorage.getItem(`last_seen_notification_${user.uid}`);
+
+      const isReminder = 
+        latest.type === 'payment' || 
+        latest.type === 'loan' || 
+        (latest.title && (latest.title.toLowerCase().includes('contribution') || latest.title.toLowerCase().includes('repayment') || latest.title.toLowerCase().includes('reminder') || latest.title.toLowerCase().includes('due'))) ||
+        (latest.message && (latest.message.toLowerCase().includes('contribution') || latest.message.toLowerCase().includes('repayment') || latest.message.toLowerCase().includes('reminder') || latest.message.toLowerCase().includes('before the 10th')));
+
+      if (isUserAdminExempt && isReminder) {
+        return;
+      }
       
       if (latest.id !== lastSeenId && !latest.read) {
         setActiveNotificationToast(latest);
@@ -930,17 +971,19 @@ export default function App() {
         return () => clearTimeout(timer);
       }
     }
-  }, [notifications, user]);
+  }, [notifications, user, isUserAdminExempt]);
 
   // Automated Push Notification Service for members:
-  // 1. Monthly contribution (₹1,000) check on/after 5th of current month
-  // 2. Loan repayment due alerts on 5th and 9th of every month for active loans
+  // Strictly between dates 1st to 10th of every month:
+  // 1. Monthly contribution (₹1,000) check ONLY on 5th of current month
+  // 2. Loan repayment due alerts ONLY on 5th and 9th of every month for active loans
+  // Administrator unnati is strictly excluded and never receives reminders.
   useEffect(() => {
-    if (!user || loading) return;
+    if (!user || loading || isUserAdminExempt) return;
 
-    // Check & trigger monthly contribution push reminder (₹1,000 unrecorded by 5th)
+    // Check & trigger monthly contribution push reminder (₹1,000 unrecorded on 5th)
     checkAndTriggerMonthlyContributionPushReminder(
-      user,
+      { ...user, role: profile?.role },
       contributions,
       db,
       createNotification
@@ -952,7 +995,7 @@ export default function App() {
 
     // Check & trigger Loan Repayment Due alert (5th and 9th of month for active loans)
     checkAndTriggerLoanRepaymentDuePushReminder(
-      user,
+      { ...user, role: profile?.role },
       loans,
       loanPayments,
       db,
@@ -962,14 +1005,12 @@ export default function App() {
         console.log(`[Push Service] ${res.cycle} loan repayment due alert sent to member.`);
       }
     });
-  }, [user, loading, contributions.length, loans.length, loanPayments.length]);
+  }, [user, loading, isUserAdminExempt, profile?.role, contributions.length, loans.length, loanPayments.length]);
 
   const notify = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 5000);
   };
-
-  const isAdmin = isLocalAdmin || (!!user && (profile?.role === 'admin' || (!!user.email && ADMIN_EMAILS.includes(user.email.toLowerCase()))));
 
   // Safety timeout for loading state
   useEffect(() => {
@@ -993,9 +1034,18 @@ export default function App() {
     (user?.uid && c.userId === user.uid) || 
     (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())
   );
+
+  const availableContributionYears = useMemo(() => {
+    const yearsSet = new Set<number>(getAppAvailableYears());
+    contributions.forEach(c => {
+      if (c.year && typeof c.year === 'number' && c.year > 2000) {
+        yearsSet.add(c.year);
+      }
+    });
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  }, [contributions]);
   const currentMonth = new Date().getMonth() + 1;
   const currentYear = new Date().getFullYear();
-  const isSystemAdmin = user?.email?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase();
 
   const adminCurrentMonthTotalReceived = useMemo(() => {
     const paidContributionsCurrentMonth = contributions
@@ -1086,7 +1136,10 @@ export default function App() {
     if (!appliedFilter) return [];
     
     let items = (isAdmin ? contributions : myContributions)
-      .filter(c => (appliedFilter.month === 'all' ? true : c.month === appliedFilter.month) && c.year === appliedFilter.year);
+      .filter(c => 
+        (appliedFilter.month === 'all' ? true : c.month === appliedFilter.month) && 
+        (appliedFilter.year === 'all' ? true : c.year === appliedFilter.year)
+      );
 
     if (isAdmin && searchQuery) {
       const query = searchQuery.toLowerCase();
@@ -1117,6 +1170,8 @@ export default function App() {
           const nameB = allUsers.find(u => (b.userId && u.uid === b.userId) || (b.userEmail && u.email.toLowerCase() === b.userEmail.toLowerCase()))?.displayName || b.userEmail.split('@')[0];
           return sortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
         } else if (sortConfig.field === 'month') {
+          const yearDiff = (a.year || 0) - (b.year || 0);
+          if (yearDiff !== 0) return sortConfig.direction === 'asc' ? yearDiff : -yearDiff;
           return sortConfig.direction === 'asc' ? a.month - b.month : b.month - a.month;
         } else if (sortConfig.field === 'amount') {
           return sortConfig.direction === 'asc' ? a.amount - b.amount : b.amount - a.amount;
@@ -1129,8 +1184,13 @@ export default function App() {
         }
         return 0;
       });
-    } else if (appliedFilter.month === 'all') {
-      items = [...items].sort((a, b) => a.month - b.month);
+    } else if (appliedFilter.month === 'all' || appliedFilter.year === 'all') {
+      items = [...items].sort((a, b) => {
+        if ((a.year || 0) !== (b.year || 0)) {
+          return (b.year || 0) - (a.year || 0);
+        }
+        return a.month - b.month;
+      });
     }
     return items;
   }, [contributions, myContributions, isAdmin, appliedFilter, sortConfig, allUsers, searchQuery, paymentMethodFilter]);
@@ -1146,6 +1206,21 @@ export default function App() {
         const phoneMatch = u.phoneNumber?.toLowerCase().includes(query) || false;
         const roleMatch = u.role?.toLowerCase().includes(query) || false;
         return nameMatch || emailMatch || phoneMatch || roleMatch;
+      });
+    }
+
+    if (filterActiveLoansOnly) {
+      items = items.filter(u => {
+        return loans.some(l => {
+          const isMatch = (u.uid && l.userId === u.uid) || 
+            (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
+          if (!isMatch || l.status !== 'approved') return false;
+          const sanctioned = l.approvedAmount || l.amount || 0;
+          const repaid = loanPayments
+            .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
+            .reduce((sum, p) => sum + (p.amount || 0), 0);
+          return (sanctioned - repaid) > 0;
+        });
       });
     }
 
@@ -1183,7 +1258,22 @@ export default function App() {
       });
     }
     return items;
-  }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery]);
+  }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery, loans, loanPayments, filterActiveLoansOnly]);
+
+  const membersWithActiveLoansCount = useMemo(() => {
+    return allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).filter(u => {
+      return loans.some(l => {
+        const isMatch = (u.uid && l.userId === u.uid) || 
+          (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
+        if (!isMatch || l.status !== 'approved') return false;
+        const sanctioned = l.approvedAmount || l.amount || 0;
+        const repaid = loanPayments
+          .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
+          .reduce((sum, p) => sum + (p.amount || 0), 0);
+        return (sanctioned - repaid) > 0;
+      });
+    }).length;
+  }, [allUsers, loans, loanPayments]);
 
     // Financial summary calculated directly from database records
     const financials = useMemo(() => {
@@ -1247,6 +1337,10 @@ export default function App() {
 
   const membersUnpaidContributionCount = useMemo(() => {
     return allUsers.filter(u => {
+      // Exclude administrator unnati
+      if (isExemptAdministrator(u)) {
+        return false;
+      }
       const uid = u.uid || u.id;
       const email = (u.email || '').toLowerCase().trim();
       const hasPaid = contributions.some(c => {
@@ -1260,10 +1354,14 @@ export default function App() {
   const activeLoansPendingCurrentMonth = useMemo(() => {
     return loans.filter(l => {
       if (l.status !== 'approved') return false;
+      // Exclude administrator unnati loans
+      if (isExemptAdministrator(l as any) || (l.userEmail && ADMIN_EMAILS.includes(l.userEmail.toLowerCase()))) {
+        return false;
+      }
       const hasPaid = loanPayments.some(p => {
         const matchesLoan = p.loanId === l.id;
         const matchesUser = (p.userId === l.userId) || (!!p.userEmail && !!l.userEmail && p.userEmail.toLowerCase().trim() === l.userEmail.toLowerCase().trim());
-        return (matchesLoan || matchesUser) && p.month === currentMonth && p.year === currentYear;
+        return (matchesLoan || matchesUser) && p.month === currentMonth && p.year === currentYear && p.status === 'paid';
       });
       return !hasPaid;
     });
@@ -2735,6 +2833,24 @@ export default function App() {
 
   const createNotification = async (userId: string, title: string, message: string, type: AppNotification['type'], link?: string) => {
     try {
+      // Administrator unnati must never receive contribution or loan reminder notifications
+      const targetUser = allUsers.find(u => u.uid === userId || (u.email && u.email.toLowerCase() === userId.toLowerCase()));
+      const isTargetAdmin = isExemptAdministrator(targetUser) || (user && user.uid === userId && isUserAdminExempt);
+
+      const isReminder = 
+        type === 'payment' || 
+        type === 'loan' || 
+        title.toLowerCase().includes('due') || 
+        title.toLowerCase().includes('reminder') || 
+        message.toLowerCase().includes('reminder') || 
+        message.toLowerCase().includes('₹1,000') ||
+        message.toLowerCase().includes('before the 10th');
+
+      if (isTargetAdmin && isReminder) {
+        console.log(`[Notification Service] Suppressed reminder notification for administrator unnati (${userId})`);
+        return;
+      }
+
       await addDoc(collection(db, 'notifications'), {
         userId,
         title,
@@ -3380,264 +3496,340 @@ export default function App() {
   };
 
   const exportMemberStatementToExcel = async (targetUserOrId?: UserProfile | string) => {
-    let targetUser: UserProfile | undefined;
-    if (typeof targetUserOrId === 'object' && targetUserOrId !== null) {
-      targetUser = targetUserOrId;
-    } else if (typeof targetUserOrId === 'string') {
-      targetUser = allUsers.find(u => 
-        (u.uid && u.uid === targetUserOrId) ||
-        (u.id && u.id === targetUserOrId) ||
-        (u.email && u.email.toLowerCase().trim() === targetUserOrId.toLowerCase().trim())
-      );
-    } else {
-      targetUser = selectedMemberForChart || profile || (allUsers.length > 0 ? allUsers[0] : undefined);
-    }
-
-    if (!targetUser && user?.email) {
-      targetUser = allUsers.find(u => u.email.toLowerCase().trim() === user.email?.toLowerCase().trim());
-    }
-
-    if (!targetUser) {
-      notify('error', "Could not find member profile to export. Please select a member.");
-      return;
-    }
-
-    const wb = XLSX.utils.book_new();
-
-    const styleTitle1 = {
-      font: { name: 'Segoe UI', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
-      fill: { fgColor: { rgb: '1E1B4B' } },
-      alignment: { horizontal: 'center', vertical: 'center' }
-    };
-    const styleTitle2 = {
-      font: { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } },
-      fill: { fgColor: { rgb: '312E81' } },
-      alignment: { horizontal: 'center', vertical: 'center' }
-    };
-    const styleSubTitle = {
-      font: { name: 'Segoe UI', sz: 10, italic: true, color: { rgb: '475569' } },
-      fill: { fgColor: { rgb: 'F1F5F9' } },
-      alignment: { horizontal: 'center', vertical: 'center' }
-    };
-    const borderThin = {
-      top: { style: 'thin', color: { rgb: 'CBD5E1' } },
-      bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
-      left: { style: 'thin', color: { rgb: 'CBD5E1' } },
-      right: { style: 'thin', color: { rgb: 'CBD5E1' } }
-    };
-
-    const buildUserStatementSheet = (sheetTitle: string, headers: string[], rowsData: any[][]) => {
-      const aoa = [
-        ['UNNATI TRUST (R)'],
-        [sheetTitle],
-        [`Member: ${targetUser.displayName || targetUser.email} (${targetUser.email}) | Generated: ${format(new Date(), 'dd-MMM-yyyy HH:mm')}`],
-        [],
-        headers,
-        ...rowsData
-      ];
-      const ws = XLSX.utils.aoa_to_sheet(aoa);
-      const maxCol = Math.max(0, headers.length - 1);
-      ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: maxCol } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: maxCol } }
-      ];
-      ws['!rows'] = [
-        { hpt: 26 },
-        { hpt: 22 },
-        { hpt: 18 },
-        { hpt: 8 },
-        { hpt: 32 }
-      ];
-
-      for (let r = 0; r <= 2; r++) {
-        for (let c = 0; c < headers.length; c++) {
-          const cellRef = XLSX.utils.encode_cell({ r, c });
-          if (!ws[cellRef]) ws[cellRef] = { v: '', t: 's' };
-          if (r === 0) ws[cellRef].s = styleTitle1;
-          else if (r === 1) ws[cellRef].s = styleTitle2;
-          else if (r === 2) ws[cellRef].s = styleSubTitle;
+    try {
+      let targetUser: UserProfile | undefined;
+      if (typeof targetUserOrId === 'object' && targetUserOrId !== null) {
+        targetUser = targetUserOrId;
+      } else if (typeof targetUserOrId === 'string' && targetUserOrId.trim()) {
+        const searchKey = targetUserOrId.trim().toLowerCase();
+        targetUser = allUsers.find(u => 
+          (u.uid && u.uid.toLowerCase() === searchKey) ||
+          (u.id && u.id.toLowerCase() === searchKey) ||
+          (u.email && u.email.toLowerCase().trim() === searchKey)
+        );
+        if (!targetUser && user && (user.uid === targetUserOrId || user.email?.toLowerCase().trim() === searchKey)) {
+          targetUser = profile || {
+            uid: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || user.email?.split('@')[0] || 'Member',
+            role: (profile?.role as any) || 'user',
+            joinDate: profile?.joinDate || format(new Date(), 'yyyy-MM-dd')
+          };
         }
+      } else {
+        targetUser = profile || (allUsers.length > 0 ? allUsers[0] : undefined);
       }
-      for (let c = 0; c < headers.length; c++) {
-        const cellRef = XLSX.utils.encode_cell({ r, c: c });
-        const cell = XLSX.utils.encode_cell({ r: 4, c });
-        if (ws[cell]) {
+
+      if (!targetUser && user?.email) {
+        targetUser = allUsers.find(u => u.email.toLowerCase().trim() === user.email?.toLowerCase().trim()) || profile;
+      }
+
+      if (!targetUser) {
+        notify('error', "Could not find member profile to export. Please select a member.");
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+
+      const styleTitle1 = {
+        font: { name: 'Segoe UI', sz: 14, bold: true, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '1E1B4B' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+      const styleTitle2 = {
+        font: { name: 'Segoe UI', sz: 12, bold: true, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '312E81' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+      const styleSubTitle = {
+        font: { name: 'Segoe UI', sz: 10, italic: true, color: { rgb: '475569' } },
+        fill: { fgColor: { rgb: 'F1F5F9' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+      const borderThin = {
+        top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        right: { style: 'thin', color: { rgb: 'CBD5E1' } }
+      };
+
+      const buildUserStatementSheet = (sheetTitle: string, headers: string[], rowsData: any[][]) => {
+        const memberInfoStr = `Member: ${targetUser.displayName || targetUser.email} (${targetUser.email}) | Generated: ${format(new Date(), 'dd-MMM-yyyy HH:mm')}`;
+        const aoa: any[][] = [
+          ['UNNATI TRUST (R)'],
+          [sheetTitle],
+          [memberInfoStr],
+          [],
+          headers,
+          ...rowsData
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const maxCol = Math.max(0, headers.length - 1);
+        ws['!merges'] = [
+          { s: { r: 0, c: 0 }, e: { r: 0, c: maxCol } },
+          { s: { r: 1, c: 0 }, e: { r: 1, c: maxCol } },
+          { s: { r: 2, c: 0 }, e: { r: 2, c: maxCol } }
+        ];
+        ws['!rows'] = [
+          { hpt: 26 },
+          { hpt: 22 },
+          { hpt: 18 },
+          { hpt: 8 },
+          { hpt: 30 }
+        ];
+
+        // Format titles (rows 0, 1, 2)
+        for (let r = 0; r <= 2; r++) {
+          for (let c = 0; c < headers.length; c++) {
+            const cellRef = XLSX.utils.encode_cell({ r, c });
+            if (!ws[cellRef]) ws[cellRef] = { v: '', t: 's' };
+            if (r === 0) ws[cellRef].s = styleTitle1;
+            else if (r === 1) ws[cellRef].s = styleTitle2;
+            else if (r === 2) ws[cellRef].s = styleSubTitle;
+          }
+        }
+
+        // Header row styling at row 4
+        for (let c = 0; c < headers.length; c++) {
+          const cell = XLSX.utils.encode_cell({ r: 4, c });
+          if (!ws[cell]) ws[cell] = { v: headers[c] || '', t: 's' };
           ws[cell].s = {
-            font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+            font: { name: 'Segoe UI', bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
             fill: { fgColor: { rgb: "0F172A" } },
             border: borderThin,
             alignment: { vertical: "center", horizontal: "center", wrapText: true }
           };
         }
-      }
-      for (let r = 5; r < 5 + rowsData.length; r++) {
-        const isTotalRow = r === 5 + rowsData.length - 1 && rowsData[rowsData.length - 1]?.[0]?.toString().toLowerCase().includes('total');
-        for (let c = 0; c < headers.length; c++) {
-          const cellRef = XLSX.utils.encode_cell({ r, c });
-          if (ws[cellRef]) {
-            ws[cellRef].s = {
-              font: { name: 'Segoe UI', sz: 10.5, bold: isTotalRow, color: { rgb: isTotalRow ? "1E1B4B" : "0F172A" } },
-              fill: { fgColor: { rgb: isTotalRow ? "EEF2FF" : (r % 2 === 0 ? "F8FAFC" : "FFFFFF") } },
+
+        // Data rows formatting (rows 5 to 5 + rowsData.length - 1)
+        for (let r = 5; r < 5 + rowsData.length; r++) {
+          const isTotalRow = r === 5 + rowsData.length - 1 && rowsData[rowsData.length - 1]?.[0]?.toString().toLowerCase().includes('total');
+          for (let c = 0; c < headers.length; c++) {
+            const cellRef = XLSX.utils.encode_cell({ r, c });
+            if (ws[cellRef]) {
+              ws[cellRef].s = {
+                font: { name: 'Segoe UI', sz: 10.5, bold: isTotalRow, color: { rgb: isTotalRow ? "1E1B4B" : "0F172A" } },
+                fill: { fgColor: { rgb: isTotalRow ? "EEF2FF" : (r % 2 === 0 ? "F8FAFC" : "FFFFFF") } },
+                border: borderThin,
+                alignment: { 
+                  vertical: "center", 
+                  horizontal: typeof ws[cellRef].v === 'number' ? 'right' : (c === 0 ? 'center' : 'left') 
+                },
+                numFmt: typeof ws[cellRef].v === 'number' ? '#,##0' : undefined
+              };
+            }
+          }
+        }
+        return ws;
+      };
+      
+      // 1. Member Contributions Filter
+      const userContribs = contributions.filter(c => 
+        ((targetUser.uid && c.userId && c.userId === targetUser.uid) || (targetUser.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
+      );
+      const paidContribs = userContribs.filter(c => c.status === 'paid');
+      const totalDeposited = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
+
+      // 2. Member Loans Filter
+      const userLoans = loans.filter(l => 
+        ((targetUser.uid && l.userId && l.userId === targetUser.uid) || (targetUser.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
+      );
+      
+      // 3. Member Loan Repayments Filter
+      const userLoanPayments = loanPayments.filter(p => {
+        const parentLoan = loans.find(l => l.id === p.loanId);
+        if (parentLoan) {
+          const matchLoanUid = targetUser.uid && parentLoan.userId && parentLoan.userId === targetUser.uid;
+          const matchLoanEmail = targetUser.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
+          if (matchLoanUid || matchLoanEmail) return true;
+        }
+        const matchDirectUid = targetUser.uid && p.userId && p.userId === targetUser.uid;
+        const matchDirectEmail = targetUser.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
+        return matchDirectUid || matchDirectEmail;
+      });
+
+      const paidLoanPayments = userLoanPayments.filter(p => p.status === 'paid');
+      const totalPrincipalPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      const totalInterestPaid = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+      const totalRepaid = totalPrincipalPaid + totalInterestPaid;
+
+      const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
+      const totalSanctioned = sanctionedLoans.reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
+      const outstandingPrincipal = Math.max(0, totalSanctioned - totalPrincipalPaid);
+
+      // Sheet 1: Executive Statement Summary
+      const summaryHeaders = ['Financial Parameter / Profile Metric', 'Statement Summary Value / Status'];
+      const summaryRows: any[][] = [
+        ['Member Full Name', targetUser.displayName || 'N/A'],
+        ['Email Address', targetUser.email || 'N/A'],
+        ['Phone Number', targetUser.phoneNumber || (targetUser as any).phone || 'N/A'],
+        ['Membership Role', (targetUser.role || 'Member').toUpperCase()],
+        ['Registration / Join Date', targetUser.joinDate || 'N/A'],
+        ['Total Cumulative Savings Deposited (₹)', totalDeposited],
+        ['Paid Monthly Subscription Count', `${paidContribs.length} Months`],
+        ['Total Sanctioned Loans Count', `${sanctionedLoans.length} Loans`],
+        ['Total Sanctioned Loan Amount (₹)', totalSanctioned],
+        ['Total Principal Repaid (₹)', totalPrincipalPaid],
+        ['Total Interest Repaid (₹)', totalInterestPaid],
+        ['Total Loan Amount Repaid (Principal + Interest) (₹)', totalRepaid],
+        ['Outstanding Pending Principal Balance (₹)', outstandingPrincipal],
+        ['Loan Portfolio Status', outstandingPrincipal === 0 ? (sanctionedLoans.length > 0 ? 'ALL LOANS SETTLED & CLOSED' : 'NO LOANS SANCTIONED') : 'ACTIVE / IN REPAYMENT']
+      ];
+      const wsSummary = buildUserStatementSheet("MEMBER FINANCIAL STATEMENT SUMMARY", summaryHeaders, summaryRows);
+      wsSummary['!cols'] = [{ wch: 44 }, { wch: 40 }];
+      
+      // Emphasize key summary rows in Executive Statement
+      const highlightRow = (rIndex: number, bgHex: string, textHex: string) => {
+        for (let c = 0; c < 2; c++) {
+          const cellRef = XLSX.utils.encode_cell({ r: rIndex, c });
+          if (wsSummary[cellRef]) {
+            wsSummary[cellRef].s = {
+              font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: textHex } },
+              fill: { fgColor: { rgb: bgHex } },
               border: borderThin,
-              alignment: { vertical: "center" },
-              numFmt: typeof ws[cellRef].v === 'number' ? '#,##0' : undefined
+              alignment: { 
+                vertical: "center", 
+                horizontal: c === 1 && typeof wsSummary[cellRef].v === 'number' ? 'right' : 'left' 
+              },
+              numFmt: typeof wsSummary[cellRef].v === 'number' ? '#,##0' : undefined
             };
           }
         }
-      }
-      return ws;
-    };
-    
-    // Member Contributions
-    const userContribs = contributions.filter(c => 
-      ((targetUser.uid && c.userId && c.userId === targetUser.uid) || (targetUser.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
-    );
-    const paidContribs = userContribs.filter(c => c.status === 'paid');
-    const totalDeposited = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
+      };
+      highlightRow(10, 'ECFDF5', '065F46'); // Savings - Emerald
+      highlightRow(13, 'EEF2FF', '312E81'); // Sanctioned Loans - Indigo
+      highlightRow(16, 'FEF3C7', '92400E'); // Repaid - Amber
+      highlightRow(17, outstandingPrincipal > 0 ? 'FEE2E2' : 'F0FDF4', outstandingPrincipal > 0 ? '991B1B' : '166534'); // Balance
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Member Statement");
 
-    const statementRows = userContribs.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((c, idx) => {
-      let dateStr = 'N/A';
-      if (c.timestamp?.toDate) {
-        dateStr = format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
-      } else if (c.timestamp?.seconds) {
-        dateStr = format(new Date(c.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
-      }
-      return [
-        idx + 1,
-        format(new Date(c.year, c.month - 1), 'MMMM'),
-        c.year,
-        c.amount,
-        (c.paymentMethod || 'ONLINE').toUpperCase(),
-        (c.status || 'PENDING').toUpperCase(),
-        dateStr
-      ];
-    });
-
-    if (statementRows.length > 0) {
-      statementRows.push(['Total Paid', '', '', totalDeposited, '', '', '']);
-    }
-
-    const subHeaders = ['#', 'Month', 'Year', 'Amount (₹)', 'Payment Method', 'Status', 'Transaction Date'];
-    const wsSub = buildUserStatementSheet("MEMBER CONTRIBUTION HISTORY", subHeaders, statementRows);
-    wsSub['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 18 }];
-    XLSX.utils.book_append_sheet(wb, wsSub, "Contributions");
-
-    // Member Loans
-    const userLoans = loans.filter(l => 
-      ((targetUser.uid && l.userId && l.userId === targetUser.uid) || (targetUser.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
-    );
-    
-    // Member Loan Repayments
-    const userLoanPayments = loanPayments.filter(p => {
-      const parentLoan = loans.find(l => l.id === p.loanId);
-      if (parentLoan) {
-        const matchLoanUid = targetUser.uid && parentLoan.userId && parentLoan.userId === targetUser.uid;
-        const matchLoanEmail = targetUser.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
-        if (matchLoanUid || matchLoanEmail) return true;
-      }
-      const matchDirectUid = targetUser.uid && p.userId && p.userId === targetUser.uid;
-      const matchDirectEmail = targetUser.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
-      return matchDirectUid || matchDirectEmail;
-    });
-
-    const paidLoanPayments = userLoanPayments.filter(p => p.status === 'paid');
-    const totalPrincipalPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
-    const totalInterestPaid = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
-    const totalRepaid = totalPrincipalPaid + totalInterestPaid;
-
-    const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
-    const totalSanctioned = sanctionedLoans.reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
-    const outstandingPrincipal = Math.max(0, totalSanctioned - totalPrincipalPaid);
-
-    const userLoansRows = userLoans.map((l, idx) => {
-      const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
-      const principalPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
-      const interestPaid = lPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
-      const approvedAmt = l.approvedAmount || l.amount || 0;
-      const isSettled = l.status === 'paid' || (approvedAmt > 0 && principalPaid >= approvedAmt);
-      const remainingBal = isSettled ? 0 : Math.max(0, approvedAmt - principalPaid);
-
-      let approvedDate = 'N/A';
-      if (l.approvedAt?.toDate) approvedDate = format(l.approvedAt.toDate(), 'yyyy-MM-dd');
-      else if (l.approvedAt?.seconds) approvedDate = format(new Date(l.approvedAt.seconds * 1000), 'yyyy-MM-dd');
-      else if (l.createdAt?.toDate) approvedDate = format(l.createdAt.toDate(), 'yyyy-MM-dd');
-
-      return [
-        idx + 1,
-        approvedAmt,
-        `${l.interestRate ?? 1}%`,
-        l.installments || 10,
-        isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
-        principalPaid,
-        interestPaid,
-        remainingBal,
-        approvedDate
-      ];
-    });
-
-    if (userLoansRows.length > 0) {
-      userLoansRows.push(['Total Sanctioned', totalSanctioned, '', '', '', totalPrincipalPaid, totalInterestPaid, outstandingPrincipal, '']);
-    } else {
-      userLoansRows.push(['No Loans', 0, '-', '-', 'N/A', 0, 0, 0, '-']);
-    }
-
-    const loanHeaders = ['Loan #', 'Sanctioned Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)', 'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Principal (₹)', 'Sanction Date'];
-    const loansWs = buildUserStatementSheet("MEMBER SANCTIONED LOANS PORTFOLIO", loanHeaders, userLoansRows);
-    loansWs['!cols'] = [{ wch: 8 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 16 }];
-    XLSX.utils.book_append_sheet(wb, loansWs, "Loans Summary");
-
-    // Member Loan Repayments Sheet
-    const userPaymentsRows = userLoanPayments.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((p, idx) => {
-      let paymentDate = 'N/A';
-      if (p.timestamp?.toDate) paymentDate = format(p.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
-      else if (p.timestamp?.seconds) paymentDate = format(new Date(p.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
-
-      return [
-        idx + 1,
-        p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
-        p.year || 'N/A',
-        p.amount || 0,
-        p.interest || 0,
-        (p.amount || 0) + (p.interest || 0),
-        (p.paymentMethod || p.paymentMode || 'ONLINE').toUpperCase(),
-        (p.status || 'PENDING').toUpperCase(),
-        paymentDate
-      ];
-    });
-
-    if (userPaymentsRows.length > 0) {
-      userPaymentsRows.push(['Total Repaid', '', '', totalPrincipalPaid, totalInterestPaid, totalRepaid, '', '', '']);
-    } else {
-      userPaymentsRows.push(['No Payments', '-', '-', 0, 0, 0, '-', 'N/A', '-']);
-    }
-
-    const repayHeaders = ['Installment #', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Installment (₹)', 'Payment Method', 'Status', 'Payment Date & Time'];
-    const paymentsWs = buildUserStatementSheet("MEMBER LOAN REPAYMENT HISTORY", repayHeaders, userPaymentsRows);
-    paymentsWs['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 20 }];
-    XLSX.utils.book_append_sheet(wb, paymentsWs, "Loan Repayments");
-
-    const safeName = (targetUser.displayName || targetUser.email.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const fileName = `Unnati_Statement_${safeName}_${format(new Date(), 'yyyyMMdd')}.xlsx`;
-
-    if (isMobileApp) {
-      try {
-        const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-        const res = await downloadFileMobile(fileName, base64Data);
-        if (res.success) {
-          notify('success', `Excel Statement saved locally as: ${fileName}`);
-        } else {
-          notify('error', "Could not download file directly. Attempting browser download...");
-          XLSX.writeFile(wb, fileName);
+      // Sheet 2: Contributions
+      const statementRows = userContribs.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((c, idx) => {
+        let dateStr = 'N/A';
+        if (c.timestamp?.toDate) {
+          dateStr = format(c.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
+        } else if (c.timestamp?.seconds) {
+          dateStr = format(new Date(c.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
         }
-      } catch (err: any) {
-        console.error("Export member mobile failed:", err);
-        XLSX.writeFile(wb, fileName);
-        notify('success', `Excel Statement downloaded as: ${fileName}`);
+        return [
+          idx + 1,
+          format(new Date(c.year, c.month - 1), 'MMMM'),
+          c.year,
+          c.amount,
+          (c.paymentMethod || 'ONLINE').toUpperCase(),
+          (c.status || 'PENDING').toUpperCase(),
+          dateStr
+        ];
+      });
+
+      if (statementRows.length > 0) {
+        statementRows.push(['Total Paid', '', '', totalDeposited, '', '', '']);
+      } else {
+        statementRows.push(['No Contributions Recorded', '-', '-', 0, '-', 'N/A', '-']);
       }
-    } else {
-      XLSX.writeFile(wb, fileName);
-      notify('success', `Member statement exported to Excel: ${fileName}`);
+
+      const subHeaders = ['#', 'Month', 'Year', 'Amount (₹)', 'Payment Method', 'Status', 'Transaction Date'];
+      const wsSub = buildUserStatementSheet("MEMBER CONTRIBUTION HISTORY", subHeaders, statementRows);
+      wsSub['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(wb, wsSub, "Contributions");
+
+      // Sheet 3: Loans Summary
+      const userLoansRows = userLoans.map((l, idx) => {
+        const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
+        const principalPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+        const interestPaid = lPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+        const approvedAmt = l.approvedAmount || l.amount || 0;
+        const isSettled = l.status === 'paid' || (approvedAmt > 0 && principalPaid >= approvedAmt);
+        const remainingBal = isSettled ? 0 : Math.max(0, approvedAmt - principalPaid);
+
+        let approvedDate = 'N/A';
+        if (l.approvedAt?.toDate) approvedDate = format(l.approvedAt.toDate(), 'yyyy-MM-dd');
+        else if (l.approvedAt?.seconds) approvedDate = format(new Date(l.approvedAt.seconds * 1000), 'yyyy-MM-dd');
+        else if (l.createdAt?.toDate) approvedDate = format(l.createdAt.toDate(), 'yyyy-MM-dd');
+
+        return [
+          idx + 1,
+          approvedAmt,
+          `${l.interestRate ?? 1}%`,
+          l.installments || 10,
+          isSettled ? 'CLOSED' : (l.status || 'PENDING').toUpperCase(),
+          principalPaid,
+          interestPaid,
+          remainingBal,
+          approvedDate
+        ];
+      });
+
+      if (userLoansRows.length > 0) {
+        userLoansRows.push(['Total Sanctioned', totalSanctioned, '', '', '', totalPrincipalPaid, totalInterestPaid, outstandingPrincipal, '']);
+      } else {
+        userLoansRows.push(['No Loans', 0, '-', '-', 'N/A', 0, 0, 0, '-']);
+      }
+
+      const loanHeaders = ['Loan #', 'Sanctioned Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)', 'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Principal (₹)', 'Sanction Date'];
+      const loansWs = buildUserStatementSheet("MEMBER SANCTIONED LOANS PORTFOLIO", loanHeaders, userLoansRows);
+      loansWs['!cols'] = [{ wch: 8 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, loansWs, "Loans Summary");
+
+      // Sheet 4: Loan Repayments
+      const userPaymentsRows = userLoanPayments.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((p, idx) => {
+        let paymentDate = 'N/A';
+        if (p.timestamp?.toDate) paymentDate = format(p.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
+        else if (p.timestamp?.seconds) paymentDate = format(new Date(p.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
+
+        return [
+          idx + 1,
+          p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
+          p.year || 'N/A',
+          p.amount || 0,
+          p.interest || 0,
+          (p.amount || 0) + (p.interest || 0),
+          (p.paymentMethod || p.paymentMode || 'ONLINE').toUpperCase(),
+          (p.status || 'PENDING').toUpperCase(),
+          paymentDate
+        ];
+      });
+
+      if (userPaymentsRows.length > 0) {
+        userPaymentsRows.push(['Total Repaid', '', '', totalPrincipalPaid, totalInterestPaid, totalRepaid, '', '', '']);
+      } else {
+        userPaymentsRows.push(['No Payments', '-', '-', 0, 0, 0, '-', 'N/A', '-']);
+      }
+
+      const repayHeaders = ['Installment #', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Installment (₹)', 'Payment Method', 'Status', 'Payment Date & Time'];
+      const paymentsWs = buildUserStatementSheet("MEMBER LOAN REPAYMENT HISTORY", repayHeaders, userPaymentsRows);
+      paymentsWs['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 20 }];
+      XLSX.utils.book_append_sheet(wb, paymentsWs, "Loan Repayments");
+
+      const safeName = (targetUser.displayName || targetUser.email.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `Unnati_Statement_${safeName}_${format(new Date(), 'yyyyMMdd')}.xlsx`;
+
+      if (isMobileApp) {
+        try {
+          const base64Data = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `Excel Statement saved locally as: ${fileName}`);
+          } else {
+            notify('error', "Could not download file directly. Attempting browser download...");
+            XLSX.writeFile(wb, fileName);
+          }
+        } catch (err: any) {
+          console.error("Export member mobile failed:", err);
+          try {
+            XLSX.writeFile(wb, fileName);
+            notify('success', `Excel Statement downloaded as: ${fileName}`);
+          } catch (writeErr: any) {
+            console.error("Browser fallback write failed:", writeErr);
+            notify('error', `Failed to download report: ${writeErr.message || err.message}`);
+          }
+        }
+      } else {
+        XLSX.writeFile(wb, fileName);
+        notify('success', `Member statement exported to Excel: ${fileName}`);
+      }
+    } catch (err: any) {
+      console.error("Failed to export member statement to Excel:", err);
+      notify('error', `Failed to export Excel statement: ${err.message || 'Unknown error'}`);
     }
   };
 
@@ -4846,7 +5038,7 @@ export default function App() {
           (u.email && u.email.toLowerCase().trim() === targetUserOrId.toLowerCase().trim())
         );
       } else {
-        targetUser = selectedMemberForChart || profile || (allUsers.length > 0 ? allUsers[0] : undefined);
+        targetUser = profile || (allUsers.length > 0 ? allUsers[0] : undefined);
       }
       
       if (!targetUser && user?.email) {
@@ -5746,7 +5938,7 @@ export default function App() {
                 className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all relative"
               >
                 <Bell className="w-5 h-5 sm:w-6 sm:h-6" />
-                {(notifications.some(n => !n.read) || notices.length > 0) && (
+                {(visibleNotifications.some(n => !n.read) || notices.length > 0) && (
                   <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full"></span>
                 )}
               </button>
@@ -6354,17 +6546,17 @@ export default function App() {
               <div className="flex items-center gap-2 flex-wrap">
                 <button 
                   onClick={() => generateMemberStatement(user!.uid)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-white text-indigo-600 border border-indigo-100 rounded-2xl font-bold hover:bg-indigo-50 transition-all active:scale-95 shadow-xs cursor-pointer"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white text-indigo-600 border border-indigo-100 rounded-2xl font-bold hover:bg-indigo-50 transition-all active:scale-95 shadow-xs cursor-pointer text-xs sm:text-sm"
                   title="Download PDF Financial Statement"
                 >
-                  <FileText className="w-5 h-5" /> PDF Statement
+                  <FileText className="w-4 h-4 sm:w-5 sm:h-5" /> PDF Statement
                 </button>
                 <button 
                   onClick={() => exportMemberStatementToExcel(user!.uid)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-2xl font-bold hover:bg-emerald-100 transition-all active:scale-95 shadow-xs cursor-pointer"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-2xl font-bold hover:bg-emerald-100 transition-all active:scale-95 shadow-xs cursor-pointer text-xs sm:text-sm"
                   title="Download Excel (.xlsx) Financial Statement"
                 >
-                  <FileSpreadsheet className="w-5 h-5" /> Excel Statement
+                  <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" /> Excel Statement
                 </button>
               </div>
             )}
@@ -6645,121 +6837,123 @@ export default function App() {
           </div>
         )}
 
-        {isAdmin && activeTab === 'members' ? (
+        {activeTab === 'members' ? (
           <div className="space-y-6">
-            {/* Section 1: Member Management Actions */}
-            <div className="space-y-3">
-              <div 
-                onClick={() => setIsMemberActionsCollapsed(!isMemberActionsCollapsed)}
-                className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
-                title={isMemberActionsCollapsed ? "Click to expand" : "Click to collapse"}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
-                    <UserPlus className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
-                        Member Management Actions
-                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberActionsCollapsed && "-rotate-90")} />
-                      </h4>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300/80">
-                        Admin
-                      </span>
+            {/* Section 1: Member Management Actions (Admin only) */}
+            {isAdmin && (
+              <div className="space-y-3">
+                <div 
+                  onClick={() => setIsMemberActionsCollapsed(!isMemberActionsCollapsed)}
+                  className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
+                  title={isMemberActionsCollapsed ? "Click to expand" : "Click to collapse"}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                      <UserPlus className="w-5 h-5" />
                     </div>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">
-                      Add new members individually or via Excel, broadcast reminder notifications, and trigger cloud backups
-                    </p>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                          Member Management Actions
+                          <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberActionsCollapsed && "-rotate-90")} />
+                        </h4>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300/80">
+                          Admin
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-medium mt-0.5">
+                        Add new members individually or via Excel, broadcast reminder notifications, and trigger cloud backups
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {!isMemberActionsCollapsed && (
-                <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200/90 relative z-30">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    {/* Add Member Dropdown */}
-                    <div className="relative z-30">
+                {!isMemberActionsCollapsed && (
+                  <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200/90 relative z-30">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {/* Add Member Dropdown */}
+                      <div className="relative z-30">
+                        <button 
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAddMemberDropdown(prev => !prev);
+                          }}
+                          className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>Add Member</span>
+                          <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showAddMemberDropdown && "rotate-180")} />
+                        </button>
+                        
+                        {showAddMemberDropdown && (
+                          <>
+                            <div 
+                              className="fixed inset-0 z-40" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowAddMemberDropdown(false);
+                              }}
+                            />
+                            <div className="absolute left-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-1.5 z-50 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setIsAddingMember(true);
+                                  setShowAddMemberDropdown(false);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
+                              >
+                                <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                  <UserPlus className="w-3.5 h-3.5" />
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Add Individual</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">Add a single member manually</span>
+                                </div>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setIsBulkAdding(true);
+                                  setShowAddMemberDropdown(false);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left group"
+                              >
+                                <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
+                                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Bulk Upload (XLS)</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">Import members from Excel file</span>
+                                </div>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Send Reminders Button */}
                       <button 
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowAddMemberDropdown(prev => !prev);
-                        }}
-                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap"
+                        onClick={() => setShowReminderConfirm(true)}
+                        disabled={isTriggeringReminders || isSendingReport}
+                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
+                        title="Send monthly reminders to members who haven't paid"
                       >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        <span>Add Member</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showAddMemberDropdown && "rotate-180")} />
+                        {isTriggeringReminders ? (
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <Mail className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isTriggeringReminders ? 'Sending...' : 'Send Reminders'}</span>
                       </button>
-                      
-                      {showAddMemberDropdown && (
-                        <>
-                          <div 
-                            className="fixed inset-0 z-40" 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowAddMemberDropdown(false);
-                            }}
-                          />
-                          <div className="absolute left-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-1.5 z-50 divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setIsAddingMember(true);
-                                setShowAddMemberDropdown(false);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
-                            >
-                              <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                                <UserPlus className="w-3.5 h-3.5" />
-                              </div>
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Add Individual</span>
-                                <span className="text-[10px] text-slate-400 font-normal">Add a single member manually</span>
-                              </div>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setIsBulkAdding(true);
-                                setShowAddMemberDropdown(false);
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left group"
-                            >
-                              <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                                <FileSpreadsheet className="w-3.5 h-3.5" />
-                              </div>
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Bulk Upload (XLS)</span>
-                                <span className="text-[10px] text-slate-400 font-normal">Import members from Excel file</span>
-                              </div>
-                            </button>
-                          </div>
-                        </>
-                      )}
                     </div>
-
-                    {/* Send Reminders Button */}
-                    <button 
-                      onClick={() => setShowReminderConfirm(true)}
-                      disabled={isTriggeringReminders || isSendingReport}
-                      className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
-                      title="Send monthly reminders to members who haven't paid"
-                    >
-                      {isTriggeringReminders ? (
-                        <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      ) : (
-                        <Mail className="w-3.5 h-3.5" />
-                      )}
-                      <span>{isTriggeringReminders ? 'Sending...' : 'Send Reminders'}</span>
-                    </button>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Section 2: Member Details */}
             <div className="space-y-4">
@@ -6783,65 +6977,40 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="px-3.5 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs sm:text-sm font-bold shadow-2xs">
                     {sortedMembers.length} Members
                   </span>
+                  {membersWithActiveLoansCount > 0 && (
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFilterActiveLoansOnly(prev => !prev);
+                      }}
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer select-none",
+                        filterActiveLoansOnly
+                          ? "bg-purple-600 text-white border border-purple-700 shadow-md shadow-purple-200"
+                          : "bg-purple-50 hover:bg-purple-100/90 text-purple-700 border border-purple-200"
+                      )}
+                      title={filterActiveLoansOnly ? "Filtering active loans: Click to view all members" : `Click to filter: ${membersWithActiveLoansCount} member${membersWithActiveLoansCount !== 1 ? 's have' : ' has'} active outstanding loans`}
+                    >
+                      <span className={cn("w-2 h-2 rounded-full", filterActiveLoansOnly ? "bg-white" : "bg-purple-600 animate-pulse")} />
+                      <span>{membersWithActiveLoansCount} Active Loan{membersWithActiveLoansCount !== 1 ? 's' : ''}</span>
+                      {filterActiveLoansOnly && (
+                        <span className="ml-1 text-[10px] bg-purple-700 text-purple-100 px-1.5 py-0.5 rounded font-black uppercase">
+                          Filtered (Show All)
+                        </span>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
 
               {!isMemberDetailsCollapsed && (
                 <div className="space-y-4">
-                  {/* Visualization: 12-Month Contribution History Bar Chart */}
-                  <MemberContributionChart
-                    selectedMember={selectedMemberForChart}
-                    members={sortedMembers}
-                    contributions={contributions}
-                    loans={loans}
-                    loanPayments={loanPayments}
-                    onSelectMember={(m) => setSelectedMemberForChart(m)}
-                    onExportPDF={(m) => generateMemberStatement(m)}
-                    onExportExcel={(m) => exportMemberStatementToExcel(m)}
-                    currentMonth={currentMonth}
-                    currentYear={currentYear}
-                  />
-
                   <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
-                  {/* Selected Member Quick Export Toolbar */}
-                  {(() => {
-                    const currentSelected = selectedMemberForChart || sortedMembers[0];
-                    if (!currentSelected) return null;
-                    return (
-                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-gradient-to-r from-indigo-50/70 via-slate-50 to-white border-b border-indigo-100">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <span className="text-[10.5px] font-bold uppercase tracking-wider text-indigo-900/70">Selected Member:</span>
-                          <span className="font-bold text-slate-900 text-sm truncate">{currentSelected.displayName || currentSelected.email}</span>
-                          <span className="text-[11px] text-slate-500 font-medium hidden md:inline truncate">({currentSelected.email})</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500 font-medium hidden sm:inline">Export History:</span>
-                          <button
-                            type="button"
-                            onClick={() => generateMemberStatement(currentSelected)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
-                            title={`Export ${currentSelected.displayName || currentSelected.email}'s history as PDF`}
-                          >
-                            <FileText className="w-3.5 h-3.5 text-indigo-600" />
-                            <span>PDF Statement</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => exportMemberStatementToExcel(currentSelected)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer"
-                            title={`Export ${currentSelected.displayName || currentSelected.email}'s history as Excel`}
-                          >
-                            <FileSpreadsheet className="w-3.5 h-3.5" />
-                            <span>Excel (.xlsx)</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })()}
                   {/* Desktop Table View */}
                   <div className="hidden lg:block w-full max-w-full overflow-hidden">
                     <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
@@ -6930,9 +7099,25 @@ export default function App() {
                       const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                         .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
                       
-                      const isSelectedForChart = selectedMemberForChart 
-                        ? ((selectedMemberForChart.uid && u.uid === selectedMemberForChart.uid) || (selectedMemberForChart.email && u.email.toLowerCase() === selectedMemberForChart.email.toLowerCase()))
-                        : idx === 0;
+                      // Calculate active/outstanding loans for member
+                      const memberActiveLoans = loans.filter(l => {
+                        const isMatch = (u.uid && l.userId === u.uid) || 
+                          (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
+                        if (!isMatch || l.status !== 'approved') return false;
+                        const sanctioned = l.approvedAmount || l.amount || 0;
+                        const repaid = loanPayments
+                          .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
+                          .reduce((sum, p) => sum + (p.amount || 0), 0);
+                        return (sanctioned - repaid) > 0;
+                      });
+                      const hasActiveLoan = memberActiveLoans.length > 0;
+                      const activeLoanPrincipalOutstanding = memberActiveLoans.reduce((sum, l) => {
+                        const sanctioned = l.approvedAmount || l.amount || 0;
+                        const repaid = loanPayments
+                          .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
+                          .reduce((s, p) => s + (p.amount || 0), 0);
+                        return sum + Math.max(0, sanctioned - repaid);
+                      }, 0);
 
                       return (
                         <motion.tr 
@@ -6940,11 +7125,7 @@ export default function App() {
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: idx * 0.05 }}
                           key={`desktop-member-${u.id || u.uid || u.email.toLowerCase() || 'mem'}-${idx}`} 
-                          className={cn(
-                            "hover:bg-slate-50/80 transition-colors cursor-pointer",
-                            isSelectedForChart && "bg-indigo-50/50"
-                          )}
-                          onClick={() => setSelectedMemberForChart(u)}
+                          className="hover:bg-slate-50/80 transition-colors"
                         >
                           <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                             <span className="text-xs font-bold text-slate-400">{idx + 1}</span>
@@ -6955,8 +7136,19 @@ export default function App() {
                                 {u.displayName ? u.displayName[0].toUpperCase() : '?'}
                               </div>
                               <div className="flex flex-col min-w-0">
-                                <span className="text-sm font-semibold text-slate-900 truncate">{u.displayName || 'Unnamed'}</span>
-                                <span className="text-[11px] text-slate-400 font-medium">{u.role.toUpperCase()}</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-sm font-semibold text-slate-900 truncate">{u.displayName || 'Unnamed'}</span>
+                                  {hasActiveLoan && (
+                                    <span 
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs"
+                                      title={`Loans • ₹${activeLoanPrincipalOutstanding.toLocaleString('en-IN')} outstanding`}
+                                    >
+                                      <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse shrink-0" />
+                                      Loans
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-slate-400 font-medium">{(u.role || 'member').toUpperCase()}</span>
                               </div>
                             </div>
                           </td>
@@ -6976,39 +7168,30 @@ export default function App() {
                             <span className="text-sm font-bold text-slate-900">₹{totalPaid.toLocaleString('en-IN')}</span>
                           </td>
                           <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
-                            <span className={cn(
-                              "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold",
-                              !hasPendingThisYear ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-                            )}>
-                              {!hasPendingThisYear ? 'Active' : 'Pending'}
-                            </span>
+                            <div className="flex flex-col items-start gap-1">
+                              <span className={cn(
+                                "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold",
+                                !hasPendingThisYear ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                              )}>
+                                {!hasPendingThisYear ? 'Active' : 'Pending'}
+                              </span>
+                            </div>
                           </td>
                           <td className="px-3 sm:px-3.5 py-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedMemberForChart(u);
-                                }}
-                                className={cn(
-                                  "p-1.5 rounded-lg transition-all",
-                                  isSelectedForChart ? "text-indigo-600 bg-indigo-100/90 font-bold shadow-2xs" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                                )}
-                                title="View 12-Month Contribution History Chart"
-                              >
-                                <BarChart2 className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => toggleAdminRole(u)}
-                                className={cn(
-                                  "p-1.5 rounded-lg transition-all",
-                                  u.role === 'admin' ? "text-indigo-600 bg-indigo-50" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                                )}
-                                title={u.role === 'admin' ? "Remove Admin Access" : "Grant Admin Access"}
-                              >
-                                <Shield className="w-4 h-4" />
-                              </button>
-                              {hasPendingThisYear && (
+                              {isAdmin && (
+                                <button 
+                                  onClick={() => toggleAdminRole(u)}
+                                  className={cn(
+                                    "p-1.5 rounded-lg transition-all",
+                                    u.role === 'admin' ? "text-indigo-600 bg-indigo-50" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                  )}
+                                  title={u.role === 'admin' ? "Remove Admin Access" : "Grant Admin Access"}
+                                >
+                                  <Shield className="w-4 h-4" />
+                                </button>
+                              )}
+                              {isAdmin && hasPendingThisYear && (
                                 <>
                                   <button 
                                     onClick={() => sendWhatsAppReminder(u)}
@@ -7046,56 +7229,71 @@ export default function App() {
                               >
                                 <FileSpreadsheet className="w-4 h-4" />
                               </button>
-                              <button 
-                                onClick={() => {
-                                  setSelectedLoanUserId(u.uid || u.email);
-                                  setIsAddingLoan(true);
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                title="Add Loan"
-                              >
-                                <IndianRupee className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  setEditingUser(u);
-                                  setOriginalEditingEmail(u.uid || u.email);
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                title="Edit"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => setDeletingUserId(u.uid || u.email)}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  const userId = u.uid || u.email;
-                                  setSelectedUserId(userId);
-                                  const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
-                                    .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                                  if (firstMissing) setSelectedMonth(firstMissing);
-                                  setSelectedYear(currentYear);
-                                  setIsAdding(true);
-                                }}
-                                disabled={!hasPendingThisYear}
-                                className={cn(
-                                  "ml-1 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed",
-                                  !hasPendingThisYear ? "bg-slate-100 text-slate-400" : "text-indigo-600 hover:text-indigo-700 bg-indigo-50"
-                                )}
-                              >
-                                {!hasPendingThisYear ? 'Paid' : 'Record'}
-                              </button>
+                              {isAdmin && (
+                                <>
+                                  <button 
+                                    onClick={() => {
+                                      setSelectedLoanUserId(u.uid || u.email);
+                                      setIsAddingLoan(true);
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                    title="Add Loan"
+                                  >
+                                    <IndianRupee className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setEditingUser(u);
+                                      setOriginalEditingEmail(u.uid || u.email);
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                    title="Edit"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => setDeletingUserId(u.uid || u.email)}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      const userId = u.uid || u.email;
+                                      setSelectedUserId(userId);
+                                      const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                                        .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                                      if (firstMissing) setSelectedMonth(firstMissing);
+                                      setSelectedYear(currentYear);
+                                      setIsAdding(true);
+                                    }}
+                                    disabled={!hasPendingThisYear}
+                                    className={cn(
+                                      "ml-1 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+                                      !hasPendingThisYear ? "bg-slate-100 text-slate-400" : "text-indigo-600 hover:text-indigo-700 bg-indigo-50"
+                                    )}
+                                  >
+                                    {!hasPendingThisYear ? 'Paid' : 'Record'}
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </motion.tr>
                       );
                     })}
+                    {sortedMembers.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-12 text-center text-slate-400 italic">
+                          {filterActiveLoansOnly 
+                            ? "No members with active outstanding loans found."
+                            : searchQuery 
+                              ? `No members found matching "${searchQuery}".` 
+                              : "No members registered yet."}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -7127,9 +7325,25 @@ export default function App() {
                 const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                   .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
 
-                const isSelectedForChart = selectedMemberForChart 
-                  ? ((selectedMemberForChart.uid && u.uid === selectedMemberForChart.uid) || (selectedMemberForChart.email && u.email.toLowerCase() === selectedMemberForChart.email.toLowerCase()))
-                  : idx === 0;
+                // Calculate active/outstanding loans for member
+                const memberActiveLoans = loans.filter(l => {
+                  const isMatch = (u.uid && l.userId === u.uid) || 
+                    (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
+                  if (!isMatch || l.status !== 'approved') return false;
+                  const sanctioned = l.approvedAmount || l.amount || 0;
+                  const repaid = loanPayments
+                    .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
+                    .reduce((sum, p) => sum + (p.amount || 0), 0);
+                  return (sanctioned - repaid) > 0;
+                });
+                const hasActiveLoan = memberActiveLoans.length > 0;
+                const activeLoanPrincipalOutstanding = memberActiveLoans.reduce((sum, l) => {
+                  const sanctioned = l.approvedAmount || l.amount || 0;
+                  const repaid = loanPayments
+                    .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
+                    .reduce((s, p) => s + (p.amount || 0), 0);
+                  return sum + Math.max(0, sanctioned - repaid);
+                }, 0);
 
                 return (
                   <motion.div 
@@ -7137,30 +7351,40 @@ export default function App() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
                     key={`mobile-member-${u.id || u.uid || u.email.toLowerCase() || 'mob'}-${idx}`}
-                    className={cn(
-                      "bg-white p-6 rounded-3xl border transition-all shadow-sm relative overflow-hidden",
-                      isSelectedForChart ? "border-2 border-indigo-400/90 shadow-indigo-100/50 ring-2 ring-indigo-100/60" : "border-slate-200"
-                    )}
+                    className="bg-white p-6 rounded-3xl border border-slate-200 transition-all shadow-sm relative overflow-hidden"
                   >
                     <div className="absolute top-0 right-0 px-3 py-1 bg-slate-900 text-[10.5px] font-black text-white rounded-bl-xl border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
                       #{idx + 1}
                     </div>
                     <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-lg">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center font-bold text-lg shrink-0">
                           {u.displayName ? u.displayName[0].toUpperCase() : '?'}
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-bold text-slate-900 truncate">{u.displayName || 'Unnamed'}</h4>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="font-bold text-slate-900 truncate">{u.displayName || 'Unnamed'}</h4>
+                            {hasActiveLoan && (
+                              <span 
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs"
+                                title={`Loans • ₹${activeLoanPrincipalOutstanding.toLocaleString('en-IN')} outstanding`}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse shrink-0" />
+                                Loans
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-500 truncate">{u.email}</p>
                         </div>
                       </div>
-                      <span className={cn(
-                        "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shrink-0",
-                        !hasPendingThisYear ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                      )}>
-                        {!hasPendingThisYear ? 'Active' : 'Pending'}
-                      </span>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className={cn(
+                          "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider",
+                          !hasPendingThisYear ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                        )}>
+                          {!hasPendingThisYear ? 'Active' : 'Pending'}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 mb-3">
@@ -7173,6 +7397,23 @@ export default function App() {
                         <p className="font-bold text-slate-900 text-sm">{u.joinDate}</p>
                       </div>
                     </div>
+
+                    {hasActiveLoan && (
+                      <div className="bg-gradient-to-r from-purple-50/90 to-indigo-50/60 p-3 rounded-2xl border border-purple-200/90 mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+                            <IndianRupee className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider">Outstanding Loan Principal</p>
+                            <p className="font-black text-purple-950 text-sm">₹{activeLoanPrincipalOutstanding.toLocaleString('en-IN')}</p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-purple-800 bg-white/90 px-2.5 py-1 rounded-xl border border-purple-200/80 shadow-2xs">
+                          {memberActiveLoans.length} Active Loan{memberActiveLoans.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+                    )}
 
                     <div className="bg-slate-50 p-3 rounded-2xl mb-4 flex items-center justify-between">
                       <div className="min-w-0 pr-2">
@@ -7208,17 +7449,6 @@ export default function App() {
                       )}
                       <div className="w-full h-px bg-slate-100 my-1" />
                       <button 
-                        onClick={() => setSelectedMemberForChart(u)}
-                        className={cn(
-                          "p-2.5 rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1.5 text-xs font-bold",
-                          isSelectedForChart ? "bg-indigo-600 text-white shadow-2xs" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                        )}
-                        title="View 12-Month Contribution History Chart"
-                      >
-                        <BarChart2 className="w-4 h-4" />
-                        <span>Chart</span>
-                      </button>
-                      <button 
                         onClick={() => generateMemberStatement(u)}
                         className="p-2.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold"
                         title="Export PDF Statement"
@@ -7234,61 +7464,74 @@ export default function App() {
                         <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                         <span>Excel</span>
                       </button>
-                      <button 
-                        onClick={() => toggleAdminRole(u)}
-                        className={cn(
-                          "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold active:scale-95",
-                          u.role === 'admin' ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-600"
-                        )}
-                      >
-                        <Shield className="w-4 h-4" /> {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setEditingUser(u);
-                          setOriginalEditingEmail(u.uid || u.email);
-                        }}
-                        className="p-2.5 bg-slate-50 text-slate-600 rounded-xl active:scale-95"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => setDeletingUserId(u.uid || u.email)}
-                        className="p-2.5 bg-red-50 text-red-600 rounded-xl active:scale-95"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setSelectedLoanUserId(u.uid || u.email);
-                          setIsAddingLoan(true);
-                        }}
-                        className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold active:scale-95"
-                      >
-                        <IndianRupee className="w-4 h-4" /> Add Loan
-                      </button>
-                      <button 
-                        onClick={() => {
-                          const userId = u.uid || u.email;
-                          setSelectedUserId(userId);
-                          const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
-                            .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                          if (firstMissing) setSelectedMonth(firstMissing);
-                          setSelectedYear(currentYear);
-                          setIsAdding(true);
-                        }}
-                        disabled={!hasPendingThisYear}
-                        className={cn(
-                          "flex-1 py-2.5 rounded-xl text-xs font-bold shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-                          !hasPendingThisYear ? "bg-slate-100 text-slate-400 shadow-none border border-slate-200" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
-                        )}
-                      >
-                        {!hasPendingThisYear ? 'Payment Recorded' : 'Record Payment'}
-                      </button>
+                      {isAdmin && (
+                        <>
+                          <button 
+                            onClick={() => toggleAdminRole(u)}
+                            className={cn(
+                              "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold active:scale-95",
+                              u.role === 'admin' ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-600"
+                            )}
+                          >
+                            <Shield className="w-4 h-4" /> {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setEditingUser(u);
+                              setOriginalEditingEmail(u.uid || u.email);
+                            }}
+                            className="p-2.5 bg-slate-50 text-slate-600 rounded-xl active:scale-95"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => setDeletingUserId(u.uid || u.email)}
+                            className="p-2.5 bg-red-50 text-red-600 rounded-xl active:scale-95"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setSelectedLoanUserId(u.uid || u.email);
+                              setIsAddingLoan(true);
+                            }}
+                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold active:scale-95"
+                          >
+                            <IndianRupee className="w-4 h-4" /> Add Loan
+                          </button>
+                          <button 
+                            onClick={() => {
+                              const userId = u.uid || u.email;
+                              setSelectedUserId(userId);
+                              const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                                .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                              if (firstMissing) setSelectedMonth(firstMissing);
+                              setSelectedYear(currentYear);
+                              setIsAdding(true);
+                            }}
+                            disabled={!hasPendingThisYear}
+                            className={cn(
+                              "flex-1 py-2.5 rounded-xl text-xs font-bold shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                              !hasPendingThisYear ? "bg-slate-100 text-slate-400 shadow-none border border-slate-200" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
+                            )}
+                          >
+                            {!hasPendingThisYear ? 'Paid' : 'Record'}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </motion.div>
                 );
               })}
+              {sortedMembers.length === 0 && (
+                <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center text-slate-400 italic">
+                  {filterActiveLoansOnly 
+                    ? "No members with active outstanding loans found."
+                    : searchQuery 
+                      ? `No members found matching "${searchQuery}".` 
+                      : "No members registered yet."}
+                </div>
+              )}
             </div>
                   </div>
                 </div>
@@ -7823,7 +8066,7 @@ export default function App() {
                       </div>
 
                       {isLoanOverviewExpanded && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-3.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-3.5">
                           {/* Card 1: Active Loans (Blue) */}
                           <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
                             <div>
@@ -7931,31 +8174,6 @@ export default function App() {
                             <div className="mt-2.5 pt-2 border-t border-rose-100/90 flex items-center justify-between text-[10.5px]">
                               <span className="font-semibold text-slate-500">Balance:</span>
                               <span className="font-bold text-rose-700">Due</span>
-                            </div>
-                          </div>
-
-                          {/* Card 6: Total Outstanding with Interest (Teal) */}
-                          <div className="bg-gradient-to-br from-teal-50/90 via-cyan-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-teal-200/90 hover:border-teal-400 hover:shadow-md hover:shadow-teal-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-                            <div>
-                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                                <div className="w-7.5 h-7.5 rounded-xl bg-teal-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                                  <IndianRupee className="w-4 h-4" />
-                                </div>
-                                <span className="text-[10px] font-bold text-teal-800 bg-teal-100/90 border border-teal-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                                  Total Due
-                                </span>
-                              </div>
-                              <h4 className="text-teal-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Outstanding (Inc. Int)</h4>
-                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-teal-950 tracking-tight truncate">
-                                ₹{loans.filter(l => l.status === 'approved').reduce((acc, l) => {
-                                  const payments = loanPayments.filter(p => p.loanId === l.id);
-                                  return acc + calculateLoanRemainingTotal(l, payments);
-                                }, 0).toLocaleString('en-IN')}
-                              </div>
-                            </div>
-                            <div className="mt-2.5 pt-2 border-t border-teal-100/90 flex items-center justify-between text-[10.5px]">
-                              <span className="font-semibold text-slate-500">Total:</span>
-                              <span className="font-bold text-teal-700">Principal + Int</span>
                             </div>
                           </div>
                         </div>
@@ -10243,9 +10461,10 @@ export default function App() {
                         <div className="relative">
                           <select 
                             value={filterMonth}
-                            onChange={(e) => setFilterMonth(Number(e.target.value))}
+                            onChange={(e) => setFilterMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
                             className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
                           >
+                            <option value="all">All Months (Full Year)</option>
                             {Array.from({ length: 12 }).map((_, i) => (
                               <option key={`filter-month-${i + 1}`} value={i + 1}>
                                 {format(new Date(2024, i, 1), 'MMMM')}
@@ -10259,10 +10478,11 @@ export default function App() {
                         <div className="relative">
                           <select 
                             value={filterYear}
-                            onChange={(e) => setFilterYear(Number(e.target.value))}
+                            onChange={(e) => setFilterYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
                             className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
                           >
-                            {getAppAvailableYears().map(y => (
+                            <option value="all">All Years (Lifetime History)</option>
+                            {availableContributionYears.map(y => (
                               <option key={`filter-year-${y}`} value={y}>{y}</option>
                             ))}
                           </select>
@@ -10279,25 +10499,17 @@ export default function App() {
                       >
                         <Search className="w-4 h-4" /> Show Payments
                       </button>
-
-                      {!isAdmin && (
-                        <button 
-                          onClick={() => {
-                            setAppliedFilter({ month: 'all', year: filterYear });
-                            setPaymentMethodFilter('all');
-                          }}
-                          className="px-6 sm:px-8 py-3.5 bg-white text-indigo-700 border-2 border-indigo-200/90 hover:border-indigo-600 hover:bg-indigo-50/70 rounded-2xl font-bold transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
-                        >
-                          <Layers className="w-4 h-4 text-indigo-600" /> Show All Payments
-                        </button>
-                      )}
                     </div>
                   </div>
 
                   {isAdmin && appliedFilter && (
                     <div className="mt-6 pt-6 border-t border-indigo-100/90 flex flex-wrap gap-4">
                       {(() => {
-                        const filtered = contributions.filter(c => (appliedFilter.month === 'all' ? true : c.month === appliedFilter.month) && c.year === appliedFilter.year && c.status === 'paid');
+                        const filtered = contributions.filter(c => 
+                          (appliedFilter.month === 'all' ? true : c.month === appliedFilter.month) && 
+                          (appliedFilter.year === 'all' ? true : c.year === appliedFilter.year) && 
+                          c.status === 'paid'
+                        );
                         const cash = filtered.filter(c => c.paymentMethod === 'cash').length;
                         const online = filtered.filter(c => c.paymentMethod === 'online' || !c.paymentMethod).length;
                         const total = filtered.reduce((acc, c) => acc + c.amount, 0);
@@ -10371,7 +10583,7 @@ export default function App() {
                               </div>
                             </th>
                           )}
-                          {(!isAdmin || appliedFilter.month === 'all') && (
+                          {(!isAdmin || appliedFilter.month === 'all' || appliedFilter.year === 'all') && (
                             <th 
                               className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group border-r border-slate-200/60 select-none"
                               onClick={() => handleSort('month')}
@@ -10440,7 +10652,7 @@ export default function App() {
                                   </span>
                                 </td>
                               )}
-                              {(!isAdmin || appliedFilter.month === 'all') && (
+                              {(!isAdmin || appliedFilter.month === 'all' || appliedFilter.year === 'all') && (
                                 <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                   <span className="text-sm font-bold text-slate-800">
                                     {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
@@ -10501,8 +10713,10 @@ export default function App() {
                         })}
                         {sortedContributions.length === 0 && (
                           <tr>
-                            <td colSpan={isAdmin ? (appliedFilter.month === 'all' ? 6 : 5) : 5} className="px-6 py-12 text-center text-slate-400 italic">
-                              No records found for {appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.
+                            <td colSpan={isAdmin ? (appliedFilter.month === 'all' || appliedFilter.year === 'all' ? 6 : 5) : 5} className="px-6 py-12 text-center text-slate-400 italic">
+                              No records found for {appliedFilter.year === 'all' 
+                                ? (appliedFilter.month === 'all' ? 'any recorded year' : `all years in ${format(new Date(2024, (appliedFilter.month as number) - 1), 'MMMM')}`)
+                                : (appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, (appliedFilter.month as number) - 1), 'MMMM yyyy'))}.
                             </td>
                           </tr>
                         )}
@@ -10516,7 +10730,7 @@ export default function App() {
                   <MobileQuickSort
                     options={[
                       ...(isAdmin ? [{ key: 'member', label: 'Member' }] : []),
-                      ...(!isAdmin || appliedFilter.month === 'all' ? [{ key: 'month', label: 'Month' }] : []),
+                      ...(!isAdmin || appliedFilter.month === 'all' || appliedFilter.year === 'all' ? [{ key: 'month', label: 'Period' }] : []),
                       { key: 'amount', label: 'Amount' },
                       { key: 'status', label: 'Status' },
                       { key: 'date', label: 'Date' }
@@ -10620,7 +10834,9 @@ export default function App() {
                   })}
                   {sortedContributions.length === 0 && (
                     <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
-                      <p className="text-slate-400 italic">No records found for {appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, appliedFilter.month - 1), 'MMMM yyyy')}.</p>
+                      <p className="text-slate-400 italic">No records found for {appliedFilter.year === 'all' 
+                        ? (appliedFilter.month === 'all' ? 'any recorded year' : `all years in ${format(new Date(2024, (appliedFilter.month as number) - 1), 'MMMM')}`)
+                        : (appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, (appliedFilter.month as number) - 1), 'MMMM yyyy'))}.</p>
                     </div>
                   )}
                 </div>
@@ -11032,7 +11248,7 @@ export default function App() {
                 <section>
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 ml-1">Your Notifications</h4>
                   <div className="space-y-3">
-                    {notifications.map((n, idx) => (
+                    {visibleNotifications.map((n, idx) => (
                       <div 
                         key={`modal-notification-${n.id || 'modal-noti'}-${idx}`}
                         onClick={() => {
@@ -11063,7 +11279,7 @@ export default function App() {
                         </div>
                       </div>
                     ))}
-                    {notifications.length === 0 && (
+                    {visibleNotifications.length === 0 && (
                       <div className="bg-white p-8 rounded-3xl border border-dashed border-slate-200 text-center">
                         <p className="text-slate-400 italic text-sm">No notifications yet</p>
                       </div>
@@ -11264,13 +11480,13 @@ export default function App() {
                   Loan Repayment Due
                 </button>
                 <button
-                  onClick={() => setReminderModalTab('email1st')}
+                  onClick={() => setReminderModalTab('email5th')}
                   className={cn(
                     "flex-1 py-2 text-xs font-bold rounded-xl transition-all text-center cursor-pointer",
-                    reminderModalTab === 'email1st' ? "bg-white text-indigo-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    reminderModalTab === 'email5th' ? "bg-white text-indigo-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
                   )}
                 >
-                  Email (1st)
+                  Email (5th)
                 </button>
               </div>
 
@@ -11279,20 +11495,20 @@ export default function App() {
                 <div className="space-y-4 overflow-y-auto pr-1">
                   <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200/80">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">Automated Rule</span>
+                      <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">Automated Rule (1st - 10th Window)</span>
                       <span className="text-[10px] font-black bg-amber-200/70 text-amber-900 px-2 py-0.5 rounded-full">
-                        5th of Each Month (09:00 AM)
+                        Strictly on 5th (09:00 AM)
                       </span>
                     </div>
                     <p className="text-xs text-amber-800 leading-relaxed">
-                      Sends automated push notifications and in-app alerts to members who haven't recorded their <strong>₹1,000 monthly contribution</strong> by the 5th of each month.
+                      Sends automated push notifications and in-app alerts strictly on the <strong>5th of each month</strong> to members who have not recorded their <strong>₹1,000 monthly contribution</strong>. Administrator unnati is excluded.
                     </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Members</p>
-                      <p className="text-2xl font-black text-slate-800">{allUsers.length}</p>
+                      <p className="text-2xl font-black text-slate-800">{allUsers.filter(u => !isExemptAdministrator(u)).length}</p>
                     </div>
                     <div className="p-3.5 bg-red-50 rounded-2xl border border-red-100 text-center">
                       <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider mb-1">Unrecorded for {format(new Date(), 'MMM')}</p>
@@ -11303,10 +11519,10 @@ export default function App() {
                   <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600 space-y-1">
                     <p className="font-bold text-slate-700 flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      Active Channels: Device Web Push Notification + Firestore Bell Alert
+                      Active Channels: Web Push Notification + Firestore Bell Alert
                     </p>
                     <p className="text-[11px] text-slate-500 pl-5">
-                      Server cron automatically executes this on the 5th. You can also trigger an immediate dispatch below.
+                      Automated execution happens strictly on the 5th of each month. Administrator accounts never receive payment alerts.
                     </p>
                   </div>
 
@@ -11343,20 +11559,20 @@ export default function App() {
                 <div className="space-y-4 overflow-y-auto pr-1">
                   <div className="p-4 bg-indigo-50/70 rounded-2xl border border-indigo-200/80">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider">Automated Due Cycle</span>
+                      <span className="text-xs font-bold text-indigo-900 uppercase tracking-wider">Automated Due Cycle (1st - 10th Window)</span>
                       <span className="text-[10px] font-black bg-indigo-200/70 text-indigo-900 px-2 py-0.5 rounded-full">
-                        5th & 9th of Every Month
+                        Strictly on 5th & 9th
                       </span>
                     </div>
                     <p className="text-xs text-indigo-800 leading-relaxed">
-                      Sends automated 'Loan Repayment Due' push notifications & alerts on the <strong>5th</strong> and <strong>9th</strong> of each month to members who have an active loan and haven't recorded a payment for the current month.
+                      Sends automated 'Loan Repayment Due' push notifications & alerts only on the <strong>5th</strong> and <strong>9th</strong> of each month to members who have an active loan and have not recorded their payment for the current month. Administrator unnati is excluded.
                     </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Active Loans</p>
-                      <p className="text-2xl font-black text-slate-800">{loans.filter(l => l.status === 'approved').length}</p>
+                      <p className="text-2xl font-black text-slate-800">{loans.filter(l => l.status === 'approved' && !isExemptAdministrator(l as any)).length}</p>
                     </div>
                     <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-100 text-center">
                       <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">Pending Installment</p>
@@ -11367,7 +11583,7 @@ export default function App() {
                   <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600 space-y-1">
                     <p className="font-bold text-slate-700 flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                      Two Automated Waves:
+                      Two Automated Waves (1st to 10th):
                     </p>
                     <p className="text-[11px] text-slate-500 pl-5">
                       • <strong>5th of Month:</strong> Initial due alert reminding members to pay before 10th.
@@ -11404,15 +11620,15 @@ export default function App() {
                 </div>
               )}
 
-              {/* Tab 3: 1st of Month Email Reminders */}
-              {reminderModalTab === 'email1st' && (
+              {/* Tab 3: 5th of Month Email Reminders */}
+              {reminderModalTab === 'email5th' && (
                 <div className="space-y-4 overflow-y-auto pr-1">
                   <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
                     <Mail className="w-7 h-7" />
                   </div>
-                  <h4 className="text-base font-bold text-slate-900 text-center">Monthly Email Reminders</h4>
+                  <h4 className="text-base font-bold text-slate-900 text-center">Monthly Email Reminders (5th)</h4>
                   <p className="text-xs text-slate-600 text-center leading-relaxed">
-                    This triggers email reminders via SMTP to all members who have not yet paid their ₹1,000 contribution for {format(new Date(), 'MMMM yyyy')}.
+                    This triggers email reminders via SMTP to all members who have not yet paid their ₹1,000 contribution for {format(new Date(), 'MMMM yyyy')}. Administrator unnati is excluded.
                   </p>
 
                   <div className="pt-2 flex gap-3">

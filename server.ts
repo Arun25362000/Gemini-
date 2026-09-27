@@ -196,6 +196,26 @@ if (process.env.SMTP_USER && process.env.SMTP_PASS) {
   console.log('[SMTP] No SMTP credentials configured. Email sending features will be disabled until credentials are added.');
 }
 
+const ADMIN_EMAILS_LIST = ['arun2102000@gmail.com', 'unnati.finance2026@gmail.com', 'arun.cse.rymec@gmail.com'];
+const SYSTEM_ADMIN_EMAIL_ADDR = 'unnati.finance2026@gmail.com';
+
+function isAdministratorEntity(entity: any): boolean {
+  if (!entity) return false;
+  const email = (entity.email || entity.userEmail || '').toLowerCase().trim();
+  const name = (entity.displayName || entity.name || entity.userName || '').toLowerCase().trim();
+  const role = (entity.role || '').toLowerCase().trim();
+
+  return (
+    email === SYSTEM_ADMIN_EMAIL_ADDR.toLowerCase() ||
+    ADMIN_EMAILS_LIST.includes(email) ||
+    email.includes('unnati.finance2026') ||
+    name === 'unnati' ||
+    name === 'administrator' ||
+    name.includes('unnati') ||
+    role === 'admin'
+  );
+}
+
 async function sendMonthlyReminders() {
   console.log('Running monthly email reminder task...');
   const currentApp = firebaseAdminApp;
@@ -262,8 +282,14 @@ async function sendMonthlyReminders() {
     console.log('Paid User IDs:', Array.from(paidUserIds));
     console.log('Paid User Emails:', Array.from(paidUserEmails));
 
-    // 3. Find users who haven't paid
+    // 3. Find users who haven't paid (excluding administrator unnati)
     for (const user of users as any) {
+      if (isAdministratorEntity(user)) {
+        console.log(`User ${user.email || user.displayName || user.id} is administrator. Skipping email reminder.`);
+        skippedCount++;
+        continue;
+      }
+
       const hasPaid = (user.uid && paidUserIds.has(user.uid)) || (user.email && paidUserEmails.has(user.email));
       
       if (!hasPaid && user.email) {
@@ -312,11 +338,6 @@ async function sendMonthlyReminders() {
   }
 }
 
-// Schedule task for the 1st of every month at 9:00 AM
-cron.schedule('0 9 1 * *', () => {
-  sendMonthlyReminders();
-});
-
 // Automated push notification & alert service for monthly contribution (5th of month)
 async function sendContributionDue5thReminders() {
   console.log('[Automation] Running 5th-of-month contribution due notifications check...');
@@ -360,6 +381,12 @@ async function sendContributionDue5thReminders() {
 
     let notifiedCount = 0;
     for (const u of users) {
+      // Exclude administrator unnati from receiving reminders
+      if (isAdministratorEntity(u)) {
+        console.log(`User ${u.email || u.displayName || u.id} is administrator. Skipping contribution due notification.`);
+        continue;
+      }
+
       const uid = u.uid || u.id;
       const email = (u.email || '').toLowerCase().trim();
       const hasPaid = (uid && paidUserIds.has(uid)) || (email && paidUserEmails.has(email));
@@ -442,6 +469,12 @@ async function sendLoanRepaymentDueReminders(cycle: '5th' | '9th' = '5th') {
 
     let alertedCount = 0;
     for (const loan of loans) {
+      // Exclude administrator loans from receiving reminders
+      if (isAdministratorEntity(loan)) {
+        console.log(`Loan ${loan.id} belongs to administrator ${loan.userEmail}. Skipping loan repayment notification.`);
+        continue;
+      }
+
       const loanId = loan.id;
       const loanUserId = loan.userId;
       const loanUserEmail = (loan.userEmail || '').toLowerCase().trim();
@@ -492,16 +525,22 @@ async function sendLoanRepaymentDueReminders(cycle: '5th' | '9th' = '5th') {
   }
 }
 
-// Schedule task on the 5th of every month at 9:00 AM:
-// Alerts members missing monthly contribution (₹1,000) and members with loan repayment due
+// Automated Reminders Schedule:
+// Between dates 1st to 10th of every month, reminders ONLY happen on the designated dates:
+// 1. On the 5th of every month at 9:00 AM:
+//    - Email contribution reminders to members missing ₹1,000 contribution
+//    - In-app & push notifications for ₹1,000 contribution due
+//    - 1st wave loan repayment due reminders (before 10th)
+// 2. On the 9th of every month at 9:00 AM:
+//    - 2nd wave urgent loan repayment due reminders (final reminder before 10th)
+// Administrator unnati is strictly excluded and never receives reminders.
 cron.schedule('0 9 5 * *', async () => {
   console.log('[Cron] 5th of month trigger: Running automated contribution & loan repayment checks...');
+  await sendMonthlyReminders();
   await sendContributionDue5thReminders();
   await sendLoanRepaymentDueReminders('5th');
 });
 
-// Schedule task on the 9th of every month at 9:00 AM:
-// Alerts members with active loan without current month payment (final reminder before 10th)
 cron.schedule('0 9 9 * *', async () => {
   console.log('[Cron] 9th of month trigger: Running automated 2nd loan repayment due check...');
   await sendLoanRepaymentDueReminders('9th');

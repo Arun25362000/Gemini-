@@ -1,23 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  LabelList
-} from 'recharts';
-import {
   Layers,
   PieChart,
   TrendingUp,
   CheckCircle2,
-  Clock,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -50,6 +36,19 @@ const MONTH_NAMES = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
+interface BorrowerLoanGroup {
+  key: string;
+  userId?: string;
+  userEmail?: string;
+  borrowerName: string;
+  borrowerUser: UserProfile | null;
+  loans: Loan[];
+  activeLoans: Loan[];
+  primaryLoanId: string;
+  latestSanctionDate: Date;
+  isAllSettled: boolean;
+}
+
 export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProps> = ({
   loans,
   loanPayments,
@@ -61,88 +60,9 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
   const [internalSelectedId, setInternalSelectedId] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [chartMode, setChartMode] = useState<'bar' | 'area'>('bar');
-  const [viewScope, setViewScope] = useState<'paid' | 'full'>('paid');
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // Filter only disbursed loans (approved or paid)
-  const sanctionedLoans = useMemo(() => {
-    return loans
-      .filter(l => l.status === 'approved' || l.status === 'paid')
-      .sort((a, b) => {
-        const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
-        const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
-        return timeB - timeA;
-      });
-  }, [loans]);
-
-  // Current active loan ID
-  const effectiveSelectedLoanId = selectedLoanId !== undefined ? selectedLoanId : internalSelectedId;
-
-  // Active loan object
-  const activeLoan = useMemo(() => {
-    if (sanctionedLoans.length === 0) return null;
-    if (effectiveSelectedLoanId) {
-      const found = sanctionedLoans.find(l => l.id === effectiveSelectedLoanId);
-      if (found) return found;
-    }
-    return sanctionedLoans[0];
-  }, [sanctionedLoans, effectiveSelectedLoanId]);
-
-  const handleSelectLoan = (loanId: string) => {
-    setInternalSelectedId(loanId);
-    if (onSelectLoan) {
-      onSelectLoan(loanId);
-    }
-  };
-
-  // Find borrower profile
-  const borrower = useMemo(() => {
-    if (!activeLoan) return null;
-    return allUsers.find(u => 
-      (activeLoan.userId && u.uid === activeLoan.userId) || 
-      (activeLoan.userEmail && u.email.toLowerCase() === activeLoan.userEmail.toLowerCase())
-    );
-  }, [activeLoan, allUsers]);
-
-  // Get active loan index for prev/next buttons
-  const activeIndex = useMemo(() => {
-    if (!activeLoan) return -1;
-    return sanctionedLoans.findIndex(l => l.id === activeLoan.id);
-  }, [sanctionedLoans, activeLoan]);
-
-  const handlePrevLoan = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (sanctionedLoans.length === 0) return;
-    const prevIdx = activeIndex <= 0 ? sanctionedLoans.length - 1 : activeIndex - 1;
-    handleSelectLoan(sanctionedLoans[prevIdx].id!);
-  };
-
-  const handleNextLoan = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (sanctionedLoans.length === 0) return;
-    const nextIdx = activeIndex >= sanctionedLoans.length - 1 ? 0 : activeIndex + 1;
-    handleSelectLoan(sanctionedLoans[nextIdx].id!);
-  };
-
-  // Filtered loans list for searchable selector dropdown
-  const filteredDropdownLoans = useMemo(() => {
-    if (!searchQuery.trim()) return sanctionedLoans;
-    const q = searchQuery.toLowerCase().trim();
-    return sanctionedLoans.filter(l => {
-      const u = allUsers.find(user => 
-        (l.userId && user.uid === l.userId) || 
-        (l.userEmail && user.email.toLowerCase() === l.userEmail.toLowerCase())
-      );
-      const name = (u?.displayName || l.userEmail || '').toLowerCase();
-      const email = (l.userEmail || '').toLowerCase();
-      const amountStr = (l.approvedAmount || l.amount || '').toString();
-      const statusStr = (l.status || '').toLowerCase();
-      return name.includes(q) || email.includes(q) || amountStr.includes(q) || statusStr.includes(q);
-    });
-  }, [sanctionedLoans, allUsers, searchQuery]);
-
-  // Loan sanction date helper
+  // Helper to extract loan sanction/approval date
   const getSanctionDate = (loan: Loan): Date => {
     if (loan.approvedAt?.toDate) return loan.approvedAt.toDate();
     if (loan.approvedAt?.seconds) return new Date(loan.approvedAt.seconds * 1000);
@@ -161,55 +81,249 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     return new Date();
   };
 
-  // Process payments & trajectory data for active loan
-  const { chartData, stats, hasPayments } = useMemo(() => {
-    if (!activeLoan) {
+  // Filter only disbursed loans (approved or paid)
+  const sanctionedLoans = useMemo(() => {
+    return loans
+      .filter(l => l.status === 'approved' || l.status === 'paid')
+      .sort((a, b) => {
+        const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
+        const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
+        return timeB - timeA;
+      });
+  }, [loans]);
+
+  // Group sanctioned loans by borrower so members with multiple active loans (like Shwetha) appear clubbed as one entry
+  const borrowerGroups = useMemo<BorrowerLoanGroup[]>(() => {
+    if (sanctionedLoans.length === 0) return [];
+
+    const groups: BorrowerLoanGroup[] = [];
+
+    for (const loan of sanctionedLoans) {
+      // Find matching user profile
+      const user = allUsers.find(u => 
+        (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) ||
+        (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
+        ((loan as any).userName && u.displayName && u.displayName.toLowerCase().trim() === ((loan as any).userName as string).toLowerCase().trim())
+      );
+
+      const resolvedName = (
+        user?.displayName || 
+        (user as any)?.name || 
+        (loan as any).userName || 
+        (loan.userEmail ? loan.userEmail.split('@')[0] : '') || 
+        'Member'
+      ).trim();
+
+      const resolvedEmail = (user?.email || loan.userEmail || '').trim().toLowerCase();
+      const resolvedUserId = user?.uid || user?.id || loan.userId || '';
+      const normName = resolvedName.toLowerCase();
+
+      // Check if an existing group belongs to this same borrower (by userId, email, or normalized name)
+      const existingGroup = groups.find(g => {
+        if (resolvedUserId && g.userId && g.userId === resolvedUserId) return true;
+        if (resolvedEmail && g.userEmail && g.userEmail.toLowerCase().trim() === resolvedEmail) return true;
+        if (normName && g.borrowerName.toLowerCase().trim() === normName) return true;
+        return false;
+      });
+
+      const sanctionDate = getSanctionDate(loan);
+
+      if (existingGroup) {
+        existingGroup.loans.push(loan);
+        if (loan.status === 'approved') {
+          existingGroup.activeLoans.push(loan);
+        }
+        if (!existingGroup.borrowerUser && user) {
+          existingGroup.borrowerUser = user;
+        }
+        if (!existingGroup.userEmail && resolvedEmail) {
+          existingGroup.userEmail = resolvedEmail;
+        }
+        if (!existingGroup.userId && resolvedUserId) {
+          existingGroup.userId = resolvedUserId;
+        }
+        if (sanctionDate.getTime() > existingGroup.latestSanctionDate.getTime()) {
+          existingGroup.latestSanctionDate = sanctionDate;
+          existingGroup.primaryLoanId = loan.id!;
+        }
+        existingGroup.isAllSettled = existingGroup.activeLoans.length === 0 && existingGroup.loans.every(l => l.status === 'paid');
+      } else {
+        const activeLoans = loan.status === 'approved' ? [loan] : [];
+        const isAllSettled = activeLoans.length === 0 && loan.status === 'paid';
+        const groupKey = resolvedUserId || resolvedEmail || normName || loan.id || 'unknown';
+
+        groups.push({
+          key: groupKey,
+          userId: resolvedUserId || undefined,
+          userEmail: resolvedEmail || undefined,
+          borrowerName: resolvedName,
+          borrowerUser: user || null,
+          loans: [loan],
+          activeLoans,
+          primaryLoanId: loan.id!,
+          latestSanctionDate: sanctionDate,
+          isAllSettled
+        });
+      }
+    }
+
+    // Sort loans inside each group by sanction date descending
+    for (const g of groups) {
+      g.loans.sort((a, b) => {
+        const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
+        const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
+        return timeB - timeA;
+      });
+    }
+
+    // Sort groups: Borrowers with active loans first, then newest sanction date
+    groups.sort((a, b) => {
+      if (!a.isAllSettled && b.isAllSettled) return -1;
+      if (a.isAllSettled && !b.isAllSettled) return 1;
+      return b.latestSanctionDate.getTime() - a.latestSanctionDate.getTime();
+    });
+
+    return groups;
+  }, [sanctionedLoans, allUsers]);
+
+  // Current active loan ID from props or state
+  const effectiveSelectedLoanId = selectedLoanId !== undefined ? selectedLoanId : internalSelectedId;
+
+  // Active borrower group object
+  const activeGroup = useMemo<BorrowerLoanGroup | null>(() => {
+    if (borrowerGroups.length === 0) return null;
+    if (effectiveSelectedLoanId) {
+      const foundByLoan = borrowerGroups.find(g => g.loans.some(l => l.id === effectiveSelectedLoanId));
+      if (foundByLoan) return foundByLoan;
+
+      const foundByUser = borrowerGroups.find(g => 
+        (g.userId && g.userId === effectiveSelectedLoanId) ||
+        (g.userEmail && g.userEmail.toLowerCase().trim() === effectiveSelectedLoanId.toLowerCase().trim()) ||
+        g.key === effectiveSelectedLoanId
+      );
+      if (foundByUser) return foundByUser;
+    }
+    return borrowerGroups[0];
+  }, [borrowerGroups, effectiveSelectedLoanId]);
+
+  const handleSelectGroup = (group: BorrowerLoanGroup) => {
+    setInternalSelectedId(group.primaryLoanId);
+    if (onSelectLoan) {
+      onSelectLoan(group.primaryLoanId);
+    }
+  };
+
+  // Get active group index for prev/next buttons
+  const activeIndex = useMemo(() => {
+    if (!activeGroup) return -1;
+    return borrowerGroups.findIndex(g => g.key === activeGroup.key);
+  }, [borrowerGroups, activeGroup]);
+
+  const handlePrevGroup = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (borrowerGroups.length === 0) return;
+    const prevIdx = activeIndex <= 0 ? borrowerGroups.length - 1 : activeIndex - 1;
+    handleSelectGroup(borrowerGroups[prevIdx]);
+  };
+
+  const handleNextGroup = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (borrowerGroups.length === 0) return;
+    const nextIdx = activeIndex >= borrowerGroups.length - 1 ? 0 : activeIndex + 1;
+    handleSelectGroup(borrowerGroups[nextIdx]);
+  };
+
+  // Filtered borrower groups list for searchable selector dropdown
+  const filteredDropdownGroups = useMemo(() => {
+    if (!searchQuery.trim()) return borrowerGroups;
+    const q = searchQuery.toLowerCase().trim();
+    return borrowerGroups.filter(g => {
+      const name = g.borrowerName.toLowerCase();
+      const email = (g.userEmail || '').toLowerCase();
+      const totalAmt = g.loans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0).toString();
+      const anyLoanMatches = g.loans.some(l => (l.approvedAmount || l.amount || '').toString().includes(q));
+      return name.includes(q) || email.includes(q) || totalAmt.includes(q) || anyLoanMatches;
+    });
+  }, [borrowerGroups, searchQuery]);
+
+  // Helper to determine if a loan payment belongs to a specific loan
+  const isPaymentBelongingToLoan = (p: LoanPayment, loan: Loan): boolean => {
+    if (p.loanId) {
+      return p.loanId === loan.id;
+    }
+    const isUserMatch = (loan.userId && p.userId === loan.userId) ||
+      (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
+    if (!isUserMatch) return false;
+
+    // When payment lacks explicit loanId, attribute payment to loan only if made on/after loan sanction date
+    const sanction = getSanctionDate(loan);
+    const pDate = p.timestamp?.toDate ? p.timestamp.toDate() : (p.year && p.month ? new Date(p.year, p.month - 1, 1) : null);
+    if (pDate) {
+      const sanctionMonthStart = new Date(sanction.getFullYear(), sanction.getMonth(), 1).getTime();
+      if (pDate.getTime() < sanctionMonthStart) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Aggregate statistics for the active borrower group (clubbed loans)
+  const stats = useMemo(() => {
+    if (!activeGroup || activeGroup.loans.length === 0) {
       return {
-        chartData: [],
-        stats: {
-          approvedAmount: 0,
-          totalPrincipalPaid: 0,
-          totalInterestPaid: 0,
-          totalPaid: 0,
-          remainingPrincipal: 0,
-          paidInstallmentsCount: 0,
-          totalInstallments: 10,
-          repaymentProgress: 0,
-          settledDateStr: '-'
-        },
-        hasPayments: false
+        approvedAmount: 0,
+        totalPrincipalPaid: 0,
+        totalInterestPaid: 0,
+        totalPaid: 0,
+        remainingPrincipal: 0,
+        paidInstallmentsCount: 0,
+        totalInstallments: 10,
+        repaymentProgress: 0,
+        settledDateStr: '-',
+        activeLoansCount: 0,
+        totalLoansCount: 0
       };
     }
 
-    const loanPrincipal = activeLoan.approvedAmount || activeLoan.amount || 0;
-    const installments = activeLoan.installments || 10;
-    const sanctionDate = getSanctionDate(activeLoan);
+    let totalApproved = 0;
+    let totalPrincipalPaid = 0;
+    let totalInterestPaid = 0;
+    let totalInstallmentsCount = 0;
+    let totalPaidInstallments = 0;
+    const allSortedPaidPayments: LoanPayment[] = [];
 
-    // Filter all payments belonging to this loan
-    const rawPayments = loanPayments.filter(p => 
-      (activeLoan.id && p.loanId === activeLoan.id) || 
-      (!p.loanId && activeLoan.userId && p.userId === activeLoan.userId)
-    );
+    activeGroup.loans.forEach(loan => {
+      const loanPrincipal = loan.approvedAmount || loan.amount || 0;
+      const installments = loan.installments || Math.ceil(loanPrincipal / 5000) || 10;
+      totalApproved += loanPrincipal;
+      totalInstallmentsCount += installments;
 
-    // Sort chronologically
-    const sortedPaidPayments = rawPayments
-      .filter(p => p.status === 'paid')
-      .sort((a, b) => {
-        const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : ((a.year || 0) * 100 + (a.month || 0));
-        const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : ((b.year || 0) * 100 + (b.month || 0));
-        return timeA - timeB;
-      });
+      const rawPayments = loanPayments.filter(p => isPaymentBelongingToLoan(p, loan));
 
-    const totalPrincipalPaid = sortedPaidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalInterestPaid = sortedPaidPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
+      const paidPayments = rawPayments.filter(p => p.status === 'paid');
+      const pPaid = paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const iPaid = paidPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
+
+      totalPrincipalPaid += pPaid;
+      totalInterestPaid += iPaid;
+      totalPaidInstallments += paidPayments.length;
+      allSortedPaidPayments.push(...paidPayments);
+    });
+
     const totalPaid = totalPrincipalPaid + totalInterestPaid;
-    const remainingPrincipal = Math.max(0, loanPrincipal - totalPrincipalPaid);
-    const repaymentProgress = loanPrincipal > 0 ? Math.min(100, Math.round((totalPrincipalPaid / loanPrincipal) * 100)) : 0;
+    const remainingPrincipal = Math.max(0, totalApproved - totalPrincipalPaid);
+    const repaymentProgress = totalApproved > 0 ? Math.min(100, Math.round((totalPrincipalPaid / totalApproved) * 100)) : 0;
+
+    allSortedPaidPayments.sort((a, b) => {
+      const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : ((a.year || 0) * 100 + (a.month || 0));
+      const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : ((b.year || 0) * 100 + (b.month || 0));
+      return timeA - timeB;
+    });
 
     let settledDateStr = '-';
-    if (activeLoan.status === 'paid' || remainingPrincipal <= 0) {
-      if (sortedPaidPayments.length > 0) {
-        const last = sortedPaidPayments[sortedPaidPayments.length - 1];
+    if (remainingPrincipal <= 0) {
+      if (allSortedPaidPayments.length > 0) {
+        const last = allSortedPaidPayments[allSortedPaidPayments.length - 1];
         if (last.timestamp?.toDate) {
           settledDateStr = format(last.timestamp.toDate(), 'dd MMM yyyy');
         } else {
@@ -220,292 +334,29 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       }
     }
 
-    const paidCount = sortedPaidPayments.length;
-    const hasAnyPayments = paidCount > 0;
-
-    // Decide if we should render 'paid' only or 'full' timeline
-    // If scope is 'paid' but there are no paid payments, fall back to showing projected full timeline
-    const effectiveScope = (viewScope === 'paid' && hasAnyPayments) ? 'paid' : 'full';
-
-    type ChartPoint = {
-      periodLabel: string;
-      shortLabel: string;
-      installmentNumber: number;
-      principal: number;
-      interest: number;
-      total: number;
-      cumulativePrincipal: number;
-      cumulativeInterest: number;
-      cumulativeTotal: number;
-      remainingPrincipal: number;
-      status: 'paid' | 'pending' | 'projected';
-      paymentMode?: string;
-      dateStr: string;
-      isSettled: boolean;
-    };
-
-    const points: ChartPoint[] = [];
-
-    if (effectiveScope === 'paid') {
-      // Build point for each paid payment
-      let runPrincipal = 0;
-      let runInterest = 0;
-
-      sortedPaidPayments.forEach((p, idx) => {
-        const pPrincipal = p.amount || 0;
-        const pInterest = p.interest || 0;
-        const pTotal = pPrincipal + pInterest;
-
-        runPrincipal += pPrincipal;
-        runInterest += pInterest;
-
-        const currentRem = Math.max(0, loanPrincipal - runPrincipal);
-
-        const mName = MONTH_NAMES[p.month] || `M${p.month}`;
-        const pYear = p.year || sanctionDate.getFullYear();
-        const periodLabel = `${mName} ${pYear}`;
-        const shortLabel = `${mName} '${String(pYear).slice(-2)}`;
-
-        let dateStr = `${mName} ${pYear}`;
-        if (p.timestamp?.toDate) {
-          dateStr = format(p.timestamp.toDate(), 'dd MMM yyyy');
-        }
-
-        points.push({
-          periodLabel,
-          shortLabel: `#${idx + 1} (${shortLabel})`,
-          installmentNumber: idx + 1,
-          principal: pPrincipal,
-          interest: pInterest,
-          total: pTotal,
-          cumulativePrincipal: runPrincipal,
-          cumulativeInterest: runInterest,
-          cumulativeTotal: runPrincipal + runInterest,
-          remainingPrincipal: currentRem,
-          status: 'paid',
-          paymentMode: p.paymentMethod || p.paymentMode || 'Online',
-          dateStr,
-          isSettled: currentRem <= 0 || (idx === sortedPaidPayments.length - 1 && activeLoan.status === 'paid')
-        });
-      });
-    } else {
-      // Full loan tenure timeline (including paid + upcoming scheduled installments)
-      let runPrincipal = 0;
-      let runInterest = 0;
-      const scheduledPrincipalPerMonth = Math.round(loanPrincipal / installments);
-
-      for (let i = 0; i < installments; i++) {
-        const instDate = new Date(sanctionDate.getFullYear(), sanctionDate.getMonth() + i + 1, 1);
-        const instMonth = instDate.getMonth() + 1;
-        const instYear = instDate.getFullYear();
-        const mName = MONTH_NAMES[instMonth] || `M${instMonth}`;
-        const shortLabel = `${mName} '${String(instYear).slice(-2)}`;
-        const periodLabel = `${mName} ${instYear}`;
-
-        // Check if an actual payment matches this month & year
-        const matchPayment = sortedPaidPayments.find(p => p.month === instMonth && p.year === instYear);
-        const pendingPayment = rawPayments.find(p => p.month === instMonth && p.year === instYear && p.status === 'pending');
-
-        if (matchPayment) {
-          const pPrincipal = matchPayment.amount || 0;
-          const pInterest = matchPayment.interest || 0;
-          runPrincipal += pPrincipal;
-          runInterest += pInterest;
-          const curRem = Math.max(0, loanPrincipal - runPrincipal);
-
-          let dateStr = `${mName} ${instYear}`;
-          if (matchPayment.timestamp?.toDate) {
-            dateStr = format(matchPayment.timestamp.toDate(), 'dd MMM yyyy');
-          }
-
-          points.push({
-            periodLabel,
-            shortLabel: `#${i + 1} ${shortLabel}`,
-            installmentNumber: i + 1,
-            principal: pPrincipal,
-            interest: pInterest,
-            total: pPrincipal + pInterest,
-            cumulativePrincipal: runPrincipal,
-            cumulativeInterest: runInterest,
-            cumulativeTotal: runPrincipal + runInterest,
-            remainingPrincipal: curRem,
-            status: 'paid',
-            paymentMode: matchPayment.paymentMethod || matchPayment.paymentMode || 'Online',
-            dateStr,
-            isSettled: curRem <= 0 || activeLoan.status === 'paid'
-          });
-        } else if (pendingPayment) {
-          const pPrincipal = pendingPayment.amount || 0;
-          const pInterest = pendingPayment.interest || 0;
-          runPrincipal += pPrincipal;
-          runInterest += pInterest;
-          const curRem = Math.max(0, loanPrincipal - runPrincipal);
-
-          points.push({
-            periodLabel,
-            shortLabel: `#${i + 1} ${shortLabel}`,
-            installmentNumber: i + 1,
-            principal: pPrincipal,
-            interest: pInterest,
-            total: pPrincipal + pInterest,
-            cumulativePrincipal: runPrincipal,
-            cumulativeInterest: runInterest,
-            cumulativeTotal: runPrincipal + runInterest,
-            remainingPrincipal: curRem,
-            status: 'pending',
-            paymentMode: pendingPayment.paymentMethod || pendingPayment.paymentMode || 'Pending',
-            dateStr: 'Awaiting Approval',
-            isSettled: false
-          });
-        } else {
-          // If already settled, stop adding projected installments after settlement
-          if (activeLoan.status === 'paid' && runPrincipal >= loanPrincipal) {
-            break;
-          }
-
-          // Planned reducing interest calculation (0.5% per month)
-          const plannedRemaining = Math.max(0, loanPrincipal - runPrincipal);
-          const pPrincipal = Math.min(plannedRemaining, scheduledPrincipalPerMonth);
-          const pInterest = Math.round(plannedRemaining * 0.005);
-
-          runPrincipal += pPrincipal;
-          runInterest += pInterest;
-          const curRem = Math.max(0, plannedRemaining - pPrincipal);
-
-          points.push({
-            periodLabel,
-            shortLabel: `#${i + 1} ${shortLabel}`,
-            installmentNumber: i + 1,
-            principal: pPrincipal,
-            interest: pInterest,
-            total: pPrincipal + pInterest,
-            cumulativePrincipal: runPrincipal,
-            cumulativeInterest: runInterest,
-            cumulativeTotal: runPrincipal + runInterest,
-            remainingPrincipal: curRem,
-            status: 'projected',
-            dateStr: `Due 10th ${periodLabel}`,
-            isSettled: false
-          });
-        }
-      }
-    }
+    const activeLoansCount = activeGroup.loans.filter(l => {
+      const lPrincipal = l.approvedAmount || l.amount || 0;
+      const lRawPayments = loanPayments.filter(p => isPaymentBelongingToLoan(p, l));
+      const lPaid = lRawPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + (p.amount || 0), 0);
+      return l.status === 'approved' && (lPrincipal - lPaid > 0);
+    }).length;
 
     return {
-      chartData: points,
-      stats: {
-        approvedAmount: loanPrincipal,
-        totalPrincipalPaid,
-        totalInterestPaid,
-        totalPaid,
-        remainingPrincipal,
-        paidInstallmentsCount: paidCount,
-        totalInstallments: installments,
-        repaymentProgress,
-        settledDateStr
-      },
-      hasPayments: hasAnyPayments
+      approvedAmount: totalApproved,
+      totalPrincipalPaid,
+      totalInterestPaid,
+      totalPaid,
+      remainingPrincipal,
+      paidInstallmentsCount: totalPaidInstallments,
+      totalInstallments: totalInstallmentsCount,
+      repaymentProgress,
+      settledDateStr,
+      activeLoansCount,
+      totalLoansCount: activeGroup.loans.length
     };
-  }, [activeLoan, loanPayments, viewScope]);
+  }, [activeGroup, loanPayments]);
 
-  // Custom Rich Tooltip for Recharts
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      const principal = data.principal || 0;
-      const interest = data.interest || 0;
-      const total = principal + interest;
-      const principalPct = total > 0 ? Math.round((principal / total) * 100) : 0;
-      const interestPct = total > 0 ? (100 - principalPct) : 0;
-
-      return (
-        <div className="bg-slate-900/95 backdrop-blur-md text-white px-4 py-3 rounded-2xl shadow-2xl border border-slate-700/80 text-xs min-w-[210px] select-none z-50">
-          <div className="flex items-center justify-between gap-3 mb-2.5 border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="font-bold text-slate-100 text-sm">{data.periodLabel}</span>
-            </div>
-            <span className={cn(
-              "px-2 py-0.5 rounded-full text-[10px] font-bold border",
-              data.status === 'paid' && "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-              data.status === 'pending' && "bg-amber-500/20 text-amber-300 border-amber-500/30",
-              data.status === 'projected' && "bg-slate-800 text-slate-300 border-slate-700"
-            )}>
-              {data.status === 'paid' ? 'Paid' : data.status === 'pending' ? 'Pending' : 'Projected'}
-            </span>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
-                <span className="text-slate-300">Principal Paid:</span>
-              </div>
-              <div className="text-right">
-                <span className="font-black text-emerald-300 text-xs">
-                  ₹{principal.toLocaleString('en-IN')}
-                </span>
-                <span className="text-[10px] text-slate-400 ml-1 font-medium">({principalPct}%)</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm bg-indigo-400" />
-                <span className="text-slate-300">Interest Paid:</span>
-              </div>
-              <div className="text-right">
-                <span className="font-black text-indigo-300 text-xs">
-                  ₹{interest.toLocaleString('en-IN')}
-                </span>
-                <span className="text-[10px] text-slate-400 ml-1 font-medium">({interestPct}%)</span>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
-              <span className="text-slate-400 font-semibold">Total Installment:</span>
-              <span className="font-black text-white text-sm">
-                ₹{total.toLocaleString('en-IN')}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] pt-1">
-              <span className="text-slate-400">Balance Remaining:</span>
-              <span className={cn(
-                "font-bold",
-                data.remainingPrincipal > 0 ? "text-amber-300" : "text-emerald-400"
-              )}>
-                {data.remainingPrincipal > 0 ? `₹${data.remainingPrincipal.toLocaleString('en-IN')}` : 'Settled'}
-              </span>
-            </div>
-
-            {chartMode === 'area' && (
-              <div className="pt-1.5 border-t border-slate-800/60 text-[10.5px] space-y-1 text-slate-400">
-                <div className="flex justify-between">
-                  <span>Cumul. Principal:</span>
-                  <span className="text-emerald-300 font-bold">₹{data.cumulativePrincipal.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Cumul. Interest:</span>
-                  <span className="text-indigo-300 font-bold">₹{data.cumulativeInterest.toLocaleString('en-IN')}</span>
-                </div>
-              </div>
-            )}
-
-            {data.dateStr && (
-              <div className="pt-1 text-[10px] text-slate-400 border-t border-slate-800/60 flex items-center justify-between">
-                <span>Date:</span>
-                <span className="font-medium text-slate-300">{data.dateStr}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  if (!activeLoan) {
+  if (!activeGroup) {
     return (
       <div className={cn("bg-white p-8 rounded-3xl border border-slate-200 text-center shadow-xs", className)}>
         <Layers className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -517,33 +368,40 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     );
   }
 
-  const borrowerName = borrower?.displayName || (activeLoan as any).userName || activeLoan.userEmail?.split('@')[0] || 'Member';
+  const borrowerName = activeGroup.borrowerName;
   const borrowerInitial = borrowerName.charAt(0).toUpperCase();
-  const isLoanSettled = activeLoan.status === 'paid' || stats.remainingPrincipal <= 0;
+  const isLoanSettled = stats.remainingPrincipal <= 0;
 
-  // Loan disbursement date
-  const disbursementDate = useMemo(() => {
-    if (!activeLoan) return null;
-    return getSanctionDate(activeLoan);
-  }, [activeLoan]);
-
+  // Loan disbursement date(s)
   const disbursementDateStr = useMemo(() => {
-    if (!disbursementDate) return '-';
-    return format(disbursementDate, 'dd MMM yyyy');
-  }, [disbursementDate]);
+    if (!activeGroup || activeGroup.loans.length === 0) return '-';
+    if (activeGroup.loans.length === 1) {
+      return format(getSanctionDate(activeGroup.loans[0]), 'dd MMM yyyy');
+    }
+    const dates = activeGroup.loans
+      .map(l => format(getSanctionDate(l), 'dd MMM yyyy'))
+      .filter((v, idx, arr) => arr.indexOf(v) === idx);
+    return dates.join(' & ');
+  }, [activeGroup]);
 
-  // Next Month Installment calculation for active loans
-  const nextInstallmentInfo = useMemo(() => {
-    if (!activeLoan || isLoanSettled) return null;
+  // Helper to calculate next scheduled installment for an individual loan
+  const getSingleLoanNextInstallment = (
+    loan: Loan,
+    allPayments: LoanPayment[]
+  ): {
+    month: number;
+    year: number;
+    periodLabel: string;
+    principal: number;
+    interest: number;
+    total: number;
+    installmentNumber: number;
+  } | null => {
+    const loanPrincipal = loan.approvedAmount || loan.amount || 0;
+    const installments = loan.installments || Math.ceil(loanPrincipal / 5000) || 10;
+    const sanctionDate = getSanctionDate(loan);
 
-    const loanPrincipal = activeLoan.approvedAmount || activeLoan.amount || 0;
-    const installments = activeLoan.installments || 10;
-    const sanctionDate = getSanctionDate(activeLoan);
-
-    const rawPayments = loanPayments.filter(p => 
-      (activeLoan.id && p.loanId === activeLoan.id) || 
-      (!p.loanId && activeLoan.userId && p.userId === activeLoan.userId)
-    );
+    const rawPayments = allPayments.filter(p => isPaymentBelongingToLoan(p, loan));
 
     const sortedPaidPayments = rawPayments.filter(p => p.status === 'paid');
     const totalPrincipalPaid = sortedPaidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -551,7 +409,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
     if (remainingPrincipal <= 0) return null;
 
-    const scheduledPrincipalPerMonth = Math.round(loanPrincipal / installments);
+    const scheduledPrincipalPerMonth = Math.max(1, Math.round(loanPrincipal / installments));
 
     // Scan installments starting from the month after disbursement
     for (let i = 0; i < installments; i++) {
@@ -564,7 +422,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
       const pendingPayment = rawPayments.find(p => p.month === instMonth && p.year === instYear && p.status === 'pending');
       if (pendingPayment) {
-        const principal = pendingPayment.amount || scheduledPrincipalPerMonth;
+        const principal = pendingPayment.amount || Math.min(remainingPrincipal, scheduledPrincipalPerMonth);
         const interest = pendingPayment.interest || Math.round(remainingPrincipal * 0.005);
         return {
           installmentNumber: i + 1,
@@ -573,8 +431,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
           periodLabel: `${MONTH_NAMES[instMonth] || instMonth} ${instYear}`,
           principal,
           interest,
-          total: principal + interest,
-          isPending: true
+          total: principal + interest
         };
       }
 
@@ -588,8 +445,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
         periodLabel: `${MONTH_NAMES[instMonth] || instMonth} ${instYear}`,
         principal,
         interest,
-        total: principal + interest,
-        isPending: false
+        total: principal + interest
       };
     }
 
@@ -603,10 +459,49 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       periodLabel: 'Upcoming',
       principal,
       interest,
-      total: principal + interest,
-      isPending: false
+      total: principal + interest
     };
-  }, [activeLoan, isLoanSettled, loanPayments]);
+  };
+
+  // Next Month Installment calculation for clubbed active loans of the borrower
+  const nextInstallmentInfo = useMemo(() => {
+    if (!activeGroup || isLoanSettled) return null;
+
+    const activeLoans = activeGroup.loans.filter(l => l.status === 'approved');
+    if (activeLoans.length === 0) return null;
+
+    const loanNextInstallments = activeLoans
+      .map(l => ({ loan: l, next: getSingleLoanNextInstallment(l, loanPayments) }))
+      .filter((item): item is { loan: Loan; next: NonNullable<ReturnType<typeof getSingleLoanNextInstallment>> } => item.next !== null);
+
+    if (loanNextInstallments.length === 0) return null;
+
+    const totalPrincipal = loanNextInstallments.reduce((sum, item) => sum + item.next.principal, 0);
+    const totalInterest = loanNextInstallments.reduce((sum, item) => sum + item.next.interest, 0);
+    const totalAmount = totalPrincipal + totalInterest;
+
+    const uniquePeriods = Array.from(new Set(loanNextInstallments.map(i => i.next.periodLabel).filter(p => p !== 'Upcoming')));
+    const periodLabel = uniquePeriods.length === 1 ? uniquePeriods[0] : (uniquePeriods.length > 1 ? uniquePeriods.join(' & ') : 'Upcoming');
+
+    return {
+      totalPrincipal,
+      totalInterest,
+      total: totalAmount,
+      periodLabel,
+      activeLoansCount: loanNextInstallments.length,
+      installmentNumbersStr: loanNextInstallments.map(i => `#${i.next.installmentNumber}`).join(' & '),
+      breakdown: loanNextInstallments.map(i => ({
+        loanId: i.loan.id,
+        amount: i.loan.approvedAmount || i.loan.amount || 0,
+        principal: i.next.principal,
+        interest: i.next.interest,
+        total: i.next.total,
+        periodLabel: i.next.periodLabel
+      }))
+    };
+  }, [activeGroup, isLoanSettled, loanPayments]);
+
+  const hasMultipleLoans = activeGroup.loans.length > 1;
 
   return (
     <div className={cn(
@@ -629,43 +524,49 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",
                 isLoanSettled 
                   ? "bg-emerald-50 text-emerald-700 border-emerald-300" 
-                  : "bg-purple-100/80 text-purple-700 border-purple-300/80"
+                  : hasMultipleLoans
+                    ? "bg-indigo-100/90 text-indigo-700 border-indigo-300/90"
+                    : "bg-purple-100/80 text-purple-700 border-purple-300/80"
               )}>
-                {isLoanSettled ? 'Settled Loan' : 'Active Loan'}
+                {isLoanSettled 
+                  ? 'Settled Loan' 
+                  : hasMultipleLoans 
+                    ? `${activeGroup.activeLoans.length} Active Loans Clubbed` 
+                    : 'Active Loan'}
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Repayment timeline for <span className="text-purple-700 font-bold">{borrowerName}</span> • ₹{stats.approvedAmount.toLocaleString('en-IN')} Loan • Disbursed: <span className="font-bold text-slate-800">{disbursementDateStr}</span>
+              Repayment timeline for <span className="text-purple-700 font-bold">{borrowerName}</span> • ₹{stats.approvedAmount.toLocaleString('en-IN')}{hasMultipleLoans ? ` (${activeGroup.activeLoans.length} Active Loans Clubbed)` : ' Loan'} • Disbursed: <span className="font-bold text-slate-800">{disbursementDateStr}</span>
             </p>
           </div>
         </div>
 
-        {/* Loan Switcher Controls */}
+        {/* Borrower Switcher Controls */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Previous / Next buttons */}
           <div className="flex items-center bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
             <button
               type="button"
-              onClick={handlePrevLoan}
+              onClick={handlePrevGroup}
               className="p-2 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors border-r border-slate-200/90 disabled:opacity-40 cursor-pointer"
-              title="Previous Loan"
+              title="Previous Borrower"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="px-2.5 text-[11px] font-bold text-slate-600 select-none">
-              {activeIndex + 1} / {sanctionedLoans.length}
+              {activeIndex + 1} / {borrowerGroups.length}
             </span>
             <button
               type="button"
-              onClick={handleNextLoan}
+              onClick={handleNextGroup}
               className="p-2 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors disabled:opacity-40 cursor-pointer"
-              title="Next Loan"
+              title="Next Borrower"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Searchable Loan Selector Dropdown */}
+          {/* Searchable Borrower Selector Dropdown */}
           <div className="relative">
             <button
               type="button"
@@ -675,12 +576,12 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
               <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[10px] shrink-0">
                 {borrowerInitial}
               </div>
-              <div className="min-w-0 max-w-[140px] sm:max-w-[190px]">
+              <div className="min-w-0 max-w-[140px] sm:max-w-[200px]">
                 <p className="truncate font-bold text-slate-900 leading-tight">
                   {borrowerName}
                 </p>
                 <p className="truncate text-[10px] text-purple-600 font-bold">
-                  ₹{stats.approvedAmount.toLocaleString('en-IN')}
+                  ₹{stats.approvedAmount.toLocaleString('en-IN')}{hasMultipleLoans ? ` • ${activeGroup.activeLoans.length} Loans` : ''}
                 </p>
               </div>
               <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
@@ -693,13 +594,13 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                   className="fixed inset-0 z-40" 
                   onClick={() => setIsDropdownOpen(false)} 
                 />
-                <div className="absolute right-0 top-full mt-2 w-72 sm:w-80 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 top-full mt-2 w-72 sm:w-84 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="p-2 border-b border-slate-100">
                     <div className="relative">
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        placeholder="Search borrower or loan amount..."
+                        placeholder="Search member or loan amount..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-purple-500"
@@ -708,24 +609,21 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                     </div>
                   </div>
                   <div className="max-h-60 overflow-y-auto divide-y divide-slate-50 py-1">
-                    {filteredDropdownLoans.length === 0 ? (
-                      <p className="text-center py-4 text-xs text-slate-400">No matching loans found</p>
+                    {filteredDropdownGroups.length === 0 ? (
+                      <p className="text-center py-4 text-xs text-slate-400">No matching members found</p>
                     ) : (
-                      filteredDropdownLoans.map((l) => {
-                        const isSelected = l.id === activeLoan.id;
-                        const u = allUsers.find(user => 
-                          (l.userId && user.uid === l.userId) || 
-                          (l.userEmail && user.email.toLowerCase() === l.userEmail.toLowerCase())
-                        );
-                        const name = u?.displayName || (l as any).userName || l.userEmail?.split('@')[0] || 'Member';
-                        const isPaid = l.status === 'paid';
+                      filteredDropdownGroups.map((g) => {
+                        const isSelected = g.key === activeGroup.key;
+                        const totalAmt = g.loans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
+                        const isPaid = g.isAllSettled;
+                        const isMulti = g.loans.length > 1;
 
                         return (
                           <button
-                            key={`dropdown-loan-${l.id}`}
+                            key={`dropdown-group-${g.key}`}
                             type="button"
                             onClick={() => {
-                              handleSelectLoan(l.id!);
+                              handleSelectGroup(g);
                               setIsDropdownOpen(false);
                               setSearchQuery('');
                             }}
@@ -739,21 +637,25 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                                 "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
                                 isSelected ? "bg-purple-600 text-white" : "bg-slate-100 text-slate-600"
                               )}>
-                                {name.charAt(0).toUpperCase()}
+                                {g.borrowerName.charAt(0).toUpperCase()}
                               </div>
                               <div className="min-w-0">
-                                <p className="truncate text-xs leading-tight font-bold">{name}</p>
-                                <p className="truncate text-[10px] text-slate-400 font-normal">
-                                  ₹{(l.approvedAmount || l.amount || 0).toLocaleString('en-IN')}
+                                <p className="truncate text-xs leading-tight font-bold">{g.borrowerName}</p>
+                                <p className="truncate text-[10px] text-slate-500 font-normal">
+                                  ₹{totalAmt.toLocaleString('en-IN')}{isMulti ? ` (${g.loans.length} Loans)` : ''}
                                 </p>
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className={cn(
                                 "px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase",
-                                isPaid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                                isPaid 
+                                  ? "bg-emerald-100 text-emerald-800" 
+                                  : isMulti 
+                                    ? "bg-indigo-100 text-indigo-800" 
+                                    : "bg-amber-100 text-amber-800"
                               )}>
-                                {isPaid ? 'Settled' : 'Active'}
+                                {isPaid ? 'Settled' : isMulti ? `${g.activeLoans.length} Active` : 'Active'}
                               </span>
                               {isSelected && (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
@@ -783,370 +685,150 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
       {!isCollapsed && (
         <div className="pt-4 space-y-4">
-          {/* KPI Stat Cards for the Selected Loan */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-2.5">
-            {/* Card 1: Principal Repaid */}
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+          {/* KPI Stat Cards for the Selected Member (Clubbed Loans) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-3.5">
+            {/* Card 1: Principal Paid (Emerald) */}
+            <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                    <Banknote className="w-3 h-3 text-emerald-600 shrink-0" />
-                    <span className="truncate">Principal Paid</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <CheckCircle2 className="w-4 h-4" />
                   </div>
-                  <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md shrink-0">
-                    {stats.repaymentProgress}%
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    {stats.repaymentProgress}% Paid
                   </span>
                 </div>
-                <p className="text-base xl:text-lg font-black text-emerald-700 truncate">
+                <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Principal Paid</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-700 tracking-tight truncate">
                   ₹{stats.totalPrincipalPaid.toLocaleString('en-IN')}
-                </p>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                </div>
+                <div className="w-full bg-emerald-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
                   <div 
-                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                    className="bg-emerald-600 h-full rounded-full transition-all duration-300"
                     style={{ width: `${stats.repaymentProgress}%` }}
                   />
                 </div>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium mt-1 truncate">
-                of ₹{stats.approvedAmount.toLocaleString('en-IN')} Disbursed
-              </p>
+              <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Disbursed:</span>
+                <span className="font-bold text-emerald-700">₹{stats.approvedAmount.toLocaleString('en-IN')}</span>
+              </div>
             </div>
 
-            {/* Card 2: Interest Paid */}
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            {/* Card 2: Interest Paid (Amber) */}
+            <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                    <Percent className="w-3 h-3 text-indigo-500 shrink-0" />
-                    <span className="truncate">Interest Paid</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-amber-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Percent className="w-4 h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded-md shrink-0">
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
                     0.5% / Mo
                   </span>
                 </div>
-                <p className="text-base xl:text-lg font-black text-indigo-600 truncate">
+                <h4 className="text-amber-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Interest Paid</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-amber-700 tracking-tight truncate">
                   ₹{stats.totalInterestPaid.toLocaleString('en-IN')}
-                </p>
+                </div>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium mt-1 truncate">
-                Cumulative Interest Income
-              </p>
+              <div className="mt-2.5 pt-2 border-t border-amber-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Income:</span>
+                <span className="font-bold text-amber-700">Cumulative Earned</span>
+              </div>
             </div>
 
-            {/* Card 3: Total Repaid (Principal + Interest) */}
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            {/* Card 3: Total Repaid (Purple) */}
+            <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                    <TrendingUp className="w-3 h-3 text-purple-600 shrink-0" />
-                    <span className="truncate">Total Repaid</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <TrendingUp className="w-4 h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-md shrink-0">
-                    {stats.paidInstallmentsCount} / {stats.totalInstallments} Inst.
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    {hasMultipleLoans ? `${stats.paidInstallmentsCount} Inst. Paid (${activeGroup.loans.length} Loans)` : `${stats.paidInstallmentsCount} / ${stats.totalInstallments} Inst.`}
                   </span>
                 </div>
-                <p className="text-base xl:text-lg font-black text-purple-700 truncate">
+                <h4 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Repaid</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
                   ₹{stats.totalPaid.toLocaleString('en-IN')}
-                </p>
+                </div>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium mt-1 truncate">
-                Total Cash Flow Received
-              </p>
+              <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Total:</span>
+                <span className="font-bold text-purple-700">Principal + Int</span>
+              </div>
             </div>
 
-            {/* Card 4: Next Month Installment (Active Loans) */}
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-blue-200/90 shadow-2xs flex flex-col justify-between bg-gradient-to-b from-blue-50/20 to-white">
+            {/* Card 4: Next Installment (Blue) - Clubbed for all active loans */}
+            <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
-                    <Calendar className="w-3 h-3 text-blue-600 shrink-0" />
-                    <span className="truncate">Next Installment</span>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-blue-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Calendar className="w-4 h-4" />
                   </div>
-                  <span className={cn(
-                    "text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0",
-                    isLoanSettled 
-                      ? "text-emerald-700 bg-emerald-50 border border-emerald-200/60" 
-                      : nextInstallmentInfo?.isPending 
-                        ? "text-amber-700 bg-amber-50 border border-amber-200/60" 
-                        : "text-blue-700 bg-blue-50 border border-blue-200/60"
-                  )}>
-                    {isLoanSettled ? 'Settled' : nextInstallmentInfo ? `#${nextInstallmentInfo.installmentNumber}` : 'Due'}
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    {isLoanSettled 
+                      ? 'Settled' 
+                      : nextInstallmentInfo 
+                        ? (nextInstallmentInfo.activeLoansCount > 1 ? `${nextInstallmentInfo.activeLoansCount} Loans Due` : `${nextInstallmentInfo.installmentNumbersStr} Due`) 
+                        : 'Due'}
                   </span>
                 </div>
-                <p className={cn(
-                  "text-base xl:text-lg font-black truncate",
-                  isLoanSettled ? "text-emerald-600" : "text-blue-600"
-                )}>
+                <h4 className="text-blue-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Next Installment</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-blue-950 tracking-tight truncate">
                   {isLoanSettled 
                     ? '₹0' 
                     : nextInstallmentInfo 
                       ? `₹${nextInstallmentInfo.total.toLocaleString('en-IN')}` 
                       : '₹0'}
-                </p>
-              </div>
-              <p className="text-[10px] text-slate-500 font-medium mt-1 truncate" title={
-                isLoanSettled 
-                  ? 'No Upcoming Dues' 
-                  : nextInstallmentInfo 
-                    ? `P: ₹${nextInstallmentInfo.principal.toLocaleString('en-IN')} + I: ₹${nextInstallmentInfo.interest.toLocaleString('en-IN')} (${nextInstallmentInfo.periodLabel})`
-                    : 'Tenure Complete'
-              }>
-                {isLoanSettled 
-                  ? 'No Upcoming Dues' 
-                  : nextInstallmentInfo 
-                    ? `P: ₹${nextInstallmentInfo.principal.toLocaleString('en-IN')} + I: ₹${nextInstallmentInfo.interest.toLocaleString('en-IN')} (${nextInstallmentInfo.periodLabel})`
-                    : 'Tenure Complete'}
-              </p>
-            </div>
-
-            {/* Card 5: Outstanding Principal / Settlement */}
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between col-span-2 sm:col-span-1 lg:col-span-1">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                    {isLoanSettled ? (
-                      <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />
-                    )}
-                    <span className="truncate">Outstanding Balance</span>
-                  </div>
                 </div>
-                <p className={cn(
-                  "text-base xl:text-lg font-black truncate",
-                  stats.remainingPrincipal > 0 ? "text-amber-600" : "text-emerald-600"
-                )}>
-                  {stats.remainingPrincipal > 0 ? `₹${stats.remainingPrincipal.toLocaleString('en-IN')}` : '₹0 (Settled)'}
-                </p>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium mt-1 truncate">
-                {isLoanSettled ? `Closed on ${stats.settledDateStr}` : 'Principal Balance Remaining'}
-              </p>
-            </div>
-          </div>
-
-          {/* Chart View Toolbar: Chart Type & Timeline Scope */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 shadow-2xs space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-purple-600" />
-                <span className="text-xs font-bold text-slate-800">
-                  Repayment Trajectory (Principal vs. Interest)
+              <div className="mt-2.5 pt-2 border-t border-blue-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Upcoming:</span>
+                <span className="font-bold text-blue-700 truncate max-w-[140px]" title={nextInstallmentInfo?.breakdown ? nextInstallmentInfo.breakdown.map(b => `₹${b.total.toLocaleString('en-IN')} (${b.periodLabel})`).join(' + ') : undefined}>
+                  {isLoanSettled 
+                    ? 'No Dues' 
+                    : nextInstallmentInfo 
+                      ? `${nextInstallmentInfo.periodLabel}${nextInstallmentInfo.activeLoansCount > 1 ? ` (${nextInstallmentInfo.breakdown.map(b => `₹${b.total.toLocaleString('en-IN')}`).join(' + ')})` : ''}` 
+                      : 'Completed'}
                 </span>
               </div>
-
-              {/* Controls: Mode & Scope */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Scope Toggle: Paid vs Full Schedule */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setViewScope('paid')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer",
-                      viewScope === 'paid'
-                        ? "bg-white text-purple-700 shadow-2xs"
-                        : "text-slate-500 hover:text-slate-800"
-                    )}
-                  >
-                    Paid Payments ({stats.paidInstallmentsCount})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewScope('full')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer",
-                      viewScope === 'full'
-                        ? "bg-white text-purple-700 shadow-2xs"
-                        : "text-slate-500 hover:text-slate-800"
-                    )}
-                  >
-                    Full Tenure ({stats.totalInstallments}M)
-                  </button>
-                </div>
-
-                {/* Chart Type Toggle: Stacked Bar vs Cumulative Area */}
-                <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setChartMode('bar')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer",
-                      chartMode === 'bar'
-                        ? "bg-white text-indigo-700 shadow-2xs"
-                        : "text-slate-500 hover:text-slate-800"
-                    )}
-                  >
-                    Stacked Bar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setChartMode('area')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer",
-                      chartMode === 'area'
-                        ? "bg-white text-indigo-700 shadow-2xs"
-                        : "text-slate-500 hover:text-slate-800"
-                    )}
-                  >
-                    Cumulative Area
-                  </button>
-                </div>
-              </div>
             </div>
 
-            {/* Visual Legend */}
-            <div className="flex items-center justify-between px-1 text-xs border-t border-slate-100 pt-2 flex-wrap gap-2">
-              <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-sm bg-emerald-500 shadow-2xs" />
-                  <span className="text-[11px] text-slate-700 font-bold">Principal Paid</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-sm bg-indigo-500 shadow-2xs" />
-                  <span className="text-[11px] text-slate-700 font-bold">Interest Paid (0.5%)</span>
-                </div>
-                {viewScope === 'full' && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-3 h-3 rounded-sm bg-slate-300 shadow-2xs" />
-                    <span className="text-[11px] text-slate-500 font-medium">Projected Installments</span>
+            {/* Card 5: Outstanding Balance (Rose) */}
+            <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+              <div>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className={cn(
+                    "w-7.5 h-7.5 rounded-xl text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform",
+                    isLoanSettled ? "bg-emerald-600" : "bg-rose-600"
+                  )}>
+                    {isLoanSettled ? (
+                      <CheckCircle2 className="w-4 h-4" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4" />
+                    )}
                   </div>
-                )}
-              </div>
-
-              <div className="text-[11px] text-slate-400 font-medium">
-                {chartData.length} data point{chartData.length !== 1 ? 's' : ''} on timeline
-              </div>
-            </div>
-
-            {/* Recharts Canvas */}
-            <div className="w-full h-[280px] sm:h-[330px] pt-2">
-              {chartData.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs">
-                  <Clock className="w-8 h-8 text-slate-300 mb-2" />
-                  <p className="font-semibold">No payment records found for this loan yet.</p>
-                  <button 
-                    onClick={() => setViewScope('full')}
-                    className="mt-2 text-purple-600 font-bold hover:underline cursor-pointer"
-                  >
-                    Switch to Full Tenure Schedule
-                  </button>
+                  <span className={cn(
+                    "text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border",
+                    isLoanSettled 
+                      ? "text-emerald-700 bg-emerald-100/90 border-emerald-200" 
+                      : "text-rose-700 bg-rose-100/90 border-rose-200"
+                  )}>
+                    {isLoanSettled ? 'Settled' : 'Pending'}
+                  </span>
                 </div>
-              ) : chartMode === 'bar' ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={chartData}
-                    margin={{ top: 22, right: 12, left: -10, bottom: 24 }}
-                  >
-                    <defs>
-                      <linearGradient id="loanPrincipalGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                        <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
-                      </linearGradient>
-                      <linearGradient id="loanInterestGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
-                        <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.9} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis
-                      dataKey="shortLabel"
-                      stroke="#94a3b8"
-                      fontSize={10}
-                      tickLine={false}
-                      dy={8}
-                      interval={0}
-                      angle={chartData.length > 7 ? -25 : 0}
-                      textAnchor={chartData.length > 7 ? "end" : "middle"}
-                    />
-                    <YAxis
-                      stroke="#94a3b8"
-                      fontSize={10}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(val) => `₹${val >= 1000 ? `${val / 1000}k` : val}`}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    {/* Stacked Bars: Principal at base, Interest on top */}
-                    <Bar
-                      dataKey="principal"
-                      name="Principal"
-                      stackId="loanEmi"
-                      fill="url(#loanPrincipalGradient)"
-                      radius={[0, 0, 0, 0]}
-                    />
-                    <Bar
-                      dataKey="interest"
-                      name="Interest"
-                      stackId="loanEmi"
-                      fill="url(#loanInterestGradient)"
-                      radius={[6, 6, 0, 0]}
-                    >
-                      <LabelList
-                        dataKey="total"
-                        position="top"
-                        formatter={(val: any) => typeof val === 'number' && val > 0 ? `₹${val >= 1000 ? `${Math.round(val / 1000)}k` : val}` : ''}
-                        style={{ fontSize: '10px', fill: '#475569', fontWeight: 700 }}
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={chartData}
-                    margin={{ top: 22, right: 12, left: -10, bottom: 24 }}
-                  >
-                    <defs>
-                      <linearGradient id="areaPrincipalGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
-                      </linearGradient>
-                      <linearGradient id="areaInterestGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis
-                      dataKey="shortLabel"
-                      stroke="#94a3b8"
-                      fontSize={10}
-                      tickLine={false}
-                      dy={8}
-                      interval={0}
-                      angle={chartData.length > 7 ? -25 : 0}
-                      textAnchor={chartData.length > 7 ? "end" : "middle"}
-                    />
-                    <YAxis
-                      stroke="#94a3b8"
-                      fontSize={10}
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={(val) => `₹${val >= 1000 ? `${val / 1000}k` : val}`}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="cumulativePrincipal"
-                      name="Cumulative Principal"
-                      stroke="#10b981"
-                      strokeWidth={2.5}
-                      fillOpacity={1}
-                      fill="url(#areaPrincipalGradient)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="cumulativeInterest"
-                      name="Cumulative Interest"
-                      stroke="#6366f1"
-                      strokeWidth={2.5}
-                      fillOpacity={1}
-                      fill="url(#areaInterestGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+                <h4 className="text-rose-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Balance</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-rose-700 tracking-tight truncate">
+                  {stats.remainingPrincipal > 0 ? `₹${stats.remainingPrincipal.toLocaleString('en-IN')}` : '₹0'}
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-rose-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Balance:</span>
+                <span className="font-bold text-rose-700">
+                  {isLoanSettled ? 'Closed' : hasMultipleLoans ? `${activeGroup.activeLoans.length} Loans Due` : 'Principal Due'}
+                </span>
+              </div>
             </div>
           </div>
         </div>

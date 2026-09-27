@@ -160,25 +160,57 @@ export const triggerLoanStatusWhatsAppNotification = (
   };
 };
 
+const ADMIN_EMAILS = ['arun2102000@gmail.com', 'unnati.finance2026@gmail.com', 'arun.cse.rymec@gmail.com'];
+const SYSTEM_ADMIN_EMAIL = 'unnati.finance2026@gmail.com';
+
+/**
+ * Checks if a user is an administrator (including 'unnati' and system admin accounts)
+ * who should never receive automatic contribution or loan reminders.
+ */
+export const isExemptAdministrator = (
+  user?: { uid?: string; email?: string | null; displayName?: string | null; role?: string } | null
+): boolean => {
+  if (!user) return false;
+  const email = (user.email || '').toLowerCase().trim();
+  const name = (user.displayName || '').toLowerCase().trim();
+  const role = (user.role || '').toLowerCase().trim();
+
+  return (
+    email === SYSTEM_ADMIN_EMAIL.toLowerCase() ||
+    ADMIN_EMAILS.includes(email) ||
+    name === 'unnati' ||
+    name === 'administrator' ||
+    name.includes('unnati') ||
+    role === 'admin'
+  );
+};
+
 /**
  * Checks and triggers automated push notification for members if their monthly contribution (₹1,000)
  * has not been recorded by the 5th of the current month.
+ * Reminders only trigger strictly on the 5th of each month (between 1st and 10th).
+ * Administrators (unnati) are strictly exempt and never receive reminders.
  */
 export const checkAndTriggerMonthlyContributionPushReminder = async (
-  currentUser: { uid: string; email?: string | null; displayName?: string | null },
+  currentUser: { uid: string; email?: string | null; displayName?: string | null; role?: string },
   contributions: Array<{ userId?: string; userEmail?: string; month: number; year: number; status?: string; amount?: number }>,
   db: Firestore,
   createInAppNotification: (userId: string, title: string, message: string, type: AppNotification['type'], link?: string) => Promise<void>
 ): Promise<{ triggered: boolean; reason?: string }> => {
+  // Administrators (unnati) must NOT receive reminders
+  if (isExemptAdministrator(currentUser)) {
+    return { triggered: false, reason: 'Administrator unnati is exempt from contribution reminders' };
+  }
+
   const now = new Date();
   const dayOfMonth = now.getDate();
   const currentMonth = now.getMonth() + 1;
   const currentYear = now.getFullYear();
   const monthName = format(now, 'MMMM');
 
-  // Must be on or after the 5th of the month
-  if (dayOfMonth < 5) {
-    return { triggered: false, reason: 'Current date is before the 5th of the month' };
+  // Must happen strictly between dates 1st to 10th, specifically on the 5th
+  if (dayOfMonth !== 5) {
+    return { triggered: false, reason: 'Contribution reminders only happen on the 5th of each month (between 1st and 10th)' };
   }
 
   const userEmail = (currentUser.email || '').toLowerCase().trim();
@@ -188,7 +220,7 @@ export const checkAndTriggerMonthlyContributionPushReminder = async (
   const hasContribution = contributions.some(c => {
     const matchId = c.userId === userId;
     const matchEmail = !!c.userEmail && c.userEmail.toLowerCase().trim() === userEmail;
-    return (matchId || matchEmail) && c.month === currentMonth && c.year === currentYear;
+    return (matchId || matchEmail) && c.month === currentMonth && c.year === currentYear && c.status === 'paid';
   });
 
   if (hasContribution) {
@@ -225,24 +257,34 @@ export const checkAndTriggerMonthlyContributionPushReminder = async (
 /**
  * Checks and triggers 'Loan Repayment Due' alerts on the 5th and 9th of every month
  * for members who have an active loan and haven't recorded a payment for the current month.
+ * Reminders happen strictly on the 5th and 9th only (between 1st and 10th).
+ * Administrators (unnati) are strictly exempt.
  */
 export const checkAndTriggerLoanRepaymentDuePushReminder = async (
-  currentUser: { uid: string; email?: string | null; displayName?: string | null },
+  currentUser: { uid: string; email?: string | null; displayName?: string | null; role?: string },
   loans: Loan[],
   loanPayments: LoanPayment[],
   db: Firestore,
   createInAppNotification: (userId: string, title: string, message: string, type: AppNotification['type'], link?: string) => Promise<void>
 ): Promise<{ triggered: boolean; cycle?: '5th' | '9th'; reason?: string }> => {
+  // Administrators (unnati) must NOT receive reminders
+  if (isExemptAdministrator(currentUser)) {
+    return { triggered: false, reason: 'Administrator unnati is exempt from loan repayment reminders' };
+  }
+
   const now = new Date();
   const dayOfMonth = now.getDate();
   const currentMonth = now.getMonth() + 1;
   const currentYear = now.getFullYear();
   const monthName = format(now, 'MMMM');
 
-  // Must be on or after 5th
-  if (dayOfMonth < 5) {
-    return { triggered: false, reason: 'Current date is before 5th' };
+  // Must happen strictly between dates 1st to 10th, on the 5th or 9th only
+  if (dayOfMonth !== 5 && dayOfMonth !== 9) {
+    return { triggered: false, reason: 'Loan repayment reminders only happen on the 5th and 9th of each month (between 1st and 10th)' };
   }
+
+  const cycleName: '5th' | '9th' = dayOfMonth === 9 ? '9th' : '5th';
+  const is9thCycle = dayOfMonth === 9;
 
   const userEmail = (currentUser.email || '').toLowerCase().trim();
   const userId = currentUser.uid;
@@ -261,16 +303,13 @@ export const checkAndTriggerLoanRepaymentDuePushReminder = async (
   const hasPaidForCurrentMonth = loanPayments.some(p => {
     const isUserPayment = p.userId === userId || (!!p.userEmail && p.userEmail.toLowerCase().trim() === userEmail);
     const matchesLoan = activeLoans.some(l => l.id === p.loanId);
-    return (isUserPayment || matchesLoan) && p.month === currentMonth && p.year === currentYear;
+    return (isUserPayment || matchesLoan) && p.month === currentMonth && p.year === currentYear && p.status === 'paid';
   });
 
   if (hasPaidForCurrentMonth) {
     return { triggered: false, reason: 'Loan repayment already recorded for current month' };
   }
 
-  // Determine which cycle: 9th alert or 5th alert
-  const is9thCycle = dayOfMonth >= 9;
-  const cycleName = is9thCycle ? '9th' : '5th';
   const storageKey = `unnati_loan_due_${cycleName}_${userId}_${currentYear}_${currentMonth}`;
 
   if (typeof localStorage !== 'undefined' && localStorage.getItem(storageKey)) {
@@ -300,5 +339,5 @@ export const checkAndTriggerLoanRepaymentDuePushReminder = async (
     localStorage.setItem(storageKey, new Date().toISOString());
   }
 
-  return { triggered: true, cycle: is9thCycle ? '9th' : '5th' };
+  return { triggered: true, cycle: cycleName };
 };

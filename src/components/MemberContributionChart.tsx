@@ -1,20 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Cell,
-  LabelList
-} from 'recharts';
 import { 
   BarChart3, 
   CheckCircle2, 
-  Clock, 
-  AlertCircle, 
   Users, 
   ChevronDown, 
   Calendar, 
@@ -24,10 +11,10 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   FileDown,
   FileSpreadsheet,
-  FileText
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
 import { cn } from '../lib/utils';
@@ -75,7 +62,16 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
 
   // Loan statistics for the currently selected member
   const loanStats = useMemo(() => {
-    if (!loans || !activeMember) return null;
+    if (!loans || !activeMember) {
+      return {
+        totalSanctioned: 0,
+        totalPrincipalRepaid: 0,
+        totalInterestPaid: 0,
+        outstandingPrincipal: 0,
+        activeLoanCount: 0,
+        hasLoans: false
+      };
+    }
     const userLoans = loans.filter(l => 
       (activeMember.uid && l.userId && l.userId === activeMember.uid) ||
       (activeMember.email && l.userEmail && l.userEmail.toLowerCase().trim() === activeMember.email.toLowerCase().trim())
@@ -179,29 +175,13 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
     );
   }, [activeMember, contributions]);
 
-  // Prepare data for Recharts BarChart
-  const chartData = useMemo(() => {
+  // Monthly summary data for stats
+  const monthlyData = useMemo(() => {
     return monthsList.map(m => {
       const match = userContribs.find(c => c.month === m.month && c.year === m.year);
       const amount = match ? match.amount : 0;
       const status = match ? match.status : 'unpaid';
       const paymentMethod = match?.paymentMethod || (match as any)?.paymentMode || '-';
-
-      let paidDateStr = '';
-      if (match?.timestamp) {
-        try {
-          if (typeof match.timestamp.toDate === 'function') {
-            const d = match.timestamp.toDate();
-            paidDateStr = `${String(d.getDate()).padStart(2, '0')}-${MONTH_NAMES[d.getMonth() + 1]}-${d.getFullYear()}`;
-          } else if (match.timestamp instanceof Date) {
-            paidDateStr = `${String(match.timestamp.getDate()).padStart(2, '0')}-${MONTH_NAMES[match.timestamp.getMonth() + 1]}-${match.timestamp.getFullYear()}`;
-          } else if (typeof match.timestamp === 'string') {
-            paidDateStr = match.timestamp.split('T')[0];
-          }
-        } catch (e) {
-          paidDateStr = '';
-        }
-      }
 
       return {
         month: m.month,
@@ -211,19 +191,17 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
         shortLabel: m.shortLabel,
         amount,
         status, // 'paid' | 'pending' | 'unpaid'
-        paymentMethod,
-        paidDateStr,
-        isCurrentMonth: m.month === currentMonth && m.year === currentYear
+        paymentMethod
       };
     });
-  }, [monthsList, userContribs, currentMonth, currentYear]);
+  }, [monthsList, userContribs]);
 
-  // Summary statistics for KPI cards
+  // Summary statistics for 5 KPI cards
   const stats = useMemo(() => {
-    const paidEntries = chartData.filter(d => d.status === 'paid');
-    const pendingEntries = chartData.filter(d => d.status === 'pending');
+    const paidEntries = monthlyData.filter(d => d.status === 'paid');
+    const pendingEntries = monthlyData.filter(d => d.status === 'pending');
     const totalPaid = paidEntries.reduce((sum, d) => sum + d.amount, 0);
-    const totalMonths = chartData.length;
+    const totalMonths = monthlyData.length;
     const paidCount = paidEntries.length;
     const pendingCount = pendingEntries.length;
     const complianceRate = totalMonths > 0 ? Math.round((paidCount / totalMonths) * 100) : 0;
@@ -237,81 +215,7 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
       complianceRate,
       avgMonthly
     };
-  }, [chartData]);
-
-  // Custom top label for bar
-  const renderCustomBarLabel = (props: any) => {
-    const { x, y, width, value, index } = props;
-    const entry = chartData[index];
-    if (!entry || entry.amount <= 0) return null;
-
-    return (
-      <text
-        x={x + width / 2}
-        y={y - 6}
-        fill={entry.status === 'paid' ? '#059669' : '#d97706'}
-        textAnchor="middle"
-        fontSize={10}
-        fontWeight="bold"
-        className="select-none"
-      >
-        ₹{value >= 1000 ? `${value / 1000}k` : value}
-      </text>
-    );
-  };
-
-  // Custom rich tooltip
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className="bg-slate-900/95 backdrop-blur-sm text-white px-3.5 py-3 rounded-2xl shadow-xl border border-slate-700/80 text-xs min-w-[170px] select-none z-50">
-          <div className="flex items-center justify-between gap-3 mb-2 border-b border-slate-800 pb-1.5">
-            <span className="font-bold text-slate-200">{data.label}</span>
-            {data.isCurrentMonth && (
-              <span className="px-1.5 py-0.5 bg-indigo-500/30 text-indigo-300 text-[10px] font-semibold rounded">
-                Current
-              </span>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Contribution:</span>
-              <span className="font-black text-white text-sm">
-                ₹{data.amount.toLocaleString('en-IN')}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Status:</span>
-              <span className={cn(
-                "font-bold px-2 py-0.5 rounded-full text-[10px]",
-                data.status === 'paid' && "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-                data.status === 'pending' && "bg-amber-500/20 text-amber-300 border border-amber-500/30",
-                data.status === 'unpaid' && "bg-slate-800 text-slate-400 border border-slate-700"
-              )}>
-                {data.status === 'paid' ? 'Paid' : data.status === 'pending' ? 'Pending' : 'Unpaid'}
-              </span>
-            </div>
-            {data.status === 'paid' && (
-              <>
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-slate-400">Payment Mode:</span>
-                  <span className="font-medium text-slate-300 capitalize">{data.paymentMethod}</span>
-                </div>
-                {data.paidDateStr && (
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-400">Recorded Date:</span>
-                    <span className="font-medium text-slate-300">{data.paidDateStr}</span>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
+  }, [monthlyData]);
 
   if (!activeMember) {
     return (
@@ -323,37 +227,20 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
     );
   }
 
-  return (
-    <div className="bg-gradient-to-b from-indigo-50/40 via-white to-white rounded-3xl border-2 border-indigo-100/90 shadow-sm p-4 sm:p-6 transition-all relative overflow-visible">
-      {/* Top Banner & Member Selector */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-indigo-100/70">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
-            <BarChart3 className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="font-bold text-slate-900 text-sm sm:text-base">
-                12-Month Contribution History
-              </h4>
-              <span className="px-2 py-0.5 bg-indigo-100/80 text-indigo-700 text-[10px] font-black uppercase tracking-wider rounded-md">
-                Rolling 12M
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Monthly deposit history for <span className="text-indigo-600 font-bold">{activeMember.displayName || activeMember.email}</span>
-            </p>
-          </div>
-        </div>
+  const hasActiveBorrowings = loanStats.activeLoanCount > 0;
 
-        {/* Member Switcher Controls */}
-        <div className="flex items-center gap-2 flex-wrap">
+  return (
+    <div className="bg-gradient-to-b from-indigo-50/40 via-white to-white rounded-3xl border-2 border-indigo-100/90 shadow-sm p-4 sm:p-5 transition-all relative overflow-visible">
+      {/* Clean Member Controls & Export Toolbar (Ribbon removed) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-indigo-100/70">
+        {/* Left: Member Switcher & Searchable Dropdown */}
+        <div className="flex items-center gap-2.5 flex-wrap">
           {/* Previous / Next buttons */}
           <div className="flex items-center bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
             <button
               type="button"
               onClick={handlePrevMember}
-              className="p-2 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-colors border-r border-slate-200/90 disabled:opacity-40"
+              className="p-2 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-colors border-r border-slate-200/90 disabled:opacity-40 cursor-pointer"
               title="Previous Member"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -364,7 +251,7 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
             <button
               type="button"
               onClick={handleNextMember}
-              className="p-2 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-colors disabled:opacity-40"
+              className="p-2 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-colors disabled:opacity-40 cursor-pointer"
               title="Next Member"
             >
               <ChevronRight className="w-4 h-4" />
@@ -376,12 +263,12 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
             <button
               type="button"
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center gap-2.5 px-3 py-2 bg-white hover:bg-indigo-50/50 border border-indigo-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800"
+              className="flex items-center gap-2.5 px-3 py-2 bg-white hover:bg-indigo-50/50 border border-indigo-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800 cursor-pointer"
             >
               <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[10px] shrink-0">
                 {activeMember.displayName ? activeMember.displayName[0].toUpperCase() : '?'}
               </div>
-              <div className="min-w-0 max-w-[150px] sm:max-w-[200px]">
+              <div className="min-w-0 max-w-[150px] sm:max-w-[220px]">
                 <p className="truncate font-bold text-slate-900 leading-tight">
                   {activeMember.displayName || 'Unnamed'}
                 </p>
@@ -432,7 +319,7 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
                               setSearchFilter('');
                             }}
                             className={cn(
-                              "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-colors",
+                              "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-colors cursor-pointer",
                               isSelected ? "bg-indigo-50 text-indigo-900 font-bold" : "hover:bg-slate-50 text-slate-700"
                             )}
                           >
@@ -526,8 +413,8 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
           <button
             type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-            title={isCollapsed ? "Expand Chart" : "Collapse Chart"}
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+            title={isCollapsed ? "Expand History" : "Collapse History"}
           >
             <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isCollapsed && "-rotate-90")} />
           </button>
@@ -536,160 +423,195 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
 
       {!isCollapsed && (
         <div className="pt-4 space-y-4">
-          {/* KPI Stat Cards */}
-          <div className={cn("grid gap-2.5 sm:gap-3", loanStats ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5" : "grid-cols-2 sm:grid-cols-4")}>
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">
-                <CreditCard className="w-3 h-3 text-indigo-500" />
-                <span>Total Contributed</span>
-              </div>
-              <p className="text-base sm:text-lg font-black text-slate-900">
-                ₹{stats.totalPaid.toLocaleString('en-IN')}
-              </p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Last 12 rolling months</p>
-            </div>
-
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">
-                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                <span>Paid Months</span>
-              </div>
-              <p className="text-base sm:text-lg font-black text-emerald-600">
-                {stats.paidCount} <span className="text-xs text-slate-400 font-bold">/ {stats.totalMonths}</span>
-              </p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                {stats.pendingCount > 0 ? `${stats.pendingCount} pending payment` : 'All cleared'}
-              </p>
-            </div>
-
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">
-                <TrendingUp className="w-3 h-3 text-indigo-500" />
-                <span>Consistency Rate</span>
-              </div>
-              <p className="text-base sm:text-lg font-black text-indigo-600">
-                {stats.complianceRate}%
-              </p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">On-time deposit ratio</p>
-            </div>
-
-            <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-              <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">
-                <Calendar className="w-3 h-3 text-indigo-500" />
-                <span>Avg. Monthly</span>
-              </div>
-              <p className="text-base sm:text-lg font-black text-slate-900">
-                ₹{stats.avgMonthly.toLocaleString('en-IN')}
-              </p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">When deposit recorded</p>
-            </div>
-
-            {loanStats && (
-              <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs">
-                <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">
-                  <IndianRupee className="w-3 h-3 text-indigo-500" />
-                  <span>Loan Portfolio</span>
+          {/* 5 KPI Stat Cards Designed to match Loan Overview style */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-3.5">
+            {/* Card 1: Total Contributed (Indigo Theme) */}
+            <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+              <div>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    Rolling 12M
+                  </span>
                 </div>
-                {loanStats.hasLoans ? (
-                  <>
-                    <p className="text-base sm:text-lg font-black text-slate-900">
-                      ₹{loanStats.outstandingPrincipal.toLocaleString('en-IN')}
-                    </p>
-                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                      {loanStats.activeLoanCount > 0 ? `${loanStats.activeLoanCount} active loan(s)` : 'All loans settled'}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-base sm:text-lg font-black text-emerald-600">
-                      No Loans
-                    </p>
-                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">No active borrowings</p>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Recharts Bar Chart Container */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 p-3 sm:p-4 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-1">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                <span>Monthly Deposit Trajectory</span>
-              </div>
-              
-              {/* Status Legend */}
-              <div className="flex items-center gap-3 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-2xs" />
-                  <span className="text-[11px] text-slate-600 font-medium">Paid</span>
+                <h4 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Contributed</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-indigo-950 tracking-tight truncate">
+                  ₹{stats.totalPaid.toLocaleString('en-IN')}
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-2xs" />
-                  <span className="text-[11px] text-slate-600 font-medium">Pending</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-200 shadow-2xs" />
-                  <span className="text-[11px] text-slate-400 font-medium">Unpaid</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="w-full h-[280px] sm:h-[320px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 24, right: 10, left: -10, bottom: 20 }}
-                >
-                  <defs>
-                    <linearGradient id="paidBarGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                      <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
-                    </linearGradient>
-                    <linearGradient id="pendingBarGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#f59e0b" stopOpacity={1} />
-                      <stop offset="100%" stopColor="#d97706" stopOpacity={0.9} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis
-                    dataKey="shortLabel"
-                    stroke="#94a3b8"
-                    fontSize={10.5}
-                    tickLine={false}
-                    axisLine={{ stroke: '#e2e8f0' }}
-                    interval={0}
-                    dy={6}
+                <div className="w-full bg-indigo-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div 
+                    className="bg-indigo-600 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(100, stats.complianceRate)}%` }}
                   />
-                  <YAxis
-                    stroke="#94a3b8"
-                    fontSize={10.5}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(val) => val === 0 ? '₹0' : `₹${val >= 1000 ? `${val / 1000}k` : val}`}
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Period:</span>
+                <span className="font-bold text-indigo-700">12 Rolling Months</span>
+              </div>
+            </div>
+
+            {/* Card 2: Paid Months (Emerald Theme) */}
+            <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+              <div>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    {stats.paidCount} / {stats.totalMonths} Paid
+                  </span>
+                </div>
+                <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Paid Months</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-700 tracking-tight truncate flex items-baseline gap-1">
+                  <span>{stats.paidCount}</span>
+                  <span className="text-xs text-slate-400 font-bold">/ {stats.totalMonths} Mo</span>
+                </div>
+                <div className="w-full bg-emerald-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div 
+                    className="bg-emerald-600 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${(stats.paidCount / (stats.totalMonths || 1)) * 100}%` }}
                   />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99, 102, 241, 0.05)', radius: 6 }} />
-                  <Bar
-                    dataKey="amount"
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={40}
-                  >
-                    {chartData.map((entry, index) => (
-                      <Cell
-                        key={`bar-cell-${index}`}
-                        fill={
-                          entry.status === 'paid'
-                            ? 'url(#paidBarGradient)'
-                            : entry.status === 'pending'
-                              ? 'url(#pendingBarGradient)'
-                              : '#e2e8f0'
-                        }
-                      />
-                    ))}
-                    <LabelList dataKey="amount" position="top" content={renderCustomBarLabel} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Status:</span>
+                <span className="font-bold text-emerald-700 truncate max-w-[130px]">
+                  {stats.pendingCount > 0 ? `${stats.pendingCount} Pending` : 'All Cleared'}
+                </span>
+              </div>
+            </div>
+
+            {/* Card 3: Consistency Rate (Purple Theme) */}
+            <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+              <div>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <TrendingUp className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    {stats.complianceRate >= 100 ? 'Perfect' : stats.complianceRate >= 75 ? 'Good' : 'Attention'}
+                  </span>
+                </div>
+                <h4 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Consistency Rate</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
+                  {stats.complianceRate}%
+                </div>
+                <div className="w-full bg-purple-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div 
+                    className="bg-purple-600 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${stats.complianceRate}%` }}
+                  />
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Compliance:</span>
+                <span className="font-bold text-purple-700">On-time Deposits</span>
+              </div>
+            </div>
+
+            {/* Card 4: Avg. Monthly (Amber Theme) */}
+            <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+              <div>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-amber-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    Per Deposit
+                  </span>
+                </div>
+                <h4 className="text-amber-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Avg. Monthly</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-amber-700 tracking-tight truncate">
+                  ₹{stats.avgMonthly.toLocaleString('en-IN')}
+                </div>
+                <div className="w-full bg-amber-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div 
+                    className="bg-amber-600 h-full rounded-full transition-all duration-300"
+                    style={{ width: stats.paidCount > 0 ? '100%' : '0%' }}
+                  />
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-amber-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Recorded:</span>
+                <span className="font-bold text-amber-700">Mean Contribution</span>
+              </div>
+            </div>
+
+            {/* Card 5: Loan Portfolio (Rose / Cyan Theme based on borrowings) */}
+            <div className={cn(
+              "p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 transition-all flex flex-col justify-between group relative overflow-hidden",
+              hasActiveBorrowings
+                ? "bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50"
+                : "bg-gradient-to-br from-cyan-50/90 via-cyan-50/40 to-white border-cyan-200/90 hover:border-cyan-400 hover:shadow-md hover:shadow-cyan-100/50"
+            )}>
+              <div>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className={cn(
+                    "w-7.5 h-7.5 rounded-xl text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform",
+                    hasActiveBorrowings ? "bg-rose-600" : "bg-cyan-600"
+                  )}>
+                    {hasActiveBorrowings ? <AlertCircle className="w-4 h-4" /> : <IndianRupee className="w-4 h-4" />}
+                  </div>
+                  <span className={cn(
+                    "text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border",
+                    hasActiveBorrowings
+                      ? "text-rose-700 bg-rose-100/90 border-rose-200"
+                      : "text-cyan-700 bg-cyan-100/90 border-cyan-200"
+                  )}>
+                    {hasActiveBorrowings 
+                      ? `${loanStats.activeLoanCount} Active` 
+                      : loanStats.hasLoans ? 'Settled' : 'No Loans'}
+                  </span>
+                </div>
+                <h4 className={cn(
+                  "text-[10.5px] font-bold uppercase tracking-wider line-clamp-1",
+                  hasActiveBorrowings ? "text-rose-950" : "text-cyan-950"
+                )}>
+                  Loan Portfolio
+                </h4>
+                <div className={cn(
+                  "mt-0.5 text-xl sm:text-2xl font-black tracking-tight truncate",
+                  hasActiveBorrowings ? "text-rose-700" : "text-cyan-900"
+                )}>
+                  {hasActiveBorrowings
+                    ? `₹${loanStats.outstandingPrincipal.toLocaleString('en-IN')}`
+                    : loanStats.hasLoans 
+                      ? 'Settled (₹0)' 
+                      : 'No Loans'}
+                </div>
+                <div className={cn(
+                  "w-full h-1.5 rounded-full mt-2 overflow-hidden",
+                  hasActiveBorrowings ? "bg-rose-200/60" : "bg-cyan-200/60"
+                )}>
+                  <div 
+                    className={cn("h-full rounded-full transition-all duration-300", hasActiveBorrowings ? "bg-rose-600" : "bg-cyan-600")}
+                    style={{ 
+                      width: hasActiveBorrowings && loanStats.totalSanctioned > 0
+                        ? `${Math.min(100, Math.round((loanStats.totalPrincipalRepaid / loanStats.totalSanctioned) * 100))}%`
+                        : '100%' 
+                    }}
+                  />
+                </div>
+              </div>
+              <div className={cn(
+                "mt-2.5 pt-2 border-t flex items-center justify-between text-[10.5px]",
+                hasActiveBorrowings ? "border-rose-100/90" : "border-cyan-100/90"
+              )}>
+                <span className="font-semibold text-slate-500">
+                  {hasActiveBorrowings ? 'Balance:' : 'Borrowings:'}
+                </span>
+                <span className={cn(
+                  "font-bold truncate max-w-[130px]",
+                  hasActiveBorrowings ? "text-rose-700" : "text-cyan-700"
+                )}>
+                  {hasActiveBorrowings 
+                    ? 'Principal Due' 
+                    : loanStats.hasLoans ? 'Fully Cleared' : 'None Active'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
