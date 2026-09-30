@@ -909,6 +909,26 @@ export default function App() {
   const isSystemAdmin = user?.email?.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase();
   const isUserAdminExempt = isAdmin || isSystemAdmin || isExemptAdministrator({ ...user, role: profile?.role });
 
+  // Dynamically determine whether a member has any loans
+  const memberHasLoans = useMemo(() => {
+    if (isAdmin) return true;
+    if (!user) return false;
+    const uUid = user.uid;
+    const uEmail = user.email ? user.email.toLowerCase() : '';
+    return loans.some(l => {
+      const matchUid = Boolean(l.userId && uUid && l.userId === uUid);
+      const matchEmail = Boolean(l.userEmail && uEmail && l.userEmail.toLowerCase() === uEmail);
+      return (matchUid || matchEmail) && (l.status === 'approved' || l.status === 'paid' || l.status === 'pending');
+    });
+  }, [isAdmin, user, loans]);
+
+  // If a non-admin member has no loans, automatically switch away from the 'graphs' tab
+  useEffect(() => {
+    if (!isAdmin && !memberHasLoans && activeTab === 'graphs') {
+      setActiveTab('contributions');
+    }
+  }, [isAdmin, memberHasLoans, activeTab]);
+
   // Clean up any legacy reminder notifications for administrator unnati
   useEffect(() => {
     if (isUserAdminExempt && user && notifications.length > 0) {
@@ -6642,19 +6662,21 @@ export default function App() {
                 <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
               )}
             </button>
-            <button 
-              onClick={() => setActiveTab('graphs')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'graphs' 
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              <GraphIcon className="w-4 h-4" />
-              Graphs
-            </button>
+            {memberHasLoans && (
+              <button 
+                onClick={() => setActiveTab('graphs')}
+                className={cn(
+                  "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                  isMobileVisual && "px-3 py-2 text-xs",
+                  activeTab === 'graphs' 
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
+                    : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
+                )}
+              >
+                <GraphIcon className="w-4 h-4" />
+                Graphs
+              </button>
+            )}
           </div>
         )}
 
@@ -6670,7 +6692,7 @@ export default function App() {
                       </span>
                     </span>
                   ) : activeTab === 'graphs' ? 'Data Analytics' : activeTab === 'monthlyCollection' ? 'Monthly Collection Overview' : activeTab === 'reports' ? 'Reports' : 'Notice Board') 
-                : (activeTab === 'contributions' ? 'Your History' : activeTab === 'graphs' ? 'Your Insights' : 'Loan Dashboard')}
+                : (activeTab === 'contributions' ? 'Your History' : (activeTab === 'graphs' && memberHasLoans) ? 'Your Insights' : 'Loan Dashboard')}
             </h2>
             {isAdmin && activeTab === 'members' && !isSmtpConfigured && (
               <div className="mt-1 flex items-center gap-1.5 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-100 w-fit">
@@ -6680,7 +6702,7 @@ export default function App() {
             )}
           </div>
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
-            {activeTab === 'graphs' && (
+            {activeTab === 'graphs' && (isAdmin || memberHasLoans) && (
               <div className="flex items-center gap-2 bg-gradient-to-r from-indigo-50/90 to-white px-3 sm:px-4 py-2 rounded-2xl border-2 border-indigo-200/90 shadow-2xs">
                 <Calendar className="w-4 h-4 text-indigo-600 shrink-0" />
                 <span className="text-xs font-bold text-slate-600 uppercase tracking-wider hidden sm:inline">Year:</span>
@@ -9617,7 +9639,7 @@ export default function App() {
             );
           })()}
           </div>
-        ) : activeTab === 'graphs' ? (
+        ) : (activeTab === 'graphs' && (isAdmin || memberHasLoans)) ? (
           <Graphs 
             allUsers={allUsers}
             contributions={contributions}

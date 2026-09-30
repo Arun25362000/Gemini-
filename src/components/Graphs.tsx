@@ -274,12 +274,12 @@ const Graphs: React.FC<GraphsProps> = ({
         };
       });
 
-    const withLoans = list.filter(d => isAdmin ? (d.borrowed > 0 || d.totalRepaid > 0) : d.email === userEmail.toLowerCase());
+    const withLoans = list.filter(d => isAdmin ? (d.borrowed > 0 || d.totalRepaid > 0) : (d.email === userEmail.toLowerCase() && (d.borrowed > 0 || d.totalRepaid > 0)));
     if (withLoans.length > 0) {
       return withLoans.sort((a, b) => b.borrowed - a.borrowed);
     }
-    // If no active/closed loans recorded in selectedYear yet, show trust members so chart is always populated and exportable
-    return list.slice(0, 15);
+    // If no active/closed loans recorded in selectedYear yet, show trust members for admin only
+    return isAdmin ? list.slice(0, 15) : [];
   }, [allUsers, loans, loanPayments, selectedYear, isAdmin, userEmail]);
 
   // 3. Member-wise Loan Disbursements by Month Data (for Admin)
