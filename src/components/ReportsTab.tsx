@@ -7,7 +7,8 @@ import {
   Mail, 
   ArrowRight,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Archive
 } from 'lucide-react';
 import { getAppAvailableYears } from '../lib/utils';
 import { motion } from 'motion/react';
@@ -26,6 +27,9 @@ interface ReportsTabProps {
   isSmtpConfigured?: boolean;
   totalMembersCount?: number;
   totalContributionsCount?: number;
+  exportAllMemberStatementsZip?: () => void | Promise<void>;
+  isExportingAllStatements?: boolean;
+  exportProgress?: { current: number; total: number };
 }
 
 const MONTHS = [
@@ -55,6 +59,10 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   collectionYear,
   setCollectionYear,
   isSmtpConfigured = true,
+  totalMembersCount = 0,
+  exportAllMemberStatementsZip,
+  isExportingAllStatements = false,
+  exportProgress,
 }) => {
   const availableYears = getAppAvailableYears ? getAppAvailableYears() : [2024, 2025, 2026, 2027, 2028];
 
@@ -62,6 +70,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     'master': false,
     'balance-sheet': false,
     'monthly': false,
+    'member-statements': false,
     'backup': false,
   });
 
@@ -338,11 +347,102 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           )}
         </motion.div>
 
-        {/* Card 4: Send Backup */}
+        {/* Card 4: All Member Statements */}
         <motion.div 
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2, delay: 0.15 }}
+          className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-purple-200/80 shadow-sm hover:shadow-md hover:border-purple-300 transition-all flex flex-col justify-between"
+          id="report-card-member-statements"
+        >
+          <div>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-700 border border-purple-200/70 flex items-center justify-center font-bold shadow-xs shrink-0">
+                <Archive className="w-6 h-6" />
+              </div>
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200/80">
+                Archive (.zip)
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => toggleReport('member-statements')}
+              className="w-full flex items-center justify-between gap-2 cursor-pointer select-none group text-left mb-2 focus:outline-none"
+              aria-expanded={!collapsedReports['member-statements']}
+              title={collapsedReports['member-statements'] ? "Click to expand Member Statements" : "Click to collapse Member Statements"}
+            >
+              <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-purple-600 transition-colors flex items-center gap-2">
+                <span>All Member Statements</span>
+                <span className="text-slate-400 group-hover:text-purple-600 transition-colors">
+                  {collapsedReports['member-statements'] ? (
+                    <ChevronDown className="w-5 h-5" />
+                  ) : (
+                    <ChevronUp className="w-5 h-5" />
+                  )}
+                </span>
+              </h3>
+              <span className="text-[11px] font-semibold text-slate-400 group-hover:text-purple-600 transition-colors">
+                {collapsedReports['member-statements'] ? 'Click to expand' : 'Click to collapse'}
+              </span>
+            </button>
+
+            {!collapsedReports['member-statements'] && (
+              <>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-5">
+                  Generates and packages individual PDF financial statements (savings, loan portfolio, and repayment records) for all group members into a single compressed ZIP archive.
+                </p>
+
+                <div className="space-y-2 mb-6 bg-purple-50/40 p-3.5 rounded-2xl border border-purple-100 text-xs text-slate-700">
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-600" />
+                    <span>Individual PDF statement per group member</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-600" />
+                    <span>Detailed savings contributions &amp; loan repayment logs</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-600" />
+                    <span>Single compressed ZIP download with safe filenames</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {!collapsedReports['member-statements'] && (
+            <button
+              type="button"
+              id="btn-export-all-member-statements-zip"
+              onClick={exportAllMemberStatementsZip}
+              disabled={isExportingAllStatements || totalMembersCount === 0}
+              className="w-full py-3 px-4 bg-purple-600 hover:bg-purple-700 active:scale-[0.98] text-white rounded-xl font-bold text-sm transition-all shadow-xs flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer mt-2"
+              title="Download all group member statements as a ZIP archive"
+            >
+              {isExportingAllStatements ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>
+                    Exporting ({exportProgress?.current || 0}/{exportProgress?.total || 0})...
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Archive className="w-4 h-4 shrink-0" />
+                  <span>Export Statements (ZIP)</span>
+                  <ArrowRight className="w-4 h-4 ml-1 opacity-70" />
+                </>
+              )}
+            </button>
+          )}
+        </motion.div>
+
+        {/* Card 5: Send Backup */}
+        <motion.div 
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.2 }}
           className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-slate-300 shadow-sm hover:shadow-md hover:border-slate-400 transition-all flex flex-col justify-between"
           id="report-card-backup"
         >

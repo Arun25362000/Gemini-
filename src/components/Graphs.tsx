@@ -124,30 +124,6 @@ const Graphs: React.FC<GraphsProps> = ({
     return new Date(2026, 0, 1);
   };
 
-  // Personal Monthly Contributions (Member) filtered by selectedYear
-  const memberContributionsData = React.useMemo(() => {
-    return Object.values(
-      contributions
-        .filter(c => c.userEmail?.toLowerCase() === userEmail.toLowerCase() && c.year === selectedYear && c.status === 'paid')
-        .reduce((acc, c) => {
-          const monthKey = `${c.month}-${c.year}`;
-          const name = `${MONTH_NAMES[c.month]} ${c.year}`;
-          if (!acc[monthKey]) {
-            acc[monthKey] = {
-              name: name,
-              uniqueId: monthKey,
-              valName: name,
-              amount: 0,
-              month: c.month,
-              year: c.year
-            };
-          }
-          acc[monthKey].amount += c.amount;
-          return acc;
-        }, {} as Record<string, { name: string; valName: string; uniqueId: string; amount: number; month: number; year: number }>)
-    ).sort((a, b) => a.month - b.month);
-  }, [contributions, userEmail, selectedYear]);
-
   // Sanctioned loans in selectedYear (both approved and closed/paid)
   const sanctionedLoansInYear = React.useMemo(() => {
     return loans.filter(l => {
@@ -1055,115 +1031,6 @@ const Graphs: React.FC<GraphsProps> = ({
           </div>
         )}
 
-        {/* Personal Contributions for Members */}
-        {!isAdmin && (
-          <div className={cn(
-            "bg-gradient-to-b from-blue-50/30 via-white to-white p-6 rounded-3xl border-2 border-blue-100/90 shadow-sm hover:shadow-md hover:border-blue-200/90 lg:col-span-2 relative overflow-hidden transition-all",
-            isAndroid && "p-4 overflow-hidden"
-          )}>
-            {/* Top-Right Index Badge */}
-            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-blue-50/90 text-xs font-black text-blue-700 rounded-bl-2xl border-b border-l border-blue-200/80 shadow-2xs z-10 select-none">
-              #1
-            </div>
-
-            <div
-              onClick={() => toggleGraph('contribution-history')}
-              className={cn(
-                "flex items-center justify-between cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
-                !collapsedGraphs['contribution-history'] ? "mb-6" : "mb-0"
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                  Your Contribution History ({selectedYear})
-                </h3>
-                <span className="text-slate-400 group-hover:text-blue-600 transition-colors">
-                  {collapsedGraphs['contribution-history'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-                </span>
-              </div>
-            </div>
-            {!collapsedGraphs['contribution-history'] && (
-              memberContributionsData.length > 0 ? (
-                <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain pb-2 scrollbar-thin">
-                  <div 
-                    style={{ minWidth: `${getDynamicChartWidth(memberContributionsData.length)}px`, width: '100%' }} 
-                    className={cn("h-[370px]", isAndroid && "h-[300px]")}
-                  >
-                    <ResponsiveContainer width="99%" height="100%">
-                      <BarChart data={memberContributionsData} margin={isAndroid ? { top: 28, right: 10, left: 0, bottom: 60 } : { top: 32, right: 30, left: 20, bottom: 80 }}>
-                        <defs>
-                          <linearGradient id="personalContribGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
-                            <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.9} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey="uniqueId" 
-                          angle={-45} 
-                          textAnchor="end" 
-                          interval={0} 
-                          height={isAndroid ? 60 : 80}
-                          tick={{ fontSize: isAndroid ? 9 : 10, fill: '#64748b' }}
-                          tickFormatter={(id) => {
-                            const item = memberContributionsData.find(d => d.uniqueId === id);
-                            let val = item?.name || 'Unknown';
-                            val = val.split(/[@(]/)[0].trim();
-                            const limit = isAndroid ? 8 : 12;
-                            return val.length > limit ? val.substring(0, limit - 2) + ".." : val;
-                          }}
-                        />
-                        <YAxis tick={{ fontSize: isAndroid ? 10 : 12, fill: '#64748b' }} width={isAndroid ? 45 : 60} tickFormatter={(val) => Number(val).toLocaleString('en-IN')} />
-                        <Tooltip 
-                          content={({ active, payload, label }) => {
-                            if (!active || !payload || !payload.length) return null;
-                            const item = memberContributionsData.find(d => d.uniqueId === label) || payload[0]?.payload;
-                            const numVal = Number(payload[0]?.value) || 0;
-                            return (
-                              <div className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xl space-y-2.5 min-w-[200px]">
-                                <p className="text-xs font-bold text-slate-900 border-b border-slate-100 pb-1.5">
-                                  Month: {item?.name || label}
-                                </p>
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between gap-3 text-xs">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-blue-600" />
-                                      <span className="font-bold text-blue-600">
-                                        Contribution:
-                                      </span>
-                                    </div>
-                                    <span className="font-black text-blue-600">
-                                      ₹{numVal.toLocaleString('en-IN')}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Bar dataKey="amount" fill="url(#personalContribGradient)" radius={[8, 8, 0, 0]}>
-                          <LabelList 
-                            dataKey="amount" 
-                            position="top" 
-                            formatter={formatBarAmountValue} 
-                            style={{ fontSize: isAndroid ? 9 : 11, fontWeight: 700, fill: '#1d4ed8' }}
-                          />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-16 text-center bg-slate-50/60 rounded-2xl border border-dashed border-slate-200">
-                  <Calendar className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm font-bold text-slate-700">No Contributions Found in {selectedYear}</p>
-                  <p className="text-xs text-slate-400 mt-1">Once contributions for {selectedYear} are paid, they will appear here.</p>
-                </div>
-              )
-            )}
-          </div>
-        )}
-
         {/* Member vs Loan Received vs Paid (Includes Active & Closed Loans) */}
         {(isAdmin || (memberLoans.length > 0 && (memberLoans[0].borrowed > 0 || memberLoans[0].repaid > 0))) && (
           <div 
@@ -1175,7 +1042,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-cyan-50/90 text-xs font-black text-cyan-800 rounded-bl-2xl border-b border-l border-cyan-200/80 shadow-2xs z-10 select-none">
-              {isAdmin ? '#3' : '#2'}
+              {isAdmin ? '#3' : '#1'}
             </div>
 
             <div
@@ -1187,7 +1054,7 @@ const Graphs: React.FC<GraphsProps> = ({
             >
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold text-slate-900 group-hover:text-cyan-700 transition-colors">
-                  Memberwise Borrowed vs Repaid ({selectedYear})
+                  {isAdmin ? `Memberwise Borrowed vs Repaid (${selectedYear})` : `Your Loan Borrowed vs Repaid (${selectedYear})`}
                 </h3>
                 <span className="text-slate-400 group-hover:text-cyan-700 transition-colors">
                   {collapsedGraphs['borrowed-repaid'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
@@ -1376,7 +1243,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-indigo-50/90 text-xs font-black text-indigo-800 rounded-bl-2xl border-b border-l border-indigo-200/80 shadow-2xs z-10 select-none">
-              #4
+              {isAdmin ? '#4' : '#2'}
             </div>
 
             <div

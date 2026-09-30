@@ -1860,3 +1860,197 @@ export async function exportGraphFinancialHealthExcel({
   const fileName = `Financial_Health_Overview_${selectedYear}_${format(new Date(), 'MMMyyyy')}.xlsx`;
   await saveOrDownloadWorkbook(wb, fileName, notify);
 }
+
+export async function exportGraphLoanPerformanceExcel({
+  data,
+  selectedYear,
+  fiscalYearLabel,
+  totalPrincipalRepaid,
+  totalInterestEarned,
+  totalRepaid,
+  totalPaymentsCount,
+  chartImage,
+  notify
+}: {
+  data: Array<{
+    name: string;
+    fullName: string;
+    month: number;
+    year: number;
+    principalRepaid: number;
+    interestEarned: number;
+    totalRepaid: number;
+    paymentCount: number;
+  }>;
+  selectedYear: number;
+  fiscalYearLabel: string;
+  totalPrincipalRepaid: number;
+  totalInterestEarned: number;
+  totalRepaid: number;
+  totalPaymentsCount: number;
+  chartImage?: { base64: string; width: number; height: number } | null;
+  notify?: (type: 'success' | 'error' | 'info', message: string) => void;
+}) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Unnati Trust (R)';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('Loan Performance', {
+    views: [{ showGridLines: true }],
+    pageSetup: {
+      orientation: 'landscape',
+      paperSize: 9, // A4
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 1,
+      margins: {
+        left: 0.35,
+        right: 0.35,
+        top: 0.4,
+        bottom: 0.4,
+        header: 0.2,
+        footer: 0.2
+      }
+    }
+  });
+
+  const colCount = 7;
+
+  ws.columns = [
+    { width: 7 },   // S.No
+    { width: 22 },  // Month / Period
+    { width: 20 },  // Principal Repaid (₹)
+    { width: 20 },  // Interest Earned (₹)
+    { width: 20 },  // Total Repaid (₹)
+    { width: 14 },  // Payments Count
+    { width: 20 }   // Share of Interest
+  ];
+
+  // Row 1: Main Header
+  const r1 = ws.addRow(['UNNATI TRUST (R)']);
+  ws.mergeCells(1, 1, 1, colCount);
+  r1.height = 28;
+  r1.getCell(1).font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+  r1.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } };
+  r1.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  // Row 2: Sub-title
+  const r2 = ws.addRow([`LOAN PERFORMANCE REPORT - ${fiscalYearLabel}`]);
+  ws.mergeCells(2, 1, 2, colCount);
+  r2.height = 24;
+  r2.getCell(1).font = { name: 'Segoe UI', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+  r2.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF047857' } };
+  r2.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  // Row 3: Meta
+  const r3 = ws.addRow([`Monthly Trend: Total Principal Repaid vs. Total Interest Earned | Generated: ${format(new Date(), 'dd-MMM-yyyy hh:mm a')}`]);
+  ws.mergeCells(3, 1, 3, colCount);
+  r3.height = 20;
+  r3.getCell(1).font = { name: 'Segoe UI', size: 9.5, italic: true, color: { argb: 'FF334155' } };
+  r3.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+  r3.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  const sRow = ws.addRow([
+    'FY SUMMARY',
+    `Period: ${fiscalYearLabel}`,
+    `Principal: ₹${totalPrincipalRepaid.toLocaleString('en-IN')}`,
+    `Interest: ₹${totalInterestEarned.toLocaleString('en-IN')}`,
+    `Total: ₹${totalRepaid.toLocaleString('en-IN')}`,
+    `${totalPaymentsCount} Payments`,
+    `Yield: ${totalRepaid > 0 ? ((totalInterestEarned / totalRepaid) * 100).toFixed(1) : '0'}%`
+  ]);
+  sRow.height = 24;
+  sRow.eachCell((cell) => {
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = BORDER_THIN;
+  });
+
+  ws.addRow([]); // Blank spacer
+
+  const hRow = ws.addRow([
+    '#',
+    'Period / Month',
+    'Principal Repaid (₹)',
+    'Interest Earned (₹)',
+    'Total Repaid (₹)',
+    'Installments',
+    'Interest Share %'
+  ]);
+  hRow.height = 26;
+  hRow.eachCell((cell, colNumber) => {
+    cell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF065F46' } };
+    cell.alignment = { 
+      horizontal: colNumber === 1 || colNumber === 6 ? 'center' : (colNumber >= 3 && colNumber <= 5 ? 'right' : (colNumber === 7 ? 'right' : 'left')), 
+      vertical: 'middle' 
+    };
+    cell.border = BORDER_THIN;
+  });
+
+  data.forEach((d, idx) => {
+    const isEven = idx % 2 === 0;
+    const sharePct = d.totalRepaid > 0 ? ((d.interestEarned / d.totalRepaid) * 100).toFixed(1) + '%' : '0.0%';
+    const row = ws.addRow([
+      idx + 1,
+      d.fullName,
+      d.principalRepaid,
+      d.interestEarned,
+      d.totalRepaid,
+      d.paymentCount,
+      sharePct
+    ]);
+    row.height = 21;
+    row.eachCell((cell, colNumber) => {
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF0F172A' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: isEven ? 'FFFFFFFF' : 'FFF8FAFC' }
+      };
+      cell.alignment = {
+        horizontal: colNumber === 1 || colNumber === 6 ? 'center' : (colNumber >= 3 && colNumber <= 5 ? 'right' : (colNumber === 7 ? 'right' : 'left')),
+        vertical: 'middle'
+      };
+      cell.border = BORDER_THIN;
+      if (colNumber >= 3 && colNumber <= 5 && typeof cell.value === 'number') {
+        cell.numFmt = '₹#,##0';
+      }
+    });
+  });
+
+  const totalRow = ws.addRow([
+    'TOTAL',
+    'Full Fiscal Year',
+    totalPrincipalRepaid,
+    totalInterestEarned,
+    totalRepaid,
+    totalPaymentsCount,
+    totalRepaid > 0 ? ((totalInterestEarned / totalRepaid) * 100).toFixed(1) + '%' : '0.0%'
+  ]);
+  totalRow.height = 24;
+  totalRow.eachCell((cell, colNumber) => {
+    cell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: 'FF065F46' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+    cell.alignment = {
+      horizontal: colNumber === 1 || colNumber === 6 ? 'center' : (colNumber >= 3 && colNumber <= 5 ? 'right' : (colNumber === 7 ? 'right' : 'left')),
+      vertical: 'middle'
+    };
+    cell.border = BORDER_DOUBLE_BOTTOM;
+    if (colNumber >= 3 && colNumber <= 5 && typeof cell.value === 'number') {
+      cell.numFmt = '₹#,##0';
+    }
+  });
+
+  if (chartImage && chartImage.base64 && chartImage.width > 0) {
+    addVisualGraphSheet(wb, {
+      graphTitle: 'Loan Performance Trend',
+      selectedYear,
+      chartImage
+    });
+  }
+
+  const fileName = `Loan_Performance_${fiscalYearLabel.replace(/[^a-zA-Z0-9_-]/g, '_')}_${format(new Date(), 'MMMyyyy')}.xlsx`;
+  await saveOrDownloadWorkbook(wb, fileName, notify);
+}

@@ -535,9 +535,19 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                     : 'Active Loan'}
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Repayment timeline for <span className="text-purple-700 font-bold">{borrowerName}</span> • ₹{stats.approvedAmount.toLocaleString('en-IN')}{hasMultipleLoans ? ` (${activeGroup.activeLoans.length} Active Loans Clubbed)` : ' Loan'} • Disbursed: <span className="font-bold text-slate-800">{disbursementDateStr}</span>
-            </p>
+            <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-500 font-medium mt-1">
+              <span>Repayment timeline:</span>
+              <span className="font-bold text-purple-800 bg-purple-100/70 px-2 py-0.5 rounded-md border border-purple-200/80">{borrowerName}</span>
+              <span className="text-slate-300">•</span>
+              <span className="font-bold text-slate-800">₹{stats.approvedAmount.toLocaleString('en-IN')}</span>
+              {hasMultipleLoans && (
+                <span className="text-[11px] text-indigo-700 font-bold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/80">
+                  {activeGroup.activeLoans.length} Loans Clubbed
+                </span>
+              )}
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-600">Disbursed: <strong className="text-slate-800 font-bold">{disbursementDateStr}</strong></span>
+            </div>
           </div>
         </div>
 
@@ -685,9 +695,31 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
       {!isCollapsed && (
         <div className="pt-4 space-y-4">
-          {/* KPI Stat Cards for the Selected Member (Clubbed Loans) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-3.5">
-            {/* Card 1: Principal Paid (Emerald) */}
+          {/* KPI Stat Cards for the Selected Member (Clubbed Loans) - 4 Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
+            {/* Card 1: Sanctioned Loan (Indigo) */}
+            <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+              <div>
+                <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                  <div className="w-7.5 h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Wallet className="w-4 h-4" />
+                  </div>
+                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    {hasMultipleLoans ? `${activeGroup.loans.length} Loans` : `${stats.totalInstallments} Months`}
+                  </span>
+                </div>
+                <h4 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Sanctioned Loan</h4>
+                <div className="mt-0.5 text-xl sm:text-2xl font-black text-indigo-950 tracking-tight truncate">
+                  ₹{stats.approvedAmount.toLocaleString('en-IN')}
+                </div>
+              </div>
+              <div className="mt-2.5 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Disbursed:</span>
+                <span className="font-bold text-indigo-700 truncate max-w-[130px]" title={disbursementDateStr}>{disbursementDateStr}</span>
+              </div>
+            </div>
+
+            {/* Card 2: Total Repaid (Clubbed Principal Paid + Interest Paid) (Emerald) */}
             <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-2.5">
@@ -698,9 +730,9 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                     {stats.repaymentProgress}% Paid
                   </span>
                 </div>
-                <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Principal Paid</h4>
+                <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Repaid</h4>
                 <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-700 tracking-tight truncate">
-                  ₹{stats.totalPrincipalPaid.toLocaleString('en-IN')}
+                  ₹{stats.totalPaid.toLocaleString('en-IN')}
                 </div>
                 <div className="w-full bg-emerald-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
                   <div 
@@ -709,57 +741,18 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                   />
                 </div>
               </div>
-              <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10.5px]">
-                <span className="font-semibold text-slate-500">Disbursed:</span>
-                <span className="font-bold text-emerald-700">₹{stats.approvedAmount.toLocaleString('en-IN')}</span>
+              <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] font-semibold">
+                <span className="text-emerald-800">
+                  Principal: <strong className="font-bold">₹{stats.totalPrincipalPaid.toLocaleString('en-IN')}</strong>
+                </span>
+                <span className="text-slate-300">•</span>
+                <span className="text-amber-800">
+                  Interest: <strong className="font-bold">₹{stats.totalInterestPaid.toLocaleString('en-IN')}</strong>
+                </span>
               </div>
             </div>
 
-            {/* Card 2: Interest Paid (Amber) */}
-            <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-              <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-amber-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Percent className="w-4 h-4" />
-                  </div>
-                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    0.5% / Mo
-                  </span>
-                </div>
-                <h4 className="text-amber-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Interest Paid</h4>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-amber-700 tracking-tight truncate">
-                  ₹{stats.totalInterestPaid.toLocaleString('en-IN')}
-                </div>
-              </div>
-              <div className="mt-2.5 pt-2 border-t border-amber-100/90 flex items-center justify-between text-[10.5px]">
-                <span className="font-semibold text-slate-500">Income:</span>
-                <span className="font-bold text-amber-700">Cumulative Earned</span>
-              </div>
-            </div>
-
-            {/* Card 3: Total Repaid (Purple) */}
-            <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-              <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <TrendingUp className="w-4 h-4" />
-                  </div>
-                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {hasMultipleLoans ? `${stats.paidInstallmentsCount} Inst. Paid (${activeGroup.loans.length} Loans)` : `${stats.paidInstallmentsCount} / ${stats.totalInstallments} Inst.`}
-                  </span>
-                </div>
-                <h4 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Repaid</h4>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
-                  ₹{stats.totalPaid.toLocaleString('en-IN')}
-                </div>
-              </div>
-              <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
-                <span className="font-semibold text-slate-500">Total:</span>
-                <span className="font-bold text-purple-700">Principal + Int</span>
-              </div>
-            </div>
-
-            {/* Card 4: Next Installment (Blue) - Clubbed for all active loans */}
+            {/* Card 3: Next Installment (Blue) */}
             <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-2.5">
@@ -795,7 +788,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
               </div>
             </div>
 
-            {/* Card 5: Outstanding Balance (Rose) */}
+            {/* Card 4: Outstanding Balance (Rose) */}
             <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-2.5">

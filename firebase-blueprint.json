@@ -8,6 +8,8 @@
         "uid": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "address": { "type": "string" },
         "role": { "type": "string", "enum": ["admin", "user"] },
         "joinDate": { "type": "string", "format": "date" }
       },

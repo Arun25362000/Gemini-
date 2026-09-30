@@ -99,7 +99,9 @@ import {
   Filter,
   Scale,
   BarChart2,
-  Calculator
+  Calculator,
+  Archive,
+  MapPin
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -111,6 +113,7 @@ import { cn, getAppAvailableYears } from './lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import XLSX from 'xlsx-js-style';
+import JSZip from 'jszip';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Notice, AppNotification } from './types';
@@ -443,6 +446,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [addMemberTab, setAddMemberTab] = useState<'individual' | 'bulk'>('individual');
   const [isBulkAdding, setIsBulkAdding] = useState(false);
   const [showAddMemberDropdown, setShowAddMemberDropdown] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
@@ -474,7 +478,7 @@ export default function App() {
   const [loanRepaymentMethod, setLoanRepaymentMethod] = useState<'cash' | 'online'>('online');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingNotification, setPendingNotification] = useState<string | null>(null);
-  const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+  const [newMember, setNewMember] = useState({ name: '', email: '', phoneNumber: '', address: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
   const [isSubmittingMember, setIsSubmittingMember] = useState(false);
   const [loginMethod, setLoginMethod] = useState<'google' | 'password'>('google');
   const [credentials, setCredentials] = useState({ username: '', password: '' });
@@ -488,6 +492,8 @@ export default function App() {
   const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
   const [isTriggeringReminders, setIsTriggeringReminders] = useState(false);
   const [isSendingReport, setIsSendingReport] = useState(false);
+  const [isExportingAllStatements, setIsExportingAllStatements] = useState(false);
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [isAddingLoan, setIsAddingLoan] = useState(false);
   const [selectedLoanUserId, setSelectedLoanUserId] = useState<string | null>(null);
   const [adminLoanAmount, setAdminLoanAmount] = useState(10000);
@@ -496,14 +502,14 @@ export default function App() {
   const [adminLoanPaymentMode, setAdminLoanPaymentMode] = useState<'Online' | 'Cash'>('Online');
   const [isSubmittingAdminLoan, setIsSubmittingAdminLoan] = useState(false);
   const [loanDate, setLoanDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [filterMonth, setFilterMonth] = useState<number | 'all'>('all');
+  const [filterMonth, setFilterMonth] = useState<number | 'all'>(new Date().getMonth() + 1);
   const [filterYear, setFilterYear] = useState<number | 'all'>(new Date().getFullYear());
   const [repaymentMonth, setRepaymentMonth] = useState(new Date().getMonth() + 1);
   const [repaymentYear, setRepaymentYear] = useState(new Date().getFullYear());
   const [collectionMonth, setCollectionMonth] = useState(new Date().getMonth() + 1);
   const [collectionYear, setCollectionYear] = useState(new Date().getFullYear());
   const [graphsYear, setGraphsYear] = useState<number>(Math.max(2026, new Date().getFullYear()));
-  const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number | 'all' } | null>({ month: 'all', year: new Date().getFullYear() });
+  const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number | 'all' } | null>({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
@@ -516,7 +522,6 @@ export default function App() {
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
   const [isMemberActionsCollapsed, setIsMemberActionsCollapsed] = useState<boolean>(false);
   const [isMemberDetailsCollapsed, setIsMemberDetailsCollapsed] = useState<boolean>(false);
-  const [filterActiveLoansOnly, setFilterActiveLoansOnly] = useState<boolean>(false);
 
   const [deletingRepaymentId, setDeletingRepaymentId] = useState<string | null>(null);
 
@@ -768,6 +773,36 @@ export default function App() {
       }
     }
   }, [settlingLoanId, loans, loanPayments]);
+
+  // Ensure current month is selected in Month dropdown in Contributions when visiting or revisiting this tab
+  useEffect(() => {
+    if (activeTab === 'contributions') {
+      const nowMonth = new Date().getMonth() + 1;
+      const nowYear = new Date().getFullYear();
+      setFilterMonth(nowMonth);
+      setFilterYear(nowYear);
+      setAppliedFilter({ month: nowMonth, year: nowYear });
+    }
+  }, [activeTab]);
+
+  // Ensure current month is selected when revisiting the application window from another application
+  useEffect(() => {
+    const handleRevisitApp = () => {
+      if (document.visibilityState === 'visible' && activeTab === 'contributions') {
+        const nowMonth = new Date().getMonth() + 1;
+        const nowYear = new Date().getFullYear();
+        setFilterMonth(nowMonth);
+        setFilterYear(nowYear);
+        setAppliedFilter({ month: nowMonth, year: nowYear });
+      }
+    };
+    window.addEventListener('focus', handleRevisitApp);
+    document.addEventListener('visibilitychange', handleRevisitApp);
+    return () => {
+      window.removeEventListener('focus', handleRevisitApp);
+      document.removeEventListener('visibilitychange', handleRevisitApp);
+    };
+  }, [activeTab]);
 
   const handleSort = (field: 'member' | 'month' | 'amount' | 'date' | 'status') => {
     setSortConfig(prev => ({
@@ -1209,21 +1244,6 @@ export default function App() {
       });
     }
 
-    if (filterActiveLoansOnly) {
-      items = items.filter(u => {
-        return loans.some(l => {
-          const isMatch = (u.uid && l.userId === u.uid) || 
-            (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
-          if (!isMatch || l.status !== 'approved') return false;
-          const sanctioned = l.approvedAmount || l.amount || 0;
-          const repaid = loanPayments
-            .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
-            .reduce((sum, p) => sum + (p.amount || 0), 0);
-          return (sanctioned - repaid) > 0;
-        });
-      });
-    }
-
     if (memberSortConfig.field) {
       items = [...items].sort((a, b) => {
         const aContribs = contributions.filter(c => (a.uid && c.userId === a.uid) || (a.email && c.userEmail?.toLowerCase() === a.email.toLowerCase()));
@@ -1258,22 +1278,7 @@ export default function App() {
       });
     }
     return items;
-  }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery, loans, loanPayments, filterActiveLoansOnly]);
-
-  const membersWithActiveLoansCount = useMemo(() => {
-    return allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).filter(u => {
-      return loans.some(l => {
-        const isMatch = (u.uid && l.userId === u.uid) || 
-          (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
-        if (!isMatch || l.status !== 'approved') return false;
-        const sanctioned = l.approvedAmount || l.amount || 0;
-        const repaid = loanPayments
-          .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
-          .reduce((sum, p) => sum + (p.amount || 0), 0);
-        return (sanctioned - repaid) > 0;
-      });
-    }).length;
-  }, [allUsers, loans, loanPayments]);
+  }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery]);
 
     // Financial summary calculated directly from database records
     const financials = useMemo(() => {
@@ -2371,6 +2376,7 @@ export default function App() {
     const cleanName = (newMember.name || '').trim();
     const cleanEmail = (newMember.email || '').trim().toLowerCase();
     const cleanPhone = (newMember.phoneNumber || '').trim();
+    const cleanAddress = (newMember.address || '').trim();
     const cleanJoinDate = (newMember.joinDate || '').trim() || format(new Date(), 'yyyy-MM-dd');
 
     if (!cleanName) {
@@ -2404,12 +2410,13 @@ export default function App() {
         email: cleanEmail,
         displayName: cleanName,
         phoneNumber: cleanPhone,
+        address: cleanAddress,
         role: 'user',
         joinDate: cleanJoinDate
       }, { merge: true });
 
       setIsAddingMember(false);
-      setNewMember({ name: '', email: '', phoneNumber: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
+      setNewMember({ name: '', email: '', phoneNumber: '', address: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
       notify('success', `Member "${cleanName}" added successfully!`);
       
       // Send Welcome Email in background
@@ -2436,6 +2443,42 @@ export default function App() {
     }
   };
 
+  const downloadBulkUploadTemplate = () => {
+    try {
+      const templateData = [
+        {
+          "Name": "Ramesh Kumar",
+          "Email": "ramesh.kumar@example.com",
+          "Phone Number": "+91 98765 43210",
+          "Address": "#42, 3rd Main, Gandhi Nagar, Ballari - 583101",
+          "Date of Joining": format(new Date(), 'yyyy-MM-dd')
+        },
+        {
+          "Name": "Suresh Patel",
+          "Email": "suresh.patel@example.com",
+          "Phone Number": "+91 98765 43211",
+          "Address": "#108, Cross Road, Cantonment, Ballari - 583102",
+          "Date of Joining": format(new Date(), 'yyyy-MM-dd')
+        }
+      ];
+      const ws = utils.json_to_sheet(templateData);
+      ws['!cols'] = [
+        { wch: 22 },
+        { wch: 30 },
+        { wch: 18 },
+        { wch: 45 },
+        { wch: 16 }
+      ];
+      const wb = utils.book_new();
+      utils.book_append_sheet(wb, ws, "Members Template");
+      XLSX.writeFile(wb, "Unnati_Member_Bulk_Upload_Template.xlsx");
+      notify('success', "Sample template downloaded! Fill in member details and upload.");
+    } catch (err: any) {
+      console.error("Failed to generate bulk template:", err);
+      notify('error', "Failed to download sample template");
+    }
+  };
+
   const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2459,6 +2502,7 @@ export default function App() {
           const name = String(row['username'] || row['name'] || row['Name'] || row['Username'] || row['Display Name'] || '').trim();
           const email = String(row['email'] || row['Email'] || '').trim().toLowerCase();
           const phoneNumber = String(row['phone number'] || row['phone'] || row['Phone'] || row['PhoneNumber'] || row['Mobile'] || '').trim();
+          const address = String(row['address'] || row['Address'] || row['member address'] || row['Member Address'] || row['location'] || row['Location'] || row['City'] || '').trim();
           let joinDate = row['date of joining'] || row['join date'] || row['JoinDate'] || row['Joining Date'];
           
           // Handle potential Excel date objects or serial numbers
@@ -2491,6 +2535,7 @@ export default function App() {
             email: email,
             displayName: name,
             phoneNumber: phoneNumber,
+            address: address,
             role: 'user',
             joinDate: joinDate
           });
@@ -2531,6 +2576,7 @@ export default function App() {
 
         notify('success', `Bulk upload complete: ${addedCount} members added, ${skippedCount} skipped.`);
         setIsBulkAdding(false);
+        setIsAddingMember(false);
       } catch (err) {
         console.error("Bulk upload error:", err);
         notify('error', "Failed to process XLS file. Please ensure it's a valid Excel file.");
@@ -2663,26 +2709,48 @@ export default function App() {
       notify('error', "Access Denied: Only administrators can update member details.");
       return;
     }
+    const cleanName = (editingUser.displayName || '').trim();
+    const cleanEmail = (editingUser.email || '').trim().toLowerCase();
+    const cleanPhone = (editingUser.phoneNumber || '').trim();
+    const cleanAddress = (editingUser.address || '').trim();
+    const cleanJoinDate = (editingUser.joinDate || '').trim();
+
+    if (!cleanName) {
+      notify('error', "Please enter the member's full name.");
+      return;
+    }
+
+    if (!cleanEmail) {
+      notify('error', "Please enter the member's email address.");
+      return;
+    }
+
     try {
-      const userRef = doc(db, 'users', originalEditingEmail);
+      const docId = editingUser.uid || originalEditingEmail;
+      const userRef = doc(db, 'users', docId);
       
       // If the user hasn't logged in yet (ID is email) and the email is being changed
-      if (!editingUser.uid && editingUser.email !== originalEditingEmail) {
+      if (!editingUser.uid && cleanEmail !== originalEditingEmail.toLowerCase()) {
         // Create new doc with new email as ID
-        const newRef = doc(db, 'users', editingUser.email.trim().toLowerCase());
+        const newRef = doc(db, 'users', cleanEmail);
         await setDoc(newRef, {
           ...editingUser,
-          email: editingUser.email.trim().toLowerCase()
+          displayName: cleanName,
+          email: cleanEmail,
+          phoneNumber: cleanPhone,
+          address: cleanAddress,
+          joinDate: cleanJoinDate
         });
         // Delete old doc
         await deleteDoc(userRef);
       } else {
         // Just update existing doc
         await updateDoc(userRef, {
-          displayName: editingUser.displayName,
-          phoneNumber: editingUser.phoneNumber || '',
-          email: editingUser.email.trim().toLowerCase(),
-          joinDate: editingUser.joinDate
+          displayName: cleanName,
+          phoneNumber: cleanPhone,
+          email: cleanEmail,
+          address: cleanAddress,
+          joinDate: cleanJoinDate
         });
       }
       setEditingUser(null);
@@ -5026,6 +5094,244 @@ export default function App() {
     return items;
   }, [loanPayments, isAdmin, searchQuery, allUsers]);
 
+  const buildMemberStatementPdfDoc = (
+    targetUser: UserProfile,
+    allContributions: Contribution[],
+    allLoans: Loan[],
+    allLoanPayments: LoanPayment[]
+  ): { doc: jsPDF; fileName: string } => {
+    const doc = new jsPDF();
+    const userContribs = allContributions.filter(c => 
+      (targetUser.uid && c.userId && c.userId === targetUser.uid) || 
+      (targetUser.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim())
+    );
+    
+    const userLoans = allLoans.filter(l => 
+      (targetUser.uid && l.userId && l.userId === targetUser.uid) || 
+      (targetUser.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim())
+    );
+
+    const userLoanPayments = allLoanPayments.filter(p => {
+      const parentLoan = allLoans.find(l => l.id === p.loanId);
+      if (parentLoan) {
+        const matchLoanUid = targetUser.uid && parentLoan.userId && parentLoan.userId === targetUser.uid;
+        const matchLoanEmail = targetUser.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
+        if (matchLoanUid || matchLoanEmail) return true;
+      }
+      const matchDirectUid = targetUser.uid && p.userId && p.userId === targetUser.uid;
+      const matchDirectEmail = targetUser.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
+      return matchDirectUid || matchDirectEmail;
+    });
+
+    // Header
+    doc.setFontSize(22);
+    doc.setTextColor(30, 27, 75); // Indigo-950
+    doc.text("UNNATI TRUST (R)", 105, 18, { align: 'center' });
+    
+    doc.setFontSize(13);
+    doc.setTextColor(79, 70, 229); // Indigo-600
+    doc.text("Member Financial Statement (Savings & Loans)", 105, 26, { align: 'center' });
+
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 33, { align: 'center' });
+
+    // Member Info
+    doc.setFontSize(10.5);
+    doc.setTextColor(30);
+    doc.setFont(undefined, 'bold');
+    doc.text(`Member Name: ${targetUser.displayName || 'N/A'}`, 20, 44);
+    doc.text(`Email: ${targetUser.email || 'N/A'}`, 20, 51);
+    doc.text(`Phone: ${targetUser.phoneNumber || (targetUser as any).phone || 'N/A'}`, 20, 58);
+    doc.text(`Join Date: ${targetUser.joinDate || 'N/A'}`, 120, 44);
+    doc.text(`Role: ${(targetUser.role || 'Member').toUpperCase()}`, 120, 51);
+    if (targetUser.address) {
+      doc.text(`Address: ${targetUser.address.length > 38 ? targetUser.address.substring(0, 38) + '...' : targetUser.address}`, 120, 58);
+    }
+    doc.setFont(undefined, 'normal');
+
+    // Calculations for Summary
+    const paidContribs = userContribs.filter(c => c.status === 'paid');
+    const totalSaved = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
+    const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
+    const totalSanctioned = sanctionedLoans.reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
+    const paidLoanPayments = userLoanPayments.filter(p => p.status === 'paid');
+    const totalLoanPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+    const totalInterestPaid = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
+    const outstandingPrincipal = Math.max(0, totalSanctioned - totalLoanPaid);
+
+    doc.setDrawColor(220);
+    doc.line(20, 64, 190, 64);
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(79, 70, 229);
+    doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString('en-IN')}`, 20, 72);
+    doc.setTextColor(30);
+    doc.text(`Total Loans Disbursed: Rs. ${totalSanctioned.toLocaleString('en-IN')}`, 120, 72);
+    doc.text(`Principal Repaid: Rs. ${totalLoanPaid.toLocaleString('en-IN')}`, 20, 80);
+    doc.text(`Interest Repaid: Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, 120, 80);
+    doc.setTextColor(outstandingPrincipal > 0 ? 180 : 30, outstandingPrincipal > 0 ? 30 : 30, outstandingPrincipal > 0 ? 30 : 30);
+    doc.text(`Outstanding Principal: Rs. ${outstandingPrincipal.toLocaleString('en-IN')}`, 20, 88);
+    doc.setFont(undefined, 'normal');
+
+    // Contributions Table
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(79, 70, 229);
+    doc.text("Contribution History", 20, 100);
+    doc.setFont(undefined, 'normal');
+
+    const contributionRows = userContribs
+      .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
+      .map((c, idx) => {
+        let monthName = 'N/A';
+        try {
+          if (c.year && c.month) {
+            monthName = format(new Date(c.year, c.month - 1), 'MMMM');
+          }
+        } catch (e) {
+          console.error("Error formatting date for contribution:", c);
+        }
+        
+        let paymentDateTime = 'N/A';
+        if (c.timestamp) {
+          try {
+            const date = c.timestamp.toDate ? c.timestamp.toDate() : new Date(c.timestamp);
+            paymentDateTime = format(date, 'MMM dd, yyyy p');
+          } catch (e) {
+            console.error("Error formatting timestamp:", e);
+          }
+        }
+
+        return [
+          `#${idx + 1}`,
+          monthName,
+          c.year || 'N/A',
+          paymentDateTime,
+          (c.paymentMethod || 'N/A').toUpperCase(),
+          `Rs. ${(c.amount || 0).toLocaleString('en-IN')}`,
+          (c.status || 'N/A').toUpperCase()
+        ];
+      });
+
+    if (contributionRows.length === 0) {
+      contributionRows.push(['-', 'No contributions recorded', '-', '-', '-', '-', '-']);
+    }
+
+    autoTable(doc, {
+      startY: 104,
+      head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Payment Mode', 'Amount', 'Status']],
+      body: contributionRows,
+      theme: 'striped',
+      headStyles: { fillColor: [79, 70, 229] }
+    });
+
+    // Loans Summary Section
+    let finalY = (doc as any).lastAutoTable?.finalY || 150;
+    if (userLoans.length > 0) {
+      if (finalY > 230) {
+        doc.addPage();
+        finalY = 20;
+      }
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(79, 70, 229);
+      doc.text("Sanctioned Loans Portfolio", 20, finalY + 12);
+      doc.setFont(undefined, 'normal');
+
+      const loanSummaryRows = userLoans.map((l, idx) => {
+        const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
+        const pPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+        const sanctionedAmt = l.approvedAmount || l.amount || 0;
+        const bal = Math.max(0, sanctionedAmt - pPaid);
+        const dateStr = l.approvedAt?.toDate ? format(l.approvedAt.toDate(), 'yyyy-MM-dd') : (l.createdAt?.toDate ? format(l.createdAt.toDate(), 'yyyy-MM-dd') : 'N/A');
+        return [
+          `Loan #${idx + 1}`,
+          dateStr,
+          `Rs. ${sanctionedAmt.toLocaleString('en-IN')}`,
+          `${l.interestRate ?? 1}%`,
+          `${l.installments || 10} Mos`,
+          `Rs. ${pPaid.toLocaleString('en-IN')}`,
+          `Rs. ${bal.toLocaleString('en-IN')}`,
+          (l.status || 'N/A').toUpperCase()
+        ];
+      });
+
+      autoTable(doc, {
+        startY: finalY + 16,
+        head: [['Loan #', 'Sanctioned Date', 'Sanctioned Amount', 'Interest', 'Tenure', 'Principal Paid', 'Pending Balance', 'Status']],
+        body: loanSummaryRows,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229] }
+      });
+
+      finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
+    }
+
+    // Loan Repayments Section
+    if (userLoanPayments.length > 0) {
+      if (finalY > 230) {
+        doc.addPage();
+        finalY = 20;
+      }
+      doc.setFont(undefined, 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(16, 185, 129); // Emerald-600
+      doc.text("Loan Repayment History", 20, finalY + 12);
+      doc.setFont(undefined, 'normal');
+
+      const loanPaymentRows = userLoanPayments
+        .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
+        .map((p, idx) => {
+          let monthName = 'N/A';
+          try {
+            if (p.year && p.month) {
+              monthName = format(new Date(p.year, p.month - 1), 'MMMM');
+            }
+          } catch (e) {
+            console.error("Error formatting date for loan payment:", p);
+          }
+
+          let paymentDateTime = 'N/A';
+          if (p.timestamp) {
+            try {
+              const date = p.timestamp.toDate ? p.timestamp.toDate() : new Date(p.timestamp);
+              paymentDateTime = format(date, 'MMM dd, yyyy p');
+            } catch (e) {
+              console.error("Error formatting timestamp for loan payment:", e);
+            }
+          }
+
+          const totalInstallment = (p.amount || 0) + (p.interest || 0);
+
+          return [
+            `#${idx + 1}`,
+            monthName,
+            p.year || 'N/A',
+            paymentDateTime,
+            (p.paymentMethod || p.paymentMode || 'N/A').toUpperCase(),
+            `Rs. ${(p.amount || 0).toLocaleString('en-IN')}`,
+            `Rs. ${(p.interest || 0).toLocaleString('en-IN')}`,
+            `Rs. ${totalInstallment.toLocaleString('en-IN')}`,
+            (p.status || 'N/A').toUpperCase()
+          ];
+        });
+
+      autoTable(doc, {
+        startY: finalY + 16,
+        head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Mode', 'Principal', 'Interest', 'Total Paid', 'Status']],
+        body: loanPaymentRows,
+        theme: 'striped',
+        headStyles: { fillColor: [16, 185, 129] } // Emerald-600
+      });
+    }
+
+    const safeName = (targetUser.displayName || targetUser.email?.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const fileName = `Unnati_Statement_${safeName}_${format(new Date(), 'yyyyMMdd')}.pdf`;
+
+    return { doc, fileName };
+  };
+
   const generateMemberStatement = async (targetUserOrId?: UserProfile | string) => {
     try {
       let targetUser: UserProfile | undefined;
@@ -5052,232 +5358,7 @@ export default function App() {
       }
 
       console.log("Generating statement for targetUser:", targetUser.email);
-
-      const doc = new jsPDF();
-      const userContribs = contributions.filter(c => 
-        (targetUser!.uid && c.userId && c.userId === targetUser!.uid) || 
-        (targetUser!.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim())
-      );
-      
-      const userLoans = loans.filter(l => 
-        (targetUser!.uid && l.userId && l.userId === targetUser!.uid) || 
-        (targetUser!.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim())
-      );
-
-      const userLoanPayments = loanPayments.filter(p => {
-        const parentLoan = loans.find(l => l.id === p.loanId);
-        if (parentLoan) {
-          const matchLoanUid = targetUser!.uid && parentLoan.userId && parentLoan.userId === targetUser!.uid;
-          const matchLoanEmail = targetUser!.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim();
-          if (matchLoanUid || matchLoanEmail) return true;
-        }
-        const matchDirectUid = targetUser!.uid && p.userId && p.userId === targetUser!.uid;
-        const matchDirectEmail = targetUser!.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser!.email.toLowerCase().trim();
-        return matchDirectUid || matchDirectEmail;
-      });
-
-      // Header
-      doc.setFontSize(22);
-      doc.setTextColor(30, 27, 75); // Indigo-950
-      doc.text("UNNATI TRUST (R)", 105, 18, { align: 'center' });
-      
-      doc.setFontSize(13);
-      doc.setTextColor(79, 70, 229); // Indigo-600
-      doc.text("Member Financial Statement (Savings & Loans)", 105, 26, { align: 'center' });
-
-      doc.setFontSize(9);
-      doc.setTextColor(100);
-      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 105, 33, { align: 'center' });
-
-      // Member Info
-      doc.setFontSize(10.5);
-      doc.setTextColor(30);
-      doc.setFont(undefined, 'bold');
-      doc.text(`Member Name: ${targetUser.displayName || 'N/A'}`, 20, 44);
-      doc.text(`Email: ${targetUser.email}`, 20, 51);
-      doc.text(`Phone: ${targetUser.phoneNumber || (targetUser as any).phone || 'N/A'}`, 20, 58);
-      doc.text(`Join Date: ${targetUser.joinDate || 'N/A'}`, 120, 44);
-      doc.text(`Role: ${(targetUser.role || 'Member').toUpperCase()}`, 120, 51);
-      doc.setFont(undefined, 'normal');
-
-      // Calculations for Summary
-      const paidContribs = userContribs.filter(c => c.status === 'paid');
-      const totalSaved = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
-      const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
-      const totalSanctioned = sanctionedLoans.reduce((acc, l) => acc + (l.approvedAmount || l.amount || 0), 0);
-      const paidLoanPayments = userLoanPayments.filter(p => p.status === 'paid');
-      const totalLoanPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
-      const totalInterestPaid = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
-      const outstandingPrincipal = Math.max(0, totalSanctioned - totalLoanPaid);
-
-      doc.setDrawColor(220);
-      doc.line(20, 64, 190, 64);
-      doc.setFont(undefined, 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(79, 70, 229);
-      doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString('en-IN')}`, 20, 72);
-      doc.setTextColor(30);
-      doc.text(`Total Loans Disbursed: Rs. ${totalSanctioned.toLocaleString('en-IN')}`, 120, 72);
-      doc.text(`Principal Repaid: Rs. ${totalLoanPaid.toLocaleString('en-IN')}`, 20, 80);
-      doc.text(`Interest Repaid: Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, 120, 80);
-      doc.setTextColor(outstandingPrincipal > 0 ? 180 : 30, outstandingPrincipal > 0 ? 30 : 30, outstandingPrincipal > 0 ? 30 : 30);
-      doc.text(`Outstanding Principal: Rs. ${outstandingPrincipal.toLocaleString('en-IN')}`, 20, 88);
-      doc.setFont(undefined, 'normal');
-
-      // Contributions Table
-      doc.setFont(undefined, 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(79, 70, 229);
-      doc.text("Contribution History", 20, 100);
-      doc.setFont(undefined, 'normal');
-
-      const contributionRows = userContribs
-        .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
-        .map((c, idx) => {
-          let monthName = 'N/A';
-          try {
-            if (c.year && c.month) {
-              monthName = format(new Date(c.year, c.month - 1), 'MMMM');
-            }
-          } catch (e) {
-            console.error("Error formatting date for contribution:", c);
-          }
-          
-          let paymentDateTime = 'N/A';
-          if (c.timestamp) {
-            try {
-              const date = c.timestamp.toDate ? c.timestamp.toDate() : new Date(c.timestamp);
-              paymentDateTime = format(date, 'MMM dd, yyyy p');
-            } catch (e) {
-              console.error("Error formatting timestamp:", e);
-            }
-          }
-
-          return [
-            `#${idx + 1}`,
-            monthName,
-            c.year || 'N/A',
-            paymentDateTime,
-            (c.paymentMethod || 'N/A').toUpperCase(),
-            `Rs. ${(c.amount || 0).toLocaleString('en-IN')}`,
-            (c.status || 'N/A').toUpperCase()
-          ];
-        });
-
-      if (contributionRows.length === 0) {
-        contributionRows.push(['-', 'No contributions recorded', '-', '-', '-', '-', '-']);
-      }
-
-      autoTable(doc, {
-        startY: 104,
-        head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Payment Mode', 'Amount', 'Status']],
-        body: contributionRows,
-        theme: 'striped',
-        headStyles: { fillColor: [79, 70, 229] }
-      });
-
-      // Loans Summary Section
-      let finalY = (doc as any).lastAutoTable?.finalY || 150;
-      if (userLoans.length > 0) {
-        if (finalY > 230) {
-          doc.addPage();
-          finalY = 20;
-        }
-        doc.setFont(undefined, 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(79, 70, 229);
-        doc.text("Sanctioned Loans Portfolio", 20, finalY + 12);
-        doc.setFont(undefined, 'normal');
-
-        const loanSummaryRows = userLoans.map((l, idx) => {
-          const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
-          const pPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
-          const sanctionedAmt = l.approvedAmount || l.amount || 0;
-          const bal = Math.max(0, sanctionedAmt - pPaid);
-          const dateStr = l.approvedAt?.toDate ? format(l.approvedAt.toDate(), 'yyyy-MM-dd') : (l.createdAt?.toDate ? format(l.createdAt.toDate(), 'yyyy-MM-dd') : 'N/A');
-          return [
-            `Loan #${idx + 1}`,
-            dateStr,
-            `Rs. ${sanctionedAmt.toLocaleString('en-IN')}`,
-            `${l.interestRate ?? 1}%`,
-            `${l.installments || 10} Mos`,
-            `Rs. ${pPaid.toLocaleString('en-IN')}`,
-            `Rs. ${bal.toLocaleString('en-IN')}`,
-            (l.status || 'N/A').toUpperCase()
-          ];
-        });
-
-        autoTable(doc, {
-          startY: finalY + 16,
-          head: [['Loan #', 'Sanctioned Date', 'Sanctioned Amount', 'Interest', 'Tenure', 'Principal Paid', 'Pending Balance', 'Status']],
-          body: loanSummaryRows,
-          theme: 'grid',
-          headStyles: { fillColor: [79, 70, 229] }
-        });
-
-        finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
-      }
-
-      // Loan Repayments Section
-      if (userLoanPayments.length > 0) {
-        if (finalY > 230) {
-          doc.addPage();
-          finalY = 20;
-        }
-        doc.setFont(undefined, 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(16, 185, 129); // Emerald-600
-        doc.text("Loan Repayment History", 20, finalY + 12);
-        doc.setFont(undefined, 'normal');
-
-        const loanPaymentRows = userLoanPayments
-          .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
-          .map((p, idx) => {
-            let monthName = 'N/A';
-            try {
-              if (p.year && p.month) {
-                monthName = format(new Date(p.year, p.month - 1), 'MMMM');
-              }
-            } catch (e) {
-              console.error("Error formatting date for loan payment:", p);
-            }
-
-            let paymentDateTime = 'N/A';
-            if (p.timestamp) {
-              try {
-                const date = p.timestamp.toDate ? p.timestamp.toDate() : new Date(p.timestamp);
-                paymentDateTime = format(date, 'MMM dd, yyyy p');
-              } catch (e) {
-                console.error("Error formatting timestamp for loan payment:", e);
-              }
-            }
-
-            const totalInstallment = (p.amount || 0) + (p.interest || 0);
-
-            return [
-              `#${idx + 1}`,
-              monthName,
-              p.year || 'N/A',
-              paymentDateTime,
-              (p.paymentMethod || p.paymentMode || 'N/A').toUpperCase(),
-              `Rs. ${(p.amount || 0).toLocaleString('en-IN')}`,
-              `Rs. ${(p.interest || 0).toLocaleString('en-IN')}`,
-              `Rs. ${totalInstallment.toLocaleString('en-IN')}`,
-              (p.status || 'N/A').toUpperCase()
-            ];
-          });
-
-        autoTable(doc, {
-          startY: finalY + 16,
-          head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Mode', 'Principal', 'Interest', 'Total Paid', 'Status']],
-          body: loanPaymentRows,
-          theme: 'striped',
-          headStyles: { fillColor: [16, 185, 129] } // Emerald-600
-        });
-      }
-
-      const safeName = (targetUser.displayName || targetUser.email.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const fileName = `Unnati_Statement_${safeName}_${format(new Date(), 'yyyyMMdd')}.pdf`;
+      const { doc, fileName } = buildMemberStatementPdfDoc(targetUser, contributions, loans, loanPayments);
 
       if (isMobileApp) {
         try {
@@ -5300,6 +5381,106 @@ export default function App() {
     } catch (err: any) {
       console.error("Failed to generate PDF statement:", err);
       notify('error', `Failed to generate PDF: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  const exportAllMemberStatementsZip = async () => {
+    if (!isAdmin) {
+      notify('error', 'Only administrators can export all member statements.');
+      return;
+    }
+
+    const membersToExport = (allUsers.length > 0 ? allUsers : sortedMembers).slice().sort((a, b) => 
+      (a.displayName || a.email || '').localeCompare(b.displayName || b.email || '')
+    );
+
+    if (membersToExport.length === 0) {
+      notify('info', 'No members found to export statements.');
+      return;
+    }
+
+    setIsExportingAllStatements(true);
+    setExportProgress({ current: 0, total: membersToExport.length });
+
+    try {
+      const zip = new JSZip();
+      const usedFileNames = new Set<string>();
+
+      for (let i = 0; i < membersToExport.length; i++) {
+        const member = membersToExport[i];
+        setExportProgress({ current: i + 1, total: membersToExport.length });
+
+        const { doc, fileName } = buildMemberStatementPdfDoc(member, contributions, loans, loanPayments);
+        
+        // Ensure unique filename inside zip
+        let uniqueFileName = fileName;
+        let counter = 1;
+        while (usedFileNames.has(uniqueFileName)) {
+          const namePart = fileName.replace(/\.pdf$/i, '');
+          uniqueFileName = `${namePart}_(${counter}).pdf`;
+          counter++;
+        }
+        usedFileNames.add(uniqueFileName);
+
+        const pdfArrayBuffer = doc.output('arraybuffer');
+        zip.file(uniqueFileName, pdfArrayBuffer);
+
+        if (i % 3 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+      }
+
+      const zipFileName = `Unnati_All_Member_Statements_${format(new Date(), 'yyyyMMdd_HHmm')}.zip`;
+
+      if (isMobileApp) {
+        try {
+          const base64Data = await zip.generateAsync({ type: 'base64', compression: 'DEFLATE' });
+          const res = await downloadFileMobile(zipFileName, base64Data);
+          if (res.success) {
+            notify('success', `ZIP downloaded: ${membersToExport.length} member statements saved as ${zipFileName}`);
+          } else {
+            const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = zipFileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            notify('success', `Exported ${membersToExport.length} statements in ZIP successfully.`);
+          }
+        } catch (mobErr: any) {
+          console.error("Mobile zip download failed, fallback to browser:", mobErr);
+          const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+          const url = URL.createObjectURL(zipBlob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = zipFileName;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          notify('success', `Exported ${membersToExport.length} statements in ZIP successfully.`);
+        }
+      } else {
+        const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = zipFileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        notify('success', `Exported all ${membersToExport.length} member statements as ${zipFileName}`);
+      }
+    } catch (err: any) {
+      console.error("Export all statements ZIP failed:", err);
+      notify('error', `Failed to export all statements: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingAllStatements(false);
+      setExportProgress({ current: 0, total: 0 });
     }
   };
 
@@ -6141,7 +6322,7 @@ export default function App() {
               {(() => {
                 const myActiveLoans = loans.filter(l => 
                   l.status === 'approved' &&
-                  ((user?.uid && l.userId === user.uid) || (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase()))
+                  ((user?.uid && l.userId === user.uid) || (user?.email && l.userEmail?.toLowerCase() === user.email?.toLowerCase()))
                 );
                 if (myActiveLoans.length === 0) return null;
 
@@ -6900,34 +7081,38 @@ export default function App() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setAddMemberTab('individual');
                                   setIsAddingMember(true);
+                                  setIsBulkAdding(false);
                                   setShowAddMemberDropdown(false);
                                 }}
-                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group"
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left group cursor-pointer"
                               >
                                 <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
                                   <UserPlus className="w-3.5 h-3.5" />
                                 </div>
                                 <div className="flex flex-col min-w-0">
                                   <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Add Individual</span>
-                                  <span className="text-[10px] text-slate-400 font-normal">Add a single member manually</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">Add a single member manually with address</span>
                                 </div>
                               </button>
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setIsBulkAdding(true);
+                                  setAddMemberTab('bulk');
+                                  setIsAddingMember(true);
+                                  setIsBulkAdding(false);
                                   setShowAddMemberDropdown(false);
                                 }}
-                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left group"
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left group cursor-pointer"
                               >
                                 <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
                                   <FileSpreadsheet className="w-3.5 h-3.5" />
                                 </div>
                                 <div className="flex flex-col min-w-0">
-                                  <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Bulk Upload (XLS)</span>
-                                  <span className="text-[10px] text-slate-400 font-normal">Import members from Excel file</span>
+                                  <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Bulk Upload (Excel)</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">Import multiple members via Excel</span>
                                 </div>
                               </button>
                             </div>
@@ -6981,30 +7166,6 @@ export default function App() {
                   <span className="px-3.5 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs sm:text-sm font-bold shadow-2xs">
                     {sortedMembers.length} Members
                   </span>
-                  {membersWithActiveLoansCount > 0 && (
-                    <button 
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFilterActiveLoansOnly(prev => !prev);
-                      }}
-                      className={cn(
-                        "px-3 py-1.5 rounded-xl text-xs sm:text-sm font-bold shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer select-none",
-                        filterActiveLoansOnly
-                          ? "bg-purple-600 text-white border border-purple-700 shadow-md shadow-purple-200"
-                          : "bg-purple-50 hover:bg-purple-100/90 text-purple-700 border border-purple-200"
-                      )}
-                      title={filterActiveLoansOnly ? "Filtering active loans: Click to view all members" : `Click to filter: ${membersWithActiveLoansCount} member${membersWithActiveLoansCount !== 1 ? 's have' : ' has'} active outstanding loans`}
-                    >
-                      <span className={cn("w-2 h-2 rounded-full", filterActiveLoansOnly ? "bg-white" : "bg-purple-600 animate-pulse")} />
-                      <span>{membersWithActiveLoansCount} Active Loan{membersWithActiveLoansCount !== 1 ? 's' : ''}</span>
-                      {filterActiveLoansOnly && (
-                        <span className="ml-1 text-[10px] bg-purple-700 text-purple-100 px-1.5 py-0.5 rounded font-black uppercase">
-                          Filtered (Show All)
-                        </span>
-                      )}
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -7098,26 +7259,6 @@ export default function App() {
                       // Check if any month from Jan to current month is pending
                       const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                         .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                      
-                      // Calculate active/outstanding loans for member
-                      const memberActiveLoans = loans.filter(l => {
-                        const isMatch = (u.uid && l.userId === u.uid) || 
-                          (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
-                        if (!isMatch || l.status !== 'approved') return false;
-                        const sanctioned = l.approvedAmount || l.amount || 0;
-                        const repaid = loanPayments
-                          .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
-                          .reduce((sum, p) => sum + (p.amount || 0), 0);
-                        return (sanctioned - repaid) > 0;
-                      });
-                      const hasActiveLoan = memberActiveLoans.length > 0;
-                      const activeLoanPrincipalOutstanding = memberActiveLoans.reduce((sum, l) => {
-                        const sanctioned = l.approvedAmount || l.amount || 0;
-                        const repaid = loanPayments
-                          .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
-                          .reduce((s, p) => s + (p.amount || 0), 0);
-                        return sum + Math.max(0, sanctioned - repaid);
-                      }, 0);
 
                       return (
                         <motion.tr 
@@ -7136,18 +7277,7 @@ export default function App() {
                                 {u.displayName ? u.displayName[0].toUpperCase() : '?'}
                               </div>
                               <div className="flex flex-col min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-sm font-semibold text-slate-900 truncate">{u.displayName || 'Unnamed'}</span>
-                                  {hasActiveLoan && (
-                                    <span 
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs"
-                                      title={`Loans • ₹${activeLoanPrincipalOutstanding.toLocaleString('en-IN')} outstanding`}
-                                    >
-                                      <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse shrink-0" />
-                                      Loans
-                                    </span>
-                                  )}
-                                </div>
+                                <span className="text-sm font-semibold text-slate-900 truncate">{u.displayName || 'Unnamed'}</span>
                                 <span className="text-[11px] text-slate-400 font-medium">{(u.role || 'member').toUpperCase()}</span>
                               </div>
                             </div>
@@ -7159,6 +7289,12 @@ export default function App() {
                                 <Phone className="w-3 h-3 text-indigo-500 shrink-0" />
                                 {u.phoneNumber || (u as any).phone || 'No mobile number'}
                               </span>
+                              {u.address && (
+                                <span className="text-[11px] text-slate-500 font-medium flex items-center gap-1 mt-0.5 truncate max-w-[220px]" title={u.address}>
+                                  <MapPin className="w-3 h-3 text-rose-500 shrink-0" />
+                                  <span className="truncate">{u.address}</span>
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
@@ -7170,10 +7306,36 @@ export default function App() {
                           <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                             <div className="flex flex-col items-start gap-1">
                               <span className={cn(
-                                "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold",
-                                !hasPendingThisYear ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black tracking-wide border shadow-2xs transition-all select-none",
+                                paidThisMonth 
+                                  ? "bg-gradient-to-r from-emerald-50 via-emerald-100/60 to-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20" 
+                                  : "bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20"
                               )}>
-                                {!hasPendingThisYear ? 'Active' : 'Pending'}
+                                {paidThisMonth ? (
+                                  <>
+                                    <span className="relative flex h-2 w-2 shrink-0">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                    </span>
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span>Active</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="relative flex h-2 w-2 shrink-0">
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                    </span>
+                                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                    <span>Pending</span>
+                                  </>
+                                )}
+                              </span>
+                              <span className="text-[10px] font-semibold pl-0.5">
+                                {paidThisMonth ? (
+                                  <span className="text-emerald-700 font-bold">Paid this month</span>
+                                ) : (
+                                  <span className="text-amber-700 font-bold">Unpaid this month</span>
+                                )}
                               </span>
                             </div>
                           </td>
@@ -7236,7 +7398,7 @@ export default function App() {
                                       setSelectedLoanUserId(u.uid || u.email);
                                       setIsAddingLoan(true);
                                     }}
-                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
                                     title="Add Loan"
                                   >
                                     <IndianRupee className="w-4 h-4" />
@@ -7286,11 +7448,9 @@ export default function App() {
                     {sortedMembers.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-6 py-12 text-center text-slate-400 italic">
-                          {filterActiveLoansOnly 
-                            ? "No members with active outstanding loans found."
-                            : searchQuery 
-                              ? `No members found matching "${searchQuery}".` 
-                              : "No members registered yet."}
+                          {searchQuery 
+                            ? `No members found matching "${searchQuery}".` 
+                            : "No members registered yet."}
                         </td>
                       </tr>
                     )}
@@ -7325,26 +7485,6 @@ export default function App() {
                 const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                   .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
 
-                // Calculate active/outstanding loans for member
-                const memberActiveLoans = loans.filter(l => {
-                  const isMatch = (u.uid && l.userId === u.uid) || 
-                    (u.email && l.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim());
-                  if (!isMatch || l.status !== 'approved') return false;
-                  const sanctioned = l.approvedAmount || l.amount || 0;
-                  const repaid = loanPayments
-                    .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
-                    .reduce((sum, p) => sum + (p.amount || 0), 0);
-                  return (sanctioned - repaid) > 0;
-                });
-                const hasActiveLoan = memberActiveLoans.length > 0;
-                const activeLoanPrincipalOutstanding = memberActiveLoans.reduce((sum, l) => {
-                  const sanctioned = l.approvedAmount || l.amount || 0;
-                  const repaid = loanPayments
-                    .filter(p => (p.loanId === l.id || (!p.loanId && p.userId === l.userId)) && p.status === 'paid')
-                    .reduce((s, p) => s + (p.amount || 0), 0);
-                  return sum + Math.max(0, sanctioned - repaid);
-                }, 0);
-
                 return (
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }}
@@ -7362,27 +7502,42 @@ export default function App() {
                           {u.displayName ? u.displayName[0].toUpperCase() : '?'}
                         </div>
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <h4 className="font-bold text-slate-900 truncate">{u.displayName || 'Unnamed'}</h4>
-                            {hasActiveLoan && (
-                              <span 
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs"
-                                title={`Loans • ₹${activeLoanPrincipalOutstanding.toLocaleString('en-IN')} outstanding`}
-                              >
-                                <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse shrink-0" />
-                                Loans
-                              </span>
-                            )}
-                          </div>
+                          <h4 className="font-bold text-slate-900 truncate">{u.displayName || 'Unnamed'}</h4>
                           <p className="text-xs text-slate-500 truncate">{u.email}</p>
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <div className="flex flex-col items-end gap-1 shrink-0">
                         <span className={cn(
-                          "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider",
-                          !hasPendingThisYear ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                          "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black tracking-wide border shadow-2xs select-none",
+                          paidThisMonth 
+                            ? "bg-gradient-to-r from-emerald-50 via-emerald-100/60 to-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20" 
+                            : "bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20"
                         )}>
-                          {!hasPendingThisYear ? 'Active' : 'Pending'}
+                          {paidThisMonth ? (
+                            <>
+                              <span className="relative flex h-2 w-2 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                              </span>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>Active</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="relative flex h-2 w-2 shrink-0">
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                              </span>
+                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>Pending</span>
+                            </>
+                          )}
+                        </span>
+                        <span className="text-[10px] font-semibold">
+                          {paidThisMonth ? (
+                            <span className="text-emerald-700 font-bold">Paid this month</span>
+                          ) : (
+                            <span className="text-amber-700 font-bold">Unpaid this month</span>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -7398,23 +7553,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {hasActiveLoan && (
-                      <div className="bg-gradient-to-r from-purple-50/90 to-indigo-50/60 p-3 rounded-2xl border border-purple-200/90 mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
-                            <IndianRupee className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-bold text-purple-700 uppercase tracking-wider">Outstanding Loan Principal</p>
-                            <p className="font-black text-purple-950 text-sm">₹{activeLoanPrincipalOutstanding.toLocaleString('en-IN')}</p>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-bold text-purple-800 bg-white/90 px-2.5 py-1 rounded-xl border border-purple-200/80 shadow-2xs">
-                          {memberActiveLoans.length} Active Loan{memberActiveLoans.length > 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    )}
-
                     <div className="bg-slate-50 p-3 rounded-2xl mb-4 flex items-center justify-between">
                       <div className="min-w-0 pr-2">
                         <p className="text-[10px] font-bold text-slate-400 uppercase">Mobile Number</p>
@@ -7429,6 +7567,16 @@ export default function App() {
                         </a>
                       )}
                     </div>
+
+                    {u.address && (
+                      <div className="bg-slate-50 p-3 rounded-2xl mb-4 flex items-start gap-2.5 border border-slate-100">
+                        <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Address</p>
+                          <p className="font-medium text-slate-800 text-xs mt-0.5 break-words leading-relaxed">{u.address}</p>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap gap-2">
                       {hasPendingThisYear && (
@@ -7491,13 +7639,16 @@ export default function App() {
                             <Trash2 className="w-4 h-4" />
                           </button>
                           <button 
+                            type="button"
                             onClick={() => {
                               setSelectedLoanUserId(u.uid || u.email);
                               setIsAddingLoan(true);
                             }}
-                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold active:scale-95"
+                            className="flex-1 min-w-[105px] flex items-center justify-center gap-1.5 py-2.5 px-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/90 rounded-xl text-xs font-bold active:scale-95 transition-all cursor-pointer shadow-2xs"
+                            title="Add Loan"
                           >
-                            <IndianRupee className="w-4 h-4" /> Add Loan
+                            <IndianRupee className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <span>Add Loan</span>
                           </button>
                           <button 
                             onClick={() => {
@@ -7525,11 +7676,9 @@ export default function App() {
               })}
               {sortedMembers.length === 0 && (
                 <div className="bg-white p-8 rounded-3xl border border-slate-200 text-center text-slate-400 italic">
-                  {filterActiveLoansOnly 
-                    ? "No members with active outstanding loans found."
-                    : searchQuery 
-                      ? `No members found matching "${searchQuery}".` 
-                      : "No members registered yet."}
+                  {searchQuery 
+                    ? `No members found matching "${searchQuery}".` 
+                    : "No members registered yet."}
                 </div>
               )}
             </div>
@@ -8066,30 +8215,8 @@ export default function App() {
                       </div>
 
                       {isLoanOverviewExpanded && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-3.5">
-                          {/* Card 1: Active Loans (Blue) */}
-                          <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-                            <div>
-                              <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                                <div className="w-7.5 h-7.5 rounded-xl bg-blue-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                                  <Users className="w-4 h-4" />
-                                </div>
-                                <span className="text-[10px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                                  Active
-                                </span>
-                              </div>
-                              <h4 className="text-blue-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Active Loans</h4>
-                              <div className="mt-0.5 text-xl sm:text-2xl font-black text-blue-950 tracking-tight">
-                                {loans.filter(l => l.status === 'approved').length}
-                              </div>
-                            </div>
-                            <div className="mt-2.5 pt-2 border-t border-blue-100/90 flex items-center justify-between text-[10.5px]">
-                              <span className="font-semibold text-slate-500">Status:</span>
-                              <span className="font-bold text-blue-700">Open Accounts</span>
-                            </div>
-                          </div>
-
-                          {/* Card 2: Total Loan Issued (Purple) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
+                          {/* Card 1: Total Loan Issued (Purple) */}
                           <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
                             <div>
                               <div className="flex items-center justify-between gap-1.5 mb-2.5">
@@ -8111,7 +8238,7 @@ export default function App() {
                             </div>
                           </div>
 
-                          {/* Card 3: Loan Paid (Emerald) */}
+                          {/* Card 2: Loan Paid (Emerald) */}
                           <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
                             <div>
                               <div className="flex items-center justify-between gap-1.5 mb-2.5">
@@ -8133,7 +8260,7 @@ export default function App() {
                             </div>
                           </div>
 
-                          {/* Card 4: Interest Paid (Amber) */}
+                          {/* Card 3: Interest Paid (Amber) */}
                           <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
                             <div>
                               <div className="flex items-center justify-between gap-1.5 mb-2.5">
@@ -8155,7 +8282,7 @@ export default function App() {
                             </div>
                           </div>
 
-                          {/* Card 5: Outstanding Principal (Rose) */}
+                          {/* Card 4: Outstanding Balance (Rose) */}
                           <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
                             <div>
                               <div className="flex items-center justify-between gap-1.5 mb-2.5">
@@ -8166,7 +8293,7 @@ export default function App() {
                                   Principal
                                 </span>
                               </div>
-                              <h4 className="text-rose-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Principal</h4>
+                              <h4 className="text-rose-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Balance</h4>
                               <div className="mt-0.5 text-xl sm:text-2xl font-black text-rose-700 tracking-tight truncate">
                                 ₹{financials.outstandingPrincipal.toLocaleString('en-IN')}
                               </div>
@@ -10449,6 +10576,9 @@ export default function App() {
             isSmtpConfigured={isSmtpConfigured}
             totalMembersCount={allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
             totalContributionsCount={contributions.length}
+            exportAllMemberStatementsZip={exportAllMemberStatementsZip}
+            isExportingAllStatements={isExportingAllStatements}
+            exportProgress={exportProgress}
           />
         ) : (
           <div className="space-y-6">
@@ -11814,161 +11944,293 @@ export default function App() {
           </div>
         )}
 
-        {/* Bulk Add Modal */}
-        {isBulkAdding && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden"
-            >
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-indigo-50/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
-                    <FileSpreadsheet className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">Bulk Member Upload</h3>
-                    <p className="text-xs text-slate-500 font-medium">Upload Excel (.xlsx, .xls) file</p>
-                  </div>
-                </div>
-                <button onClick={() => setIsBulkAdding(false)} className="p-2 hover:bg-white rounded-full transition-colors">
-                  <X className="w-5 h-5 text-slate-400" />
-                </button>
-              </div>
-
-              <div className="p-8">
-                <div className="mb-8 p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                  <div className="flex gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-                    <div>
-                      <h4 className="text-sm font-bold text-amber-900 mb-1">XLS Format Requirements</h4>
-                      <p className="text-xs text-amber-700 leading-relaxed">
-                        Your file must include columns for: <br/>
-                        <span className="font-bold">username, email, phone number, date of joining</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <label className="group relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-200 rounded-3xl hover:border-indigo-400 hover:bg-indigo-50/30 transition-all cursor-pointer">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <div className="w-16 h-16 bg-slate-50 group-hover:bg-indigo-100 rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 transition-all mb-4">
-                      <Upload className="w-8 h-8" />
-                    </div>
-                    <p className="text-sm font-bold text-slate-600 mb-1">Click to upload or drag and drop</p>
-                    <p className="text-xs text-slate-400">Excel files only (.xlsx, .xls)</p>
-                  </div>
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept=".xlsx, .xls"
-                    onChange={handleBulkUpload}
-                  />
-                </label>
-
-                <div className="mt-8 flex gap-3">
-                  <button 
-                    onClick={() => setIsBulkAdding(false)}
-                    className="flex-1 px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {isAddingMember && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        {/* Redesigned Add Member Modal (Supports both Individual & Bulk Upload) */}
+        {(isAddingMember || isBulkAdding) && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div 
               key="modal-add-member-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsAddingMember(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              onClick={() => {
+                setIsAddingMember(false);
+                setIsBulkAdding(false);
+              }}
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
             />
             <motion.div 
               key="modal-add-member-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden my-auto z-10 border border-slate-100 flex flex-col max-h-[92vh]"
             >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">Add New Member</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Full Name</label>
-                  <input 
-                    type="text"
-                    value={newMember.name}
-                    onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-                    placeholder="John Doe"
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
+              {/* Header */}
+              <div className="p-5 sm:p-6 bg-linear-to-r from-indigo-50/80 via-white to-indigo-50/40 border-b border-slate-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+                    <UserPlus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 leading-tight">Add Members</h2>
+                    <p className="text-xs text-slate-500 font-medium">Add an individual member or upload in bulk via Excel</p>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Email Address</label>
-                  <input 
-                    type="email"
-                    value={newMember.email}
-                    onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
-                    placeholder="john@example.com"
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Phone Number (for WhatsApp)</label>
-                  <input 
-                    type="tel"
-                    value={newMember.phoneNumber}
-                    onChange={(e) => setNewMember({ ...newMember, phoneNumber: e.target.value })}
-                    placeholder="+91 98765 43210"
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Join Date</label>
-                  <input 
-                    type="date"
-                    value={newMember.joinDate}
-                    onChange={(e) => setNewMember({ ...newMember, joinDate: e.target.value })}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setIsAddingMember(false);
+                    setIsBulkAdding(false);
+                  }}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-                <div className="flex gap-3 pt-4">
-                  <button 
-                    onClick={() => setIsAddingMember(false)}
-                    disabled={isSubmittingMember}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 disabled:opacity-50 rounded-2xl transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={addMember}
-                    disabled={isSubmittingMember}
-                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    {isSubmittingMember ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Adding Member...</span>
-                      </>
-                    ) : (
-                      <span>Add Member</span>
+              {/* Segment Switcher: Individual vs Bulk Upload */}
+              <div className="px-5 sm:px-6 pt-4 shrink-0">
+                <div className="grid grid-cols-2 p-1 bg-slate-100/90 rounded-2xl gap-1 border border-slate-200/50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddMemberTab('individual');
+                      setIsAddingMember(true);
+                      setIsBulkAdding(false);
+                    }}
+                    className={cn(
+                      "flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                      (addMemberTab === 'individual' && !isBulkAdding)
+                        ? "bg-white text-indigo-700 shadow-xs border border-slate-200/60"
+                        : "text-slate-500 hover:text-slate-800"
                     )}
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>Individual Member</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddMemberTab('bulk');
+                      setIsBulkAdding(true);
+                      setIsAddingMember(false);
+                    }}
+                    className={cn(
+                      "flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                      (addMemberTab === 'bulk' || isBulkAdding)
+                        ? "bg-white text-indigo-700 shadow-xs border border-slate-200/60"
+                        : "text-slate-500 hover:text-slate-800"
+                    )}
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Bulk Upload (Excel)</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Scrollable Form Body */}
+              <div className="overflow-y-auto p-5 sm:p-6 pt-3">
+                {(addMemberTab === 'individual' && !isBulkAdding) ? (
+                  /* Individual Member Form */
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Full Name <span className="text-red-500">*</span></span>
+                      </label>
+                      <input 
+                        type="text"
+                        value={newMember.name}
+                        onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+                        placeholder="e.g. Ramesh Kumar"
+                        className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Email Address <span className="text-red-500">*</span></span>
+                        </label>
+                        <input 
+                          type="email"
+                          value={newMember.email}
+                          onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
+                          placeholder="e.g. ramesh@example.com"
+                          className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                          <Phone className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Phone / WhatsApp</span>
+                        </label>
+                        <input 
+                          type="tel"
+                          value={newMember.phoneNumber}
+                          onChange={(e) => setNewMember({ ...newMember, phoneNumber: e.target.value })}
+                          placeholder="e.g. +91 98765 43210"
+                          className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Member Address Text Field */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Member Address</span>
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-normal lowercase">Residential / Postal</span>
+                      </label>
+                      <textarea 
+                        rows={2}
+                        value={newMember.address || ''}
+                        onChange={(e) => setNewMember({ ...newMember, address: e.target.value })}
+                        placeholder="House / Flat No., Street, Area, Landmark, City, PIN Code"
+                        className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-none leading-relaxed"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">Stored with member records for statements, communication, and receipts</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Date of Joining</span>
+                      </label>
+                      <input 
+                        type="date"
+                        value={newMember.joinDate}
+                        onChange={(e) => setNewMember({ ...newMember, joinDate: e.target.value })}
+                        className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div className="p-3 bg-indigo-50/60 rounded-2xl border border-indigo-100 flex items-start gap-2.5 text-xs text-indigo-700">
+                      <Mail className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                      <span>An automated welcome email with login details will be sent directly to the member upon adding.</span>
+                    </div>
+
+                    <div className="flex gap-3 pt-3">
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setIsAddingMember(false);
+                          setIsBulkAdding(false);
+                        }}
+                        disabled={isSubmittingMember}
+                        className="flex-1 py-3.5 text-slate-600 font-bold hover:bg-slate-100 disabled:opacity-50 rounded-2xl transition-all text-sm cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={addMember}
+                        disabled={isSubmittingMember}
+                        className="flex-2 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2 text-sm cursor-pointer"
+                      >
+                        {isSubmittingMember ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            <span>Adding Member...</span>
+                          </>
+                        ) : (
+                          <>
+                            <UserPlus className="w-4 h-4" />
+                            <span>Add Member</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Bulk Upload Form */
+                  <div className="space-y-4">
+                    {/* Format Card */}
+                    <div className="p-4 bg-amber-50/90 rounded-2xl border border-amber-200/70">
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="space-y-1.5 min-w-0">
+                          <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wide">Excel Column Requirements</h4>
+                          <p className="text-xs text-amber-800 leading-relaxed">
+                            Your spreadsheet should contain the following headers (order doesn't matter):
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            <span className="px-2 py-0.5 bg-white/80 border border-amber-200 rounded-md text-[11px] font-bold text-amber-900">Name *</span>
+                            <span className="px-2 py-0.5 bg-white/80 border border-amber-200 rounded-md text-[11px] font-bold text-amber-900">Email *</span>
+                            <span className="px-2 py-0.5 bg-white/80 border border-amber-200 rounded-md text-[11px] font-semibold text-amber-900">Phone Number</span>
+                            <span className="px-2 py-0.5 bg-white/80 border border-amber-200 rounded-md text-[11px] font-semibold text-amber-900">Address</span>
+                            <span className="px-2 py-0.5 bg-white/80 border border-amber-200 rounded-md text-[11px] font-semibold text-amber-900">Date of Joining</span>
+                          </div>
+                          <p className="text-[11px] text-amber-700 pt-0.5 italic">
+                            * Member Address column (Address / Member Address / Location) is supported and stored automatically.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Download Sample Template */}
+                    <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                          <FileSpreadsheet className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-800 truncate">Sample Template</p>
+                          <p className="text-[11px] text-slate-500">Includes Address, Phone, Name & Date</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={downloadBulkUploadTemplate}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 cursor-pointer shrink-0"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download .xlsx</span>
+                      </button>
+                    </div>
+
+                    {/* Dropzone */}
+                    <label className="group relative flex flex-col items-center justify-center w-full h-44 border-2 border-dashed border-indigo-200 hover:border-indigo-500 bg-indigo-50/20 hover:bg-indigo-50/50 rounded-3xl transition-all cursor-pointer">
+                      <div className="flex flex-col items-center justify-center p-4 text-center">
+                        <div className="w-14 h-14 bg-indigo-100/70 group-hover:bg-indigo-600 text-indigo-600 group-hover:text-white rounded-2xl flex items-center justify-center transition-all mb-3 shadow-xs">
+                          <Upload className="w-6 h-6" />
+                        </div>
+                        <p className="text-sm font-bold text-slate-800 mb-0.5">Click to browse or drop spreadsheet</p>
+                        <p className="text-xs text-slate-400">Supports .xlsx, .xls spreadsheets</p>
+                      </div>
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept=".xlsx, .xls"
+                        onChange={handleBulkUpload}
+                      />
+                    </label>
+
+                    <div className="flex gap-3 pt-2">
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setIsAddingMember(false);
+                          setIsBulkAdding(false);
+                        }}
+                        className="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-2xl transition-all text-sm cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
         )}
 
+        {/* Redesigned Edit Member Modal with Address */}
         {editingUser && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div 
               key="modal-edit-member-backdrop"
               initial={{ opacity: 0 }}
@@ -11978,68 +12240,128 @@ export default function App() {
                 setEditingUser(null);
                 setOriginalEditingEmail(null);
               }}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
             />
             <motion.div 
               key="modal-edit-member-content"
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+              className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden my-auto z-10 border border-slate-100 flex flex-col max-h-[92vh]"
             >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">Edit Member</h2>
-              <div className="space-y-4">
+              <div className="p-5 sm:p-6 bg-linear-to-r from-indigo-50/80 via-white to-indigo-50/40 border-b border-slate-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+                    <Edit2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900 leading-tight">Edit Member</h2>
+                    <p className="text-xs text-slate-500 font-medium">Update profile details, contact number, and address</p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setEditingUser(null);
+                    setOriginalEditingEmail(null);
+                  }}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto p-5 sm:p-6 space-y-4">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Full Name</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                    <UserIcon className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Full Name <span className="text-red-500">*</span></span>
+                  </label>
                   <input 
                     type="text"
                     value={editingUser.displayName || ''}
                     onChange={(e) => setEditingUser({ ...editingUser, displayName: e.target.value })}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="Full Name"
+                    className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Email Address</label>
-                  <input 
-                    type="email"
-                    value={editingUser.email || ''}
-                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Email Address <span className="text-red-500">*</span></span>
+                    </label>
+                    <input 
+                      type="email"
+                      value={editingUser.email || ''}
+                      onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                      placeholder="Email Address"
+                      className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Phone / WhatsApp</span>
+                    </label>
+                    <input 
+                      type="tel"
+                      value={editingUser.phoneNumber || ''}
+                      onChange={(e) => setEditingUser({ ...editingUser, phoneNumber: e.target.value })}
+                      placeholder="+91 98765 43210"
+                      className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                    />
+                  </div>
                 </div>
+
+                {/* Member Address Text Field */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Phone Number (for WhatsApp)</label>
-                  <input 
-                    type="tel"
-                    value={editingUser.phoneNumber || ''}
-                    onChange={(e) => setEditingUser({ ...editingUser, phoneNumber: e.target.value })}
-                    placeholder="+91 98765 43210"
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                      <span>Member Address</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-normal lowercase">Residential / Postal</span>
+                  </label>
+                  <textarea 
+                    rows={2}
+                    value={editingUser.address || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, address: e.target.value })}
+                    placeholder="House / Flat No., Street, Area, Landmark, City, PIN Code"
+                    className="w-full px-4 py-2.5 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-none leading-relaxed"
                   />
+                  <p className="text-[11px] text-slate-400 mt-1">Saved to member profile for reports and trust communication</p>
                 </div>
+
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Join Date</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Join Date</span>
+                  </label>
                   <input 
                     type="date"
                     value={editingUser.joinDate || ''}
                     onChange={(e) => setEditingUser({ ...editingUser, joinDate: e.target.value })}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full px-4 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white rounded-2xl border border-slate-200 text-slate-900 font-medium text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   />
                 </div>
 
-                <div className="flex gap-3 pt-4">
+                <div className="flex gap-3 pt-3">
                   <button 
+                    type="button"
                     onClick={() => {
                       setEditingUser(null);
                       setOriginalEditingEmail(null);
                     }}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                    className="flex-1 py-3.5 text-slate-600 font-bold hover:bg-slate-100 rounded-2xl transition-all text-sm cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button 
+                    type="button"
                     onClick={updateMember}
-                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95"
+                    className="flex-2 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 text-sm cursor-pointer"
                   >
                     Save Changes
                   </button>
