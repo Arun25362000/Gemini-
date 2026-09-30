@@ -538,15 +538,11 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-500 font-medium mt-1">
               <span>Repayment timeline:</span>
               <span className="font-bold text-purple-800 bg-purple-100/70 px-2 py-0.5 rounded-md border border-purple-200/80">{borrowerName}</span>
-              <span className="text-slate-300">•</span>
-              <span className="font-bold text-slate-800">₹{stats.approvedAmount.toLocaleString('en-IN')}</span>
               {hasMultipleLoans && (
                 <span className="text-[11px] text-indigo-700 font-bold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/80">
                   {activeGroup.activeLoans.length} Loans Clubbed
                 </span>
               )}
-              <span className="text-slate-300">•</span>
-              <span className="text-slate-600">Disbursed: <strong className="text-slate-800 font-bold">{disbursementDateStr}</strong></span>
             </div>
           </div>
         </div>
@@ -554,7 +550,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
         {/* Borrower Switcher Controls */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Previous / Next buttons */}
-          <div className="flex items-center bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden">
+          <div className="flex items-center bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden shrink-0">
             <button
               type="button"
               onClick={handlePrevGroup}
@@ -577,24 +573,26 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
           </div>
 
           {/* Searchable Borrower Selector Dropdown */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center gap-2.5 px-3 py-2 bg-white hover:bg-purple-50/50 border border-purple-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800 cursor-pointer"
+              className="w-48 sm:w-56 md:w-60 flex items-center justify-between gap-2 px-3 py-1.5 bg-white hover:bg-purple-50/50 border border-purple-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800 cursor-pointer shrink-0"
             >
-              <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[10px] shrink-0">
-                {borrowerInitial}
+              <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[10px] shrink-0">
+                  {borrowerInitial}
+                </div>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <p className="truncate font-bold text-slate-900 leading-tight" title={borrowerName}>
+                    {borrowerName}
+                  </p>
+                  <p className="truncate text-[10px] text-purple-600 font-bold">
+                    ₹{stats.approvedAmount.toLocaleString('en-IN')}{hasMultipleLoans ? ` • ${activeGroup.activeLoans.length} Loans` : ''}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0 max-w-[140px] sm:max-w-[200px]">
-                <p className="truncate font-bold text-slate-900 leading-tight">
-                  {borrowerName}
-                </p>
-                <p className="truncate text-[10px] text-purple-600 font-bold">
-                  ₹{stats.approvedAmount.toLocaleString('en-IN')}{hasMultipleLoans ? ` • ${activeGroup.activeLoans.length} Loans` : ''}
-                </p>
-              </div>
-              <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
+              <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 shrink-0 ml-1 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
             </button>
 
             {/* Dropdown Menu */}

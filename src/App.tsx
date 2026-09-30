@@ -93,6 +93,7 @@ import {
   Star,
   Phone,
   Percent,
+  MoreHorizontal,
   Layers,
   Table,
   RotateCcw,
@@ -522,6 +523,7 @@ export default function App() {
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
   const [isMemberActionsCollapsed, setIsMemberActionsCollapsed] = useState<boolean>(false);
   const [isMemberDetailsCollapsed, setIsMemberDetailsCollapsed] = useState<boolean>(false);
+  const [openActionMenuMemberId, setOpenActionMenuMemberId] = useState<string | null>(null);
 
   const [deletingRepaymentId, setDeletingRepaymentId] = useState<string | null>(null);
 
@@ -7266,7 +7268,7 @@ export default function App() {
                           )}
                         </div>
                       </th>
-                      <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                      <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right min-w-[290px]">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -7362,107 +7364,263 @@ export default function App() {
                             </div>
                           </td>
                           <td className="px-3 sm:px-3.5 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {isAdmin && (
-                                <button 
-                                  onClick={() => toggleAdminRole(u)}
-                                  className={cn(
-                                    "p-1.5 rounded-lg transition-all",
-                                    u.role === 'admin' ? "text-indigo-600 bg-indigo-50" : "text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                            {(() => {
+                              const memberKey = u.uid || u.email || `mem-${idx}`;
+                              const isMenuOpen = openActionMenuMemberId === memberKey;
+
+                              return (
+                                <div className="flex items-center justify-end gap-2 relative">
+                                  {/* 1. WhatsApp Button - ALWAYS VISIBLE */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      sendWhatsAppReminder(u);
+                                    }}
+                                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 border border-emerald-300/90 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer select-none shrink-0"
+                                    title="Send WhatsApp Reminder / Message"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>WhatsApp</span>
+                                  </button>
+
+                                  {/* 2. Quick Contribution Record Button */}
+                                  {isAdmin && (
+                                    <button 
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const userId = u.uid || u.email;
+                                        setSelectedUserId(userId);
+                                        const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                                          .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                                        if (firstMissing) setSelectedMonth(firstMissing);
+                                        setSelectedYear(currentYear);
+                                        setIsAdding(true);
+                                      }}
+                                      disabled={!hasPendingThisYear}
+                                      className={cn(
+                                        "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs select-none shrink-0",
+                                        !hasPendingThisYear 
+                                          ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-default opacity-70" 
+                                          : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-indigo-200/60 hover:shadow-xs active:scale-95 cursor-pointer"
+                                      )}
+                                      title={!hasPendingThisYear ? "All contributions for this year are paid" : "Record Pending Contribution"}
+                                    >
+                                      {!hasPendingThisYear ? (
+                                        <>
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span className="text-slate-600">Paid</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Plus className="w-3.5 h-3.5 text-white" />
+                                          <span>Record</span>
+                                        </>
+                                      )}
+                                    </button>
                                   )}
-                                  title={u.role === 'admin' ? "Remove Admin Access" : "Grant Admin Access"}
-                                >
-                                  <Shield className="w-4 h-4" />
-                                </button>
-                              )}
-                              {isAdmin && hasPendingThisYear && (
-                                <>
-                                  <button 
-                                    onClick={() => sendWhatsAppReminder(u)}
-                                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                                    title="WhatsApp Reminder"
-                                  >
-                                    <MessageSquare className="w-4 h-4" />
-                                  </button>
-                                  <button 
-                                    onClick={() => sendEmailReminder(u)}
-                                    className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                    title="Email Reminder"
-                                  >
-                                    <Mail className="w-4 h-4" />
-                                  </button>
-                                </>
-                              )}
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  generateMemberStatement(u);
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-                                title="Export PDF Statement"
-                              >
-                                <FileText className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  exportMemberStatementToExcel(u);
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all cursor-pointer"
-                                title="Export Excel (.xlsx) Statement"
-                              >
-                                <FileSpreadsheet className="w-4 h-4" />
-                              </button>
-                              {isAdmin && (
-                                <>
-                                  <button 
-                                    onClick={() => {
-                                      setSelectedLoanUserId(u.uid || u.email);
-                                      setIsAddingLoan(true);
-                                    }}
-                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-                                    title="Add Loan"
-                                  >
-                                    <IndianRupee className="w-4 h-4" />
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      setEditingUser(u);
-                                      setOriginalEditingEmail(u.uid || u.email);
-                                    }}
-                                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                                    title="Edit"
-                                  >
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button 
-                                    onClick={() => setDeletingUserId(u.uid || u.email)}
-                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      const userId = u.uid || u.email;
-                                      setSelectedUserId(userId);
-                                      const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
-                                        .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                                      if (firstMissing) setSelectedMonth(firstMissing);
-                                      setSelectedYear(currentYear);
-                                      setIsAdding(true);
-                                    }}
-                                    disabled={!hasPendingThisYear}
-                                    className={cn(
-                                      "ml-1 text-xs font-bold px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed",
-                                      !hasPendingThisYear ? "bg-slate-100 text-slate-400" : "text-indigo-600 hover:text-indigo-700 bg-indigo-50"
+
+                                  {/* 3. Actions Popover Dropdown (Replaces long row of side-by-side buttons) */}
+                                  <div className="relative text-left shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenActionMenuMemberId(prev => prev === memberKey ? null : memberKey);
+                                      }}
+                                      className={cn(
+                                        "px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer select-none",
+                                        isMenuOpen && "bg-indigo-50/80 border-indigo-300 text-indigo-700 ring-2 ring-indigo-100"
+                                      )}
+                                      title="More Member Actions"
+                                    >
+                                      <MoreHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                                      <span>Actions</span>
+                                      <ChevronDown className={cn("w-3 h-3 text-slate-400 transition-transform duration-200", isMenuOpen && "rotate-180")} />
+                                    </button>
+
+                                    {isMenuOpen && (
+                                      <>
+                                        <div 
+                                          className="fixed inset-0 z-40" 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenActionMenuMemberId(null);
+                                          }} 
+                                        />
+                                        <div 
+                                          className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100 text-left"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {/* Statements Group */}
+                                          <div className="px-1.5 py-1 space-y-0.5">
+                                            <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                              Statements
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setOpenActionMenuMemberId(null);
+                                                generateMemberStatement(u);
+                                              }}
+                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-rose-50 hover:text-rose-700 rounded-xl transition-colors cursor-pointer"
+                                            >
+                                              <div className="w-6 h-6 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200/70">
+                                                <FileText className="w-3.5 h-3.5" />
+                                              </div>
+                                              <div className="flex flex-col text-left min-w-0">
+                                                <span className="font-bold text-slate-900 leading-tight">Export PDF</span>
+                                                <span className="text-[10px] text-slate-400 font-normal">Statement report</span>
+                                              </div>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setOpenActionMenuMemberId(null);
+                                                exportMemberStatementToExcel(u);
+                                              }}
+                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer"
+                                            >
+                                              <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200/70">
+                                                <FileSpreadsheet className="w-3.5 h-3.5" />
+                                              </div>
+                                              <div className="flex flex-col text-left min-w-0">
+                                                <span className="font-bold text-slate-900 leading-tight">Export Excel</span>
+                                                <span className="text-[10px] text-slate-400 font-normal">.xlsx spreadsheet</span>
+                                              </div>
+                                            </button>
+                                          </div>
+
+                                          {/* Communication Group */}
+                                          <div className="px-1.5 py-1 space-y-0.5">
+                                            <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                              Reminders
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setOpenActionMenuMemberId(null);
+                                                sendWhatsAppReminder(u);
+                                              }}
+                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer"
+                                            >
+                                              <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200/70">
+                                                <MessageSquare className="w-3.5 h-3.5" />
+                                              </div>
+                                              <div className="flex flex-col text-left min-w-0">
+                                                <span className="font-bold text-slate-900 leading-tight">WhatsApp Reminder</span>
+                                                <span className="text-[10px] text-slate-400 font-normal">Open WhatsApp chat</span>
+                                              </div>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setOpenActionMenuMemberId(null);
+                                                sendEmailReminder(u);
+                                              }}
+                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-colors cursor-pointer"
+                                            >
+                                              <div className="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-200/70">
+                                                <Mail className="w-3.5 h-3.5" />
+                                              </div>
+                                              <div className="flex flex-col text-left min-w-0">
+                                                <span className="font-bold text-slate-900 leading-tight">Email Reminder</span>
+                                                <span className="text-[10px] text-slate-400 font-normal">Send notification email</span>
+                                              </div>
+                                            </button>
+                                          </div>
+
+                                          {/* Management Group */}
+                                          {isAdmin && (
+                                            <div className="px-1.5 py-1 space-y-0.5">
+                                              <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                Manage
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setOpenActionMenuMemberId(null);
+                                                  setSelectedLoanUserId(u.uid || u.email);
+                                                  setIsAddingLoan(true);
+                                                }}
+                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 rounded-xl transition-colors cursor-pointer"
+                                              >
+                                                <div className="w-6 h-6 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0 border border-purple-200/70">
+                                                  <IndianRupee className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col text-left min-w-0">
+                                                  <span className="font-bold text-slate-900 leading-tight">Add Loan</span>
+                                                  <span className="text-[10px] text-slate-400 font-normal">Sanction loan for member</span>
+                                                </div>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setOpenActionMenuMemberId(null);
+                                                  toggleAdminRole(u);
+                                                }}
+                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-colors cursor-pointer"
+                                              >
+                                                <div className={cn(
+                                                  "w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border",
+                                                  u.role === 'admin' 
+                                                    ? "bg-indigo-600 text-white border-indigo-700" 
+                                                    : "bg-indigo-50 text-indigo-600 border-indigo-200/70"
+                                                )}>
+                                                  <Shield className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col text-left min-w-0">
+                                                  <span className="font-bold text-slate-900 leading-tight">
+                                                    {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
+                                                  </span>
+                                                  <span className="text-[10px] text-slate-400 font-normal">
+                                                    {u.role === 'admin' ? 'Remove admin access' : 'Grant admin access'}
+                                                  </span>
+                                                </div>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setOpenActionMenuMemberId(null);
+                                                  setEditingUser(u);
+                                                  setOriginalEditingEmail(u.uid || u.email);
+                                                }}
+                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-700 rounded-xl transition-colors cursor-pointer"
+                                              >
+                                                <div className="w-6 h-6 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-200/70">
+                                                  <Edit2 className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col text-left min-w-0">
+                                                  <span className="font-bold text-slate-900 leading-tight">Edit Profile</span>
+                                                  <span className="text-[10px] text-slate-400 font-normal">Update contact & address</span>
+                                                </div>
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setOpenActionMenuMemberId(null);
+                                                  setDeletingUserId(u.uid || u.email);
+                                                }}
+                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 rounded-xl transition-colors cursor-pointer"
+                                              >
+                                                <div className="w-6 h-6 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-200/70">
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col text-left min-w-0">
+                                                  <span className="font-bold text-red-700 leading-tight">Delete Member</span>
+                                                  <span className="text-[10px] text-red-400 font-normal">Remove from group</span>
+                                                </div>
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </>
                                     )}
-                                  >
-                                    {!hasPendingThisYear ? 'Paid' : 'Record'}
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </td>
                         </motion.tr>
                       );
@@ -7600,97 +7758,124 @@ export default function App() {
                       </div>
                     )}
 
-                    <div className="flex flex-wrap gap-2">
-                      {hasPendingThisYear && (
-                        <>
-                          <button 
-                            onClick={() => sendWhatsAppReminder(u)}
-                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-50 text-emerald-600 rounded-xl text-xs font-bold active:scale-95"
-                          >
-                            <MessageSquare className="w-4 h-4" /> WhatsApp
-                          </button>
-                          <button 
-                            onClick={() => sendEmailReminder(u)}
-                            className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold active:scale-95"
-                          >
-                            <Mail className="w-4 h-4" /> Email
-                          </button>
-                        </>
-                      )}
-                      <div className="w-full h-px bg-slate-100 my-1" />
-                      <button 
-                        onClick={() => generateMemberStatement(u)}
-                        className="p-2.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold"
-                        title="Export PDF Statement"
-                      >
-                        <FileText className="w-4 h-4 text-indigo-600" />
-                        <span>PDF</span>
-                      </button>
-                      <button 
-                        onClick={() => exportMemberStatementToExcel(u)}
-                        className="p-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold"
-                        title="Export Excel (.xlsx) Statement"
-                      >
-                        <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                        <span>Excel</span>
-                      </button>
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      {/* Reminders Row - WhatsApp ALWAYS visible */}
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => sendWhatsAppReminder(u)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300/90 rounded-xl text-xs font-bold active:scale-95 shadow-2xs transition-all"
+                          title="Send WhatsApp Reminder / Message"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>WhatsApp Reminder</span>
+                        </button>
+                        <button 
+                          onClick={() => sendEmailReminder(u)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/90 rounded-xl text-xs font-bold active:scale-95 shadow-2xs transition-all"
+                          title="Send Email Reminder"
+                        >
+                          <Mail className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Email</span>
+                        </button>
+                      </div>
+
+                      {/* Statements & Quick Tools */}
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => generateMemberStatement(u)}
+                          className="flex-1 py-2 px-2.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
+                          title="Export PDF Statement"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-rose-600" />
+                          <span>PDF</span>
+                        </button>
+                        <button 
+                          onClick={() => exportMemberStatementToExcel(u)}
+                          className="flex-1 py-2 px-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
+                          title="Export Excel (.xlsx) Statement"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Excel</span>
+                        </button>
+                        {isAdmin && (
+                          <>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                setSelectedLoanUserId(u.uid || u.email);
+                                setIsAddingLoan(true);
+                              }}
+                              className="flex-1 flex items-center justify-center gap-1 py-2 px-2.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200/90 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-2xs"
+                              title="Add Loan"
+                            >
+                              <IndianRupee className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                              <span>Loan</span>
+                            </button>
+                            <button 
+                              onClick={() => toggleAdminRole(u)}
+                              className={cn(
+                                "p-2 rounded-xl border text-xs font-bold active:scale-95 shadow-2xs transition-all",
+                                u.role === 'admin' 
+                                  ? "bg-indigo-600 text-white border-indigo-700" 
+                                  : "bg-white text-slate-500 border-slate-200/90 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200"
+                              )}
+                              title={u.role === 'admin' ? 'Revoke Admin Access' : 'Grant Admin Privileges'}
+                            >
+                              <Shield className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setEditingUser(u);
+                                setOriginalEditingEmail(u.uid || u.email);
+                              }}
+                              className="p-2 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200/90 rounded-xl active:scale-95 shadow-2xs transition-all"
+                              title="Edit Member Details"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              onClick={() => setDeletingUserId(u.uid || u.email)}
+                              className="p-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200/90 rounded-xl active:scale-95 shadow-2xs transition-all"
+                              title="Delete Member"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Primary Contribution Action */}
                       {isAdmin && (
-                        <>
-                          <button 
-                            onClick={() => toggleAdminRole(u)}
-                            className={cn(
-                              "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold active:scale-95",
-                              u.role === 'admin' ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-600"
-                            )}
-                          >
-                            <Shield className="w-4 h-4" /> {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setEditingUser(u);
-                              setOriginalEditingEmail(u.uid || u.email);
-                            }}
-                            className="p-2.5 bg-slate-50 text-slate-600 rounded-xl active:scale-95"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => setDeletingUserId(u.uid || u.email)}
-                            className="p-2.5 bg-red-50 text-red-600 rounded-xl active:scale-95"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              setSelectedLoanUserId(u.uid || u.email);
-                              setIsAddingLoan(true);
-                            }}
-                            className="flex-1 min-w-[105px] flex items-center justify-center gap-1.5 py-2.5 px-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/90 rounded-xl text-xs font-bold active:scale-95 transition-all cursor-pointer shadow-2xs"
-                            title="Add Loan"
-                          >
-                            <IndianRupee className="w-4 h-4 text-indigo-600 shrink-0" />
-                            <span>Add Loan</span>
-                          </button>
-                          <button 
-                            onClick={() => {
-                              const userId = u.uid || u.email;
-                              setSelectedUserId(userId);
-                              const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
-                                .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                              if (firstMissing) setSelectedMonth(firstMissing);
-                              setSelectedYear(currentYear);
-                              setIsAdding(true);
-                            }}
-                            disabled={!hasPendingThisYear}
-                            className={cn(
-                              "flex-1 py-2.5 rounded-xl text-xs font-bold shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-                              !hasPendingThisYear ? "bg-slate-100 text-slate-400 shadow-none border border-slate-200" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
-                            )}
-                          >
-                            {!hasPendingThisYear ? 'Paid' : 'Record'}
-                          </button>
-                        </>
+                        <button 
+                          onClick={() => {
+                            const userId = u.uid || u.email;
+                            setSelectedUserId(userId);
+                            const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
+                              .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                            if (firstMissing) setSelectedMonth(firstMissing);
+                            setSelectedYear(currentYear);
+                            setIsAdding(true);
+                          }}
+                          disabled={!hasPendingThisYear}
+                          className={cn(
+                            "w-full py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                            !hasPendingThisYear 
+                              ? "bg-slate-100 text-slate-400 border border-slate-200" 
+                              : "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white hover:from-indigo-700 hover:to-indigo-800 shadow-indigo-200/60"
+                          )}
+                        >
+                          {!hasPendingThisYear ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
+                              <span>All Contributions Paid</span>
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="w-3.5 h-3.5 text-white" />
+                              <span>Record Contribution</span>
+                            </>
+                          )}
+                        </button>
                       )}
                     </div>
                   </motion.div>
