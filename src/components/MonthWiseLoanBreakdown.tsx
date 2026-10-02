@@ -658,17 +658,23 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                   <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
                                     {getSortedMonthLoans(monthGroup.loans).map((item, lIdx) => {
                                       const isPaid = item.status === 'paid';
-                                      const isSelectedLoan = item.loan.id === selectedLoanId;
+                                      const isSettled = isPaid || item.remainingPrincipal <= 0;
+                                      const isSelectedLoan = !isSettled && item.loan.id === selectedLoanId;
 
                                       return (
                                         <tr 
                                           key={item.loan.id || lIdx} 
-                                          onClick={() => handleSelectLoanForChart(item.loan.id!)}
+                                          onClick={() => {
+                                            if (!isSettled) {
+                                              handleSelectLoanForChart(item.loan.id!);
+                                            }
+                                          }}
                                           className={cn(
-                                            "hover:bg-purple-50/40 transition-colors cursor-pointer",
+                                            isSettled ? "hover:bg-slate-50/60" : "hover:bg-purple-50/40 cursor-pointer",
+                                            "transition-colors",
                                             isSelectedLoan && "bg-purple-50/80 ring-1 ring-purple-300"
                                           )}
-                                          title="Click to view Principal vs. Interest Breakdown"
+                                          title={isSettled ? "Loan is settled/closed" : "Click to view Principal vs. Interest Breakdown"}
                                         >
                                           <td className="px-2.5 py-2.5 w-10 text-center font-bold text-slate-400 border-r border-slate-200/60">
                                             {lIdx + 1}
@@ -768,7 +774,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                 />
                                 {getSortedMonthLoans(monthGroup.loans).map((item, lIdx) => {
                                   const isPaid = item.status === 'paid';
-                                  const isSelectedLoan = item.loan.id === selectedLoanId;
+                                  const isSettled = isPaid || item.remainingPrincipal <= 0;
+                                  const isSelectedLoan = !isSettled && item.loan.id === selectedLoanId;
 
                                   return (
                                     <div 
@@ -843,19 +850,26 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         </div>
                                       </div>
 
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSelectLoanForChart(item.loan.id!)}
-                                        className={cn(
-                                          "w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
-                                          isSelectedLoan
-                                            ? "bg-purple-600 text-white border-purple-600 shadow-2xs"
-                                            : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
-                                        )}
-                                      >
-                                        <BarChart2 className="w-3.5 h-3.5" />
-                                        <span>{isSelectedLoan ? 'Active in Breakdown' : 'View Breakdown'}</span>
-                                      </button>
+                                      {isSettled ? (
+                                        <div className="w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 bg-slate-100 text-slate-500 border border-slate-200 select-none">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>Loan Settled & Closed</span>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSelectLoanForChart(item.loan.id!)}
+                                          className={cn(
+                                            "w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
+                                            isSelectedLoan
+                                              ? "bg-purple-600 text-white border-purple-600 shadow-2xs"
+                                              : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
+                                          )}
+                                        >
+                                          <BarChart2 className="w-3.5 h-3.5" />
+                                          <span>{isSelectedLoan ? 'Active in Breakdown' : 'View in Breakdown'}</span>
+                                        </button>
+                                      )}
                                     </div>
                                   );
                                 })}

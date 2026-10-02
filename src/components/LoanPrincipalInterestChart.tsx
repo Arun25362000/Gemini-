@@ -1,22 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import {
   Layers,
-  PieChart,
-  TrendingUp,
+  Calendar,
+  AlertCircle,
   CheckCircle2,
+  Wallet,
+  BarChart2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Search,
-  IndianRupee,
-  Calendar,
-  AlertCircle,
-  Percent,
-  Banknote,
-  ArrowUpRight,
-  Wallet,
-  Sparkles,
-  BarChart2
+  Search
 } from 'lucide-react';
 import { Loan, LoanPayment, UserProfile } from '../types';
 import { cn } from '../lib/utils';
@@ -36,17 +29,43 @@ const MONTH_NAMES = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
-interface BorrowerLoanGroup {
-  key: string;
+interface ActiveLoanItem {
+  id: string; // loan.id
+  loan: Loan;
+  borrowerName: string;
+  borrowerInitial: string;
+  borrowerUser: UserProfile | null;
   userId?: string;
   userEmail?: string;
-  borrowerName: string;
-  borrowerUser: UserProfile | null;
-  loans: Loan[];
-  activeLoans: Loan[];
-  primaryLoanId: string;
-  latestSanctionDate: Date;
-  isAllSettled: boolean;
+  sanctionDate: Date;
+  sanctionDateStr: string;
+  memberActiveLoansCount: number;
+  activeLoanNumber: number; // 1 for Active 1, 2 for Active 2, etc.
+  activeLabel: string; // "Active 1", "Active 2", or "Active"
+  dropdownTitle: string; // "Member Name (Active 1)" or "Member Name"
+  principalAmount: number;
+  remainingPrincipal: number;
+  totalPrincipalPaid: number;
+  totalInterestPaid: number;
+  totalPaid: number;
+  repaymentProgress: number;
+  totalInstallments: number;
+  paidInstallmentsCount: number;
+  nextInstallment: {
+    installmentNumber: number;
+    month: number;
+    year: number;
+    periodLabel: string;
+    principal: number;
+    interest: number;
+    total: number;
+  } | null;
+  siblingActiveLoans: {
+    loanId: string;
+    label: string;
+    amount: number;
+    dateStr: string;
+  }[];
 }
 
 export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProps> = ({
@@ -81,171 +100,6 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     return new Date();
   };
 
-  // Filter only disbursed loans (approved or paid)
-  const sanctionedLoans = useMemo(() => {
-    return loans
-      .filter(l => l.status === 'approved' || l.status === 'paid')
-      .sort((a, b) => {
-        const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
-        const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
-        return timeB - timeA;
-      });
-  }, [loans]);
-
-  // Group sanctioned loans by borrower so members with multiple active loans (like Shwetha) appear clubbed as one entry
-  const borrowerGroups = useMemo<BorrowerLoanGroup[]>(() => {
-    if (sanctionedLoans.length === 0) return [];
-
-    const groups: BorrowerLoanGroup[] = [];
-
-    for (const loan of sanctionedLoans) {
-      // Find matching user profile
-      const user = allUsers.find(u => 
-        (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) ||
-        (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
-        ((loan as any).userName && u.displayName && u.displayName.toLowerCase().trim() === ((loan as any).userName as string).toLowerCase().trim())
-      );
-
-      const resolvedName = (
-        user?.displayName || 
-        (user as any)?.name || 
-        (loan as any).userName || 
-        (loan.userEmail ? loan.userEmail.split('@')[0] : '') || 
-        'Member'
-      ).trim();
-
-      const resolvedEmail = (user?.email || loan.userEmail || '').trim().toLowerCase();
-      const resolvedUserId = user?.uid || user?.id || loan.userId || '';
-      const normName = resolvedName.toLowerCase();
-
-      // Check if an existing group belongs to this same borrower (by userId, email, or normalized name)
-      const existingGroup = groups.find(g => {
-        if (resolvedUserId && g.userId && g.userId === resolvedUserId) return true;
-        if (resolvedEmail && g.userEmail && g.userEmail.toLowerCase().trim() === resolvedEmail) return true;
-        if (normName && g.borrowerName.toLowerCase().trim() === normName) return true;
-        return false;
-      });
-
-      const sanctionDate = getSanctionDate(loan);
-
-      if (existingGroup) {
-        existingGroup.loans.push(loan);
-        if (loan.status === 'approved') {
-          existingGroup.activeLoans.push(loan);
-        }
-        if (!existingGroup.borrowerUser && user) {
-          existingGroup.borrowerUser = user;
-        }
-        if (!existingGroup.userEmail && resolvedEmail) {
-          existingGroup.userEmail = resolvedEmail;
-        }
-        if (!existingGroup.userId && resolvedUserId) {
-          existingGroup.userId = resolvedUserId;
-        }
-        if (sanctionDate.getTime() > existingGroup.latestSanctionDate.getTime()) {
-          existingGroup.latestSanctionDate = sanctionDate;
-          existingGroup.primaryLoanId = loan.id!;
-        }
-        existingGroup.isAllSettled = existingGroup.activeLoans.length === 0 && existingGroup.loans.every(l => l.status === 'paid');
-      } else {
-        const activeLoans = loan.status === 'approved' ? [loan] : [];
-        const isAllSettled = activeLoans.length === 0 && loan.status === 'paid';
-        const groupKey = resolvedUserId || resolvedEmail || normName || loan.id || 'unknown';
-
-        groups.push({
-          key: groupKey,
-          userId: resolvedUserId || undefined,
-          userEmail: resolvedEmail || undefined,
-          borrowerName: resolvedName,
-          borrowerUser: user || null,
-          loans: [loan],
-          activeLoans,
-          primaryLoanId: loan.id!,
-          latestSanctionDate: sanctionDate,
-          isAllSettled
-        });
-      }
-    }
-
-    // Sort loans inside each group by sanction date descending
-    for (const g of groups) {
-      g.loans.sort((a, b) => {
-        const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
-        const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
-        return timeB - timeA;
-      });
-    }
-
-    // Sort groups: Borrowers with active loans first, then newest sanction date
-    groups.sort((a, b) => {
-      if (!a.isAllSettled && b.isAllSettled) return -1;
-      if (a.isAllSettled && !b.isAllSettled) return 1;
-      return b.latestSanctionDate.getTime() - a.latestSanctionDate.getTime();
-    });
-
-    return groups;
-  }, [sanctionedLoans, allUsers]);
-
-  // Current active loan ID from props or state
-  const effectiveSelectedLoanId = selectedLoanId !== undefined ? selectedLoanId : internalSelectedId;
-
-  // Active borrower group object
-  const activeGroup = useMemo<BorrowerLoanGroup | null>(() => {
-    if (borrowerGroups.length === 0) return null;
-    if (effectiveSelectedLoanId) {
-      const foundByLoan = borrowerGroups.find(g => g.loans.some(l => l.id === effectiveSelectedLoanId));
-      if (foundByLoan) return foundByLoan;
-
-      const foundByUser = borrowerGroups.find(g => 
-        (g.userId && g.userId === effectiveSelectedLoanId) ||
-        (g.userEmail && g.userEmail.toLowerCase().trim() === effectiveSelectedLoanId.toLowerCase().trim()) ||
-        g.key === effectiveSelectedLoanId
-      );
-      if (foundByUser) return foundByUser;
-    }
-    return borrowerGroups[0];
-  }, [borrowerGroups, effectiveSelectedLoanId]);
-
-  const handleSelectGroup = (group: BorrowerLoanGroup) => {
-    setInternalSelectedId(group.primaryLoanId);
-    if (onSelectLoan) {
-      onSelectLoan(group.primaryLoanId);
-    }
-  };
-
-  // Get active group index for prev/next buttons
-  const activeIndex = useMemo(() => {
-    if (!activeGroup) return -1;
-    return borrowerGroups.findIndex(g => g.key === activeGroup.key);
-  }, [borrowerGroups, activeGroup]);
-
-  const handlePrevGroup = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (borrowerGroups.length === 0) return;
-    const prevIdx = activeIndex <= 0 ? borrowerGroups.length - 1 : activeIndex - 1;
-    handleSelectGroup(borrowerGroups[prevIdx]);
-  };
-
-  const handleNextGroup = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (borrowerGroups.length === 0) return;
-    const nextIdx = activeIndex >= borrowerGroups.length - 1 ? 0 : activeIndex + 1;
-    handleSelectGroup(borrowerGroups[nextIdx]);
-  };
-
-  // Filtered borrower groups list for searchable selector dropdown
-  const filteredDropdownGroups = useMemo(() => {
-    if (!searchQuery.trim()) return borrowerGroups;
-    const q = searchQuery.toLowerCase().trim();
-    return borrowerGroups.filter(g => {
-      const name = g.borrowerName.toLowerCase();
-      const email = (g.userEmail || '').toLowerCase();
-      const totalAmt = g.loans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0).toString();
-      const anyLoanMatches = g.loans.some(l => (l.approvedAmount || l.amount || '').toString().includes(q));
-      return name.includes(q) || email.includes(q) || totalAmt.includes(q) || anyLoanMatches;
-    });
-  }, [borrowerGroups, searchQuery]);
-
   // Helper to determine if a loan payment belongs to a specific loan
   const isPaymentBelongingToLoan = (p: LoanPayment, loan: Loan): boolean => {
     if (p.loanId) {
@@ -267,123 +121,6 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     return true;
   };
 
-  // Aggregate statistics for the active borrower group (clubbed loans)
-  const stats = useMemo(() => {
-    if (!activeGroup || activeGroup.loans.length === 0) {
-      return {
-        approvedAmount: 0,
-        totalPrincipalPaid: 0,
-        totalInterestPaid: 0,
-        totalPaid: 0,
-        remainingPrincipal: 0,
-        paidInstallmentsCount: 0,
-        totalInstallments: 10,
-        repaymentProgress: 0,
-        settledDateStr: '-',
-        activeLoansCount: 0,
-        totalLoansCount: 0
-      };
-    }
-
-    let totalApproved = 0;
-    let totalPrincipalPaid = 0;
-    let totalInterestPaid = 0;
-    let totalInstallmentsCount = 0;
-    let totalPaidInstallments = 0;
-    const allSortedPaidPayments: LoanPayment[] = [];
-
-    activeGroup.loans.forEach(loan => {
-      const loanPrincipal = loan.approvedAmount || loan.amount || 0;
-      const installments = loan.installments || Math.ceil(loanPrincipal / 5000) || 10;
-      totalApproved += loanPrincipal;
-      totalInstallmentsCount += installments;
-
-      const rawPayments = loanPayments.filter(p => isPaymentBelongingToLoan(p, loan));
-
-      const paidPayments = rawPayments.filter(p => p.status === 'paid');
-      const pPaid = paidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-      const iPaid = paidPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
-
-      totalPrincipalPaid += pPaid;
-      totalInterestPaid += iPaid;
-      totalPaidInstallments += paidPayments.length;
-      allSortedPaidPayments.push(...paidPayments);
-    });
-
-    const totalPaid = totalPrincipalPaid + totalInterestPaid;
-    const remainingPrincipal = Math.max(0, totalApproved - totalPrincipalPaid);
-    const repaymentProgress = totalApproved > 0 ? Math.min(100, Math.round((totalPrincipalPaid / totalApproved) * 100)) : 0;
-
-    allSortedPaidPayments.sort((a, b) => {
-      const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : ((a.year || 0) * 100 + (a.month || 0));
-      const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : ((b.year || 0) * 100 + (b.month || 0));
-      return timeA - timeB;
-    });
-
-    let settledDateStr = '-';
-    if (remainingPrincipal <= 0) {
-      if (allSortedPaidPayments.length > 0) {
-        const last = allSortedPaidPayments[allSortedPaidPayments.length - 1];
-        if (last.timestamp?.toDate) {
-          settledDateStr = format(last.timestamp.toDate(), 'dd MMM yyyy');
-        } else {
-          settledDateStr = `${MONTH_NAMES[last.month] || last.month} ${last.year}`;
-        }
-      } else {
-        settledDateStr = 'Settled';
-      }
-    }
-
-    const activeLoansCount = activeGroup.loans.filter(l => {
-      const lPrincipal = l.approvedAmount || l.amount || 0;
-      const lRawPayments = loanPayments.filter(p => isPaymentBelongingToLoan(p, l));
-      const lPaid = lRawPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + (p.amount || 0), 0);
-      return l.status === 'approved' && (lPrincipal - lPaid > 0);
-    }).length;
-
-    return {
-      approvedAmount: totalApproved,
-      totalPrincipalPaid,
-      totalInterestPaid,
-      totalPaid,
-      remainingPrincipal,
-      paidInstallmentsCount: totalPaidInstallments,
-      totalInstallments: totalInstallmentsCount,
-      repaymentProgress,
-      settledDateStr,
-      activeLoansCount,
-      totalLoansCount: activeGroup.loans.length
-    };
-  }, [activeGroup, loanPayments]);
-
-  if (!activeGroup) {
-    return (
-      <div className={cn("bg-white p-8 rounded-3xl border border-slate-200 text-center shadow-xs", className)}>
-        <Layers className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-        <h4 className="text-sm font-bold text-slate-700">No Disbursed Loans Available</h4>
-        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-          Once loans are approved and issued to members, their Principal vs. Interest repayment breakdown will appear here.
-        </p>
-      </div>
-    );
-  }
-
-  const borrowerName = activeGroup.borrowerName;
-  const borrowerInitial = borrowerName.charAt(0).toUpperCase();
-  const isLoanSettled = stats.remainingPrincipal <= 0;
-
-  // Loan disbursement date(s)
-  const disbursementDateStr = useMemo(() => {
-    if (!activeGroup || activeGroup.loans.length === 0) return '-';
-    if (activeGroup.loans.length === 1) {
-      return format(getSanctionDate(activeGroup.loans[0]), 'dd MMM yyyy');
-    }
-    const dates = activeGroup.loans
-      .map(l => format(getSanctionDate(l), 'dd MMM yyyy'))
-      .filter((v, idx, arr) => arr.indexOf(v) === idx);
-    return dates.join(' & ');
-  }, [activeGroup]);
-
   // Helper to calculate next scheduled installment for an individual loan
   const getSingleLoanNextInstallment = (
     loan: Loan,
@@ -402,7 +139,6 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     const sanctionDate = getSanctionDate(loan);
 
     const rawPayments = allPayments.filter(p => isPaymentBelongingToLoan(p, loan));
-
     const sortedPaidPayments = rawPayments.filter(p => p.status === 'paid');
     const totalPrincipalPaid = sortedPaidPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const remainingPrincipal = Math.max(0, loanPrincipal - totalPrincipalPaid);
@@ -463,52 +199,239 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     };
   };
 
-  // Next Month Installment calculation for clubbed active loans of the borrower
-  const nextInstallmentInfo = useMemo(() => {
-    if (!activeGroup || isLoanSettled) return null;
+  // Build active loans list:
+  // 1. Shows ONLY members having active loans (closed loans like Shwetha JV are completely excluded)
+  // 2. Active loans are NOT clubbed with closed loans or with each other
+  // 3. For members with multiple active loans, numbered as Active 1, Active 2 based on date of issue in descending order
+  const activeLoanItems = useMemo<ActiveLoanItem[]>(() => {
+    interface RawActiveLoan {
+      loan: Loan;
+      sanctionDate: Date;
+      principalAmount: number;
+      remainingPrincipal: number;
+      totalPrincipalPaid: number;
+      totalInterestPaid: number;
+      totalPaid: number;
+      paidPaymentsCount: number;
+      user: UserProfile | null;
+      resolvedName: string;
+      resolvedEmail: string;
+      resolvedUserId: string;
+      memberKey: string;
+    }
 
-    const activeLoans = activeGroup.loans.filter(l => l.status === 'approved');
-    if (activeLoans.length === 0) return null;
+    const rawActiveLoans: RawActiveLoan[] = [];
 
-    const loanNextInstallments = activeLoans
-      .map(l => ({ loan: l, next: getSingleLoanNextInstallment(l, loanPayments) }))
-      .filter((item): item is { loan: Loan; next: NonNullable<ReturnType<typeof getSingleLoanNextInstallment>> } => item.next !== null);
+    loans.forEach(loan => {
+      // Must be approved loan (paid, rejected, pending are NOT active)
+      if (loan.status !== 'approved') return;
 
-    if (loanNextInstallments.length === 0) return null;
+      const principalAmount = loan.approvedAmount || loan.amount || 0;
+      if (principalAmount <= 0) return;
 
-    const totalPrincipal = loanNextInstallments.reduce((sum, item) => sum + item.next.principal, 0);
-    const totalInterest = loanNextInstallments.reduce((sum, item) => sum + item.next.interest, 0);
-    const totalAmount = totalPrincipal + totalInterest;
+      const payments = loanPayments.filter(p => isPaymentBelongingToLoan(p, loan) && p.status === 'paid');
+      const totalPrincipalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const totalInterestPaid = payments.reduce((sum, p) => sum + (p.interest || 0), 0);
+      const remainingPrincipal = Math.max(0, principalAmount - totalPrincipalPaid);
 
-    const uniquePeriods = Array.from(new Set(loanNextInstallments.map(i => i.next.periodLabel).filter(p => p !== 'Upcoming')));
-    const periodLabel = uniquePeriods.length === 1 ? uniquePeriods[0] : (uniquePeriods.length > 1 ? uniquePeriods.join(' & ') : 'Upcoming');
+      // If remaining principal is 0 or less, loan is closed / settled -> Exclude from active breakdown!
+      if (remainingPrincipal <= 0) return;
 
-    return {
-      totalPrincipal,
-      totalInterest,
-      total: totalAmount,
-      periodLabel,
-      activeLoansCount: loanNextInstallments.length,
-      installmentNumbersStr: loanNextInstallments.map(i => `#${i.next.installmentNumber}`).join(' & '),
-      breakdown: loanNextInstallments.map(i => ({
-        loanId: i.loan.id,
-        amount: i.loan.approvedAmount || i.loan.amount || 0,
-        principal: i.next.principal,
-        interest: i.next.interest,
-        total: i.next.total,
-        periodLabel: i.next.periodLabel
-      }))
-    };
-  }, [activeGroup, isLoanSettled, loanPayments]);
+      const user = allUsers.find(u => 
+        (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) ||
+        (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
+        ((loan as any).userName && u.displayName && u.displayName.toLowerCase().trim() === ((loan as any).userName as string).toLowerCase().trim())
+      );
 
-  const hasMultipleLoans = activeGroup.loans.length > 1;
+      const resolvedName = (
+        user?.displayName || 
+        (user as any)?.name || 
+        (loan as any).userName || 
+        (loan.userEmail ? loan.userEmail.split('@')[0] : '') || 
+        'Member'
+      ).trim();
+
+      const resolvedEmail = (user?.email || loan.userEmail || '').trim().toLowerCase();
+      const resolvedUserId = user?.uid || user?.id || loan.userId || '';
+      const memberKey = resolvedUserId || resolvedEmail || resolvedName.toLowerCase();
+      const sanctionDate = getSanctionDate(loan);
+
+      rawActiveLoans.push({
+        loan,
+        sanctionDate,
+        principalAmount,
+        remainingPrincipal,
+        totalPrincipalPaid,
+        totalInterestPaid,
+        totalPaid: totalPrincipalPaid + totalInterestPaid,
+        paidPaymentsCount: payments.length,
+        user: user || null,
+        resolvedName,
+        resolvedEmail,
+        resolvedUserId,
+        memberKey
+      });
+    });
+
+    if (rawActiveLoans.length === 0) return [];
+
+    // Group active loans by member
+    const memberGroups = new Map<string, RawActiveLoan[]>();
+    rawActiveLoans.forEach(item => {
+      const list = memberGroups.get(item.memberKey) || [];
+      list.push(item);
+      memberGroups.set(item.memberKey, list);
+    });
+
+    const result: ActiveLoanItem[] = [];
+
+    // Sort member groups by their most recent active loan sanction date descending
+    const sortedMemberGroups = Array.from(memberGroups.values()).sort((groupA, groupB) => {
+      const maxDateA = Math.max(...groupA.map(g => g.sanctionDate.getTime()));
+      const maxDateB = Math.max(...groupB.map(g => g.sanctionDate.getTime()));
+      return maxDateB - maxDateA;
+    });
+
+    sortedMemberGroups.forEach(memberLoans => {
+      // Sort this member's active loans in descending order of sanction / issue date
+      // (newest date = Active 1, older date = Active 2, etc.)
+      memberLoans.sort((a, b) => b.sanctionDate.getTime() - a.sanctionDate.getTime());
+
+      const memberActiveCount = memberLoans.length;
+
+      const siblingActiveLoans = memberLoans.map((ml, idx) => ({
+        loanId: ml.loan.id!,
+        label: memberActiveCount > 1 ? `Active ${idx + 1}` : 'Active Loan',
+        amount: ml.principalAmount,
+        dateStr: format(ml.sanctionDate, 'dd MMM yyyy')
+      }));
+
+      memberLoans.forEach((item, idx) => {
+        const activeLoanNumber = idx + 1;
+        const activeLabel = memberActiveCount > 1 ? `Active ${activeLoanNumber}` : 'Active';
+        const dropdownTitle = memberActiveCount > 1
+          ? `${item.resolvedName} (Active ${activeLoanNumber})`
+          : item.resolvedName;
+
+        const totalInstallments = item.loan.installments || Math.ceil(item.principalAmount / 5000) || 10;
+        const repaymentProgress = item.principalAmount > 0
+          ? Math.min(100, Math.round((item.totalPrincipalPaid / item.principalAmount) * 100))
+          : 0;
+
+        const nextInstallment = getSingleLoanNextInstallment(item.loan, loanPayments);
+
+        result.push({
+          id: item.loan.id!,
+          loan: item.loan,
+          borrowerName: item.resolvedName,
+          borrowerInitial: item.resolvedName.charAt(0).toUpperCase() || 'M',
+          borrowerUser: item.user,
+          userId: item.resolvedUserId,
+          userEmail: item.resolvedEmail,
+          sanctionDate: item.sanctionDate,
+          sanctionDateStr: format(item.sanctionDate, 'dd MMM yyyy'),
+          memberActiveLoansCount: memberActiveCount,
+          activeLoanNumber,
+          activeLabel,
+          dropdownTitle,
+          principalAmount: item.principalAmount,
+          remainingPrincipal: item.remainingPrincipal,
+          totalPrincipalPaid: item.totalPrincipalPaid,
+          totalInterestPaid: item.totalInterestPaid,
+          totalPaid: item.totalPaid,
+          repaymentProgress,
+          totalInstallments,
+          paidInstallmentsCount: item.paidPaymentsCount,
+          nextInstallment,
+          siblingActiveLoans
+        });
+      });
+    });
+
+    return result;
+  }, [loans, loanPayments, allUsers]);
+
+  // Current active loan ID from props or state
+  const effectiveSelectedLoanId = selectedLoanId !== undefined ? selectedLoanId : internalSelectedId;
+
+  // Active item currently displayed
+  const activeItem = useMemo<ActiveLoanItem | null>(() => {
+    if (activeLoanItems.length === 0) return null;
+    if (effectiveSelectedLoanId) {
+      const found = activeLoanItems.find(item => item.id === effectiveSelectedLoanId);
+      if (found) return found;
+
+      const foundByUser = activeLoanItems.find(item =>
+        (item.userId && item.userId === effectiveSelectedLoanId) ||
+        (item.userEmail && item.userEmail.toLowerCase().trim() === effectiveSelectedLoanId.toLowerCase().trim())
+      );
+      if (foundByUser) return foundByUser;
+    }
+    return activeLoanItems[0];
+  }, [activeLoanItems, effectiveSelectedLoanId]);
+
+  const handleSelectLoan = (loanId: string) => {
+    setInternalSelectedId(loanId);
+    if (onSelectLoan) {
+      onSelectLoan(loanId);
+    }
+  };
+
+  // Get active item index for prev/next buttons
+  const activeIndex = useMemo(() => {
+    if (!activeItem) return -1;
+    return activeLoanItems.findIndex(item => item.id === activeItem.id);
+  }, [activeLoanItems, activeItem]);
+
+  const handlePrev = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (activeLoanItems.length === 0) return;
+    const prevIdx = activeIndex <= 0 ? activeLoanItems.length - 1 : activeIndex - 1;
+    handleSelectLoan(activeLoanItems[prevIdx].id);
+  };
+
+  const handleNext = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (activeLoanItems.length === 0) return;
+    const nextIdx = activeIndex >= activeLoanItems.length - 1 ? 0 : activeIndex + 1;
+    handleSelectLoan(activeLoanItems[nextIdx].id);
+  };
+
+  // Filtered active loans list for search in selector dropdown
+  const filteredDropdownItems = useMemo(() => {
+    if (!searchQuery.trim()) return activeLoanItems;
+    const q = searchQuery.toLowerCase().trim();
+    return activeLoanItems.filter(item => {
+      const nameMatch = item.borrowerName.toLowerCase().includes(q);
+      const titleMatch = item.dropdownTitle.toLowerCase().includes(q);
+      const emailMatch = (item.userEmail || '').toLowerCase().includes(q);
+      const amountMatch = item.principalAmount.toString().includes(q);
+      const activeLabelMatch = item.activeLabel.toLowerCase().includes(q);
+      return nameMatch || titleMatch || emailMatch || amountMatch || activeLabelMatch;
+    });
+  }, [activeLoanItems, searchQuery]);
+
+  // Empty state when there are NO active loans in the society
+  if (!activeItem || activeLoanItems.length === 0) {
+    return (
+      <div className={cn("bg-white p-8 rounded-3xl border border-slate-200 text-center shadow-xs", className)}>
+        <Layers className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+        <h4 className="text-sm font-bold text-slate-700">No Active Loans Available</h4>
+        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+          Only members with currently active running loans are displayed in the Principal vs. Interest Breakdown. Closed and settled loans are not shown.
+        </p>
+      </div>
+    );
+  }
+
+  const hasMultipleActiveLoans = activeItem.memberActiveLoansCount > 1;
 
   return (
     <div className={cn(
       "bg-gradient-to-b from-purple-50/40 via-white to-white rounded-3xl border-2 border-purple-200/90 shadow-sm p-4 sm:p-6 transition-all relative overflow-visible",
       className
     )}>
-      {/* Top Header & Interactive Loan Selector */}
+      {/* Top Header & Interactive Active Loan Selector */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-purple-100/80">
         {/* Title & Context */}
         <div className="flex items-center gap-3">
@@ -521,74 +444,100 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 Principal vs. Interest Breakdown
               </h4>
               <span className={cn(
-                "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",
-                isLoanSettled 
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-300" 
-                  : hasMultipleLoans
-                    ? "bg-indigo-100/90 text-indigo-700 border-indigo-300/90"
-                    : "bg-purple-100/80 text-purple-700 border-purple-300/80"
+                "px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",
+                hasMultipleActiveLoans
+                  ? "bg-indigo-100/90 text-indigo-700 border-indigo-300/90"
+                  : "bg-purple-100/80 text-purple-700 border-purple-300/80"
               )}>
-                {isLoanSettled 
-                  ? 'Settled Loan' 
-                  : hasMultipleLoans 
-                    ? `${activeGroup.activeLoans.length} Active Loans Clubbed` 
-                    : 'Active Loan'}
+                {hasMultipleActiveLoans ? `${activeItem.activeLabel} of ${activeItem.memberActiveLoansCount}` : 'Active Loan'}
               </span>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-500 font-medium mt-1">
               <span>Repayment timeline:</span>
-              <span className="font-bold text-purple-800 bg-purple-100/70 px-2 py-0.5 rounded-md border border-purple-200/80">{borrowerName}</span>
-              {hasMultipleLoans && (
-                <span className="text-[11px] text-indigo-700 font-bold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/80">
-                  {activeGroup.activeLoans.length} Loans Clubbed
+              <span className="font-bold text-purple-800 bg-purple-100/70 px-2 py-0.5 rounded-md border border-purple-200/80">
+                {activeItem.borrowerName}
+              </span>
+              {hasMultipleActiveLoans && (
+                <span className="text-[11px] text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/80">
+                  {activeItem.activeLabel} (Disbursed: {activeItem.sanctionDateStr})
                 </span>
               )}
             </div>
+
+            {/* Quick Sibling Loan Switcher Pills for Members with Multiple Active Loans */}
+            {activeItem.siblingActiveLoans.length > 1 && (
+              <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-1.5 border-t border-purple-100/70">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-0.5">
+                  Member Active Loans:
+                </span>
+                {activeItem.siblingActiveLoans.map((sibling) => {
+                  const isCurrent = sibling.loanId === activeItem.id;
+                  return (
+                    <button
+                      key={sibling.loanId}
+                      type="button"
+                      onClick={() => handleSelectLoan(sibling.loanId)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs",
+                        isCurrent
+                          ? "bg-purple-600 text-white border-purple-700 shadow-xs ring-2 ring-purple-300"
+                          : "bg-white hover:bg-purple-50 text-purple-700 border-purple-200"
+                      )}
+                    >
+                      <span>{sibling.label}</span>
+                      <span className={cn("text-[10.5px]", isCurrent ? "text-purple-100 font-semibold" : "text-slate-500 font-medium")}>
+                        ₹{sibling.amount.toLocaleString('en-IN')}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Borrower Switcher Controls */}
+        {/* Active Loan Switcher Controls */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Previous / Next buttons */}
           <div className="flex items-center bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden shrink-0">
             <button
               type="button"
-              onClick={handlePrevGroup}
+              onClick={handlePrev}
               className="p-2 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors border-r border-slate-200/90 disabled:opacity-40 cursor-pointer"
-              title="Previous Borrower"
+              title="Previous Active Loan"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="px-2.5 text-[11px] font-bold text-slate-600 select-none">
-              {activeIndex + 1} / {borrowerGroups.length}
+              {activeIndex + 1} / {activeLoanItems.length}
             </span>
             <button
               type="button"
-              onClick={handleNextGroup}
+              onClick={handleNext}
               className="p-2 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors disabled:opacity-40 cursor-pointer"
-              title="Next Borrower"
+              title="Next Active Loan"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          {/* Searchable Borrower Selector Dropdown */}
+          {/* Searchable Active Loan Selector Dropdown */}
           <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="w-48 sm:w-56 md:w-60 flex items-center justify-between gap-2 px-3 py-1.5 bg-white hover:bg-purple-50/50 border border-purple-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800 cursor-pointer shrink-0"
+              className="w-52 sm:w-60 md:w-64 flex items-center justify-between gap-2 px-3 py-1.5 bg-white hover:bg-purple-50/50 border border-purple-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800 cursor-pointer shrink-0"
             >
               <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[10px] shrink-0">
-                  {borrowerInitial}
+                <div className="w-6.5 h-6.5 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[11px] shrink-0 border border-purple-200">
+                  {activeItem.borrowerInitial}
                 </div>
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <p className="truncate font-bold text-slate-900 leading-tight" title={borrowerName}>
-                    {borrowerName}
+                  <p className="truncate font-bold text-slate-900 leading-tight" title={activeItem.dropdownTitle}>
+                    {activeItem.dropdownTitle}
                   </p>
-                  <p className="truncate text-[10px] text-purple-600 font-bold">
-                    ₹{stats.approvedAmount.toLocaleString('en-IN')}{hasMultipleLoans ? ` • ${activeGroup.activeLoans.length} Loans` : ''}
+                  <p className="truncate text-[10.5px] text-purple-600 font-bold">
+                    ₹{activeItem.principalAmount.toLocaleString('en-IN')} • {activeItem.sanctionDateStr}
                   </p>
                 </div>
               </div>
@@ -608,7 +557,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        placeholder="Search member or loan amount..."
+                        placeholder="Search active member or loan..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-purple-500"
@@ -617,21 +566,19 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                     </div>
                   </div>
                   <div className="max-h-60 overflow-y-auto divide-y divide-slate-50 py-1">
-                    {filteredDropdownGroups.length === 0 ? (
-                      <p className="text-center py-4 text-xs text-slate-400">No matching members found</p>
+                    {filteredDropdownItems.length === 0 ? (
+                      <p className="text-center py-4 text-xs text-slate-400">No matching active loans found</p>
                     ) : (
-                      filteredDropdownGroups.map((g) => {
-                        const isSelected = g.key === activeGroup.key;
-                        const totalAmt = g.loans.reduce((sum, l) => sum + (l.approvedAmount || l.amount || 0), 0);
-                        const isPaid = g.isAllSettled;
-                        const isMulti = g.loans.length > 1;
+                      filteredDropdownItems.map((item) => {
+                        const isSelected = item.id === activeItem.id;
+                        const isMulti = item.memberActiveLoansCount > 1;
 
                         return (
                           <button
-                            key={`dropdown-group-${g.key}`}
+                            key={`dropdown-loan-${item.id}`}
                             type="button"
                             onClick={() => {
-                              handleSelectGroup(g);
+                              handleSelectLoan(item.id);
                               setIsDropdownOpen(false);
                               setSearchQuery('');
                             }}
@@ -642,28 +589,28 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div className={cn(
-                                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                                isSelected ? "bg-purple-600 text-white" : "bg-slate-100 text-slate-600"
+                                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border",
+                                isSelected 
+                                  ? "bg-purple-600 text-white border-purple-700 shadow-xs" 
+                                  : "bg-slate-100 text-slate-600 border-slate-200"
                               )}>
-                                {g.borrowerName.charAt(0).toUpperCase()}
+                                {item.borrowerInitial}
                               </div>
                               <div className="min-w-0">
-                                <p className="truncate text-xs leading-tight font-bold">{g.borrowerName}</p>
+                                <p className="truncate text-xs leading-tight font-bold">{item.dropdownTitle}</p>
                                 <p className="truncate text-[10px] text-slate-500 font-normal">
-                                  ₹{totalAmt.toLocaleString('en-IN')}{isMulti ? ` (${g.loans.length} Loans)` : ''}
+                                  ₹{item.principalAmount.toLocaleString('en-IN')} • Disbursed {item.sanctionDateStr}
                                 </p>
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className={cn(
-                                "px-1.5 py-0.5 rounded-md text-[9.5px] font-bold uppercase",
-                                isPaid 
-                                  ? "bg-emerald-100 text-emerald-800" 
-                                  : isMulti 
-                                    ? "bg-indigo-100 text-indigo-800" 
-                                    : "bg-amber-100 text-amber-800"
+                                "px-2 py-0.5 rounded-md text-[9.5px] font-bold uppercase",
+                                isMulti 
+                                  ? "bg-indigo-100 text-indigo-800 border border-indigo-200" 
+                                  : "bg-purple-100 text-purple-800 border border-purple-200"
                               )}>
-                                {isPaid ? 'Settled' : isMulti ? `${g.activeLoans.length} Active` : 'Active'}
+                                {item.activeLabel}
                               </span>
                               {isSelected && (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
@@ -693,7 +640,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
       {!isCollapsed && (
         <div className="pt-4 space-y-4">
-          {/* KPI Stat Cards for the Selected Member (Clubbed Loans) - 4 Cards */}
+          {/* KPI Stat Cards for the Selected Active Loan - 4 Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
             {/* Card 1: Sanctioned Loan (Indigo) */}
             <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
@@ -703,21 +650,23 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                     <Wallet className="w-4 h-4" />
                   </div>
                   <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {hasMultipleLoans ? `${activeGroup.loans.length} Loans` : `${stats.totalInstallments} Months`}
+                    {activeItem.totalInstallments} Months • {activeItem.activeLabel}
                   </span>
                 </div>
                 <h4 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Sanctioned Loan</h4>
                 <div className="mt-0.5 text-xl sm:text-2xl font-black text-indigo-950 tracking-tight truncate">
-                  ₹{stats.approvedAmount.toLocaleString('en-IN')}
+                  ₹{activeItem.principalAmount.toLocaleString('en-IN')}
                 </div>
               </div>
               <div className="mt-2.5 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10.5px]">
                 <span className="font-semibold text-slate-500">Disbursed:</span>
-                <span className="font-bold text-indigo-700 truncate max-w-[130px]" title={disbursementDateStr}>{disbursementDateStr}</span>
+                <span className="font-bold text-indigo-700 truncate max-w-[130px]" title={activeItem.sanctionDateStr}>
+                  {activeItem.sanctionDateStr}
+                </span>
               </div>
             </div>
 
-            {/* Card 2: Total Repaid (Clubbed Principal Paid + Interest Paid) (Emerald) */}
+            {/* Card 2: Total Repaid (Principal Paid + Interest Paid) (Emerald) */}
             <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-2.5">
@@ -725,27 +674,27 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                     <CheckCircle2 className="w-4 h-4" />
                   </div>
                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {stats.repaymentProgress}% Paid
+                    {activeItem.repaymentProgress}% Paid
                   </span>
                 </div>
                 <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Repaid</h4>
                 <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-700 tracking-tight truncate">
-                  ₹{stats.totalPaid.toLocaleString('en-IN')}
+                  ₹{activeItem.totalPaid.toLocaleString('en-IN')}
                 </div>
                 <div className="w-full bg-emerald-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
                   <div 
                     className="bg-emerald-600 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${stats.repaymentProgress}%` }}
+                    style={{ width: `${activeItem.repaymentProgress}%` }}
                   />
                 </div>
               </div>
               <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] font-semibold">
                 <span className="text-emerald-800">
-                  Principal: <strong className="font-bold">₹{stats.totalPrincipalPaid.toLocaleString('en-IN')}</strong>
+                  Principal: <strong className="font-bold">₹{activeItem.totalPrincipalPaid.toLocaleString('en-IN')}</strong>
                 </span>
                 <span className="text-slate-300">•</span>
                 <span className="text-amber-800">
-                  Interest: <strong className="font-bold">₹{stats.totalInterestPaid.toLocaleString('en-IN')}</strong>
+                  Interest: <strong className="font-bold">₹{activeItem.totalInterestPaid.toLocaleString('en-IN')}</strong>
                 </span>
               </div>
             </div>
@@ -758,30 +707,23 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                     <Calendar className="w-4 h-4" />
                   </div>
                   <span className="text-[10px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {isLoanSettled 
-                      ? 'Settled' 
-                      : nextInstallmentInfo 
-                        ? (nextInstallmentInfo.activeLoansCount > 1 ? `${nextInstallmentInfo.activeLoansCount} Loans Due` : `${nextInstallmentInfo.installmentNumbersStr} Due`) 
-                        : 'Due'}
+                    {activeItem.nextInstallment ? `Inst #${activeItem.nextInstallment.installmentNumber} Due` : 'Due'}
                   </span>
                 </div>
                 <h4 className="text-blue-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Next Installment</h4>
                 <div className="mt-0.5 text-xl sm:text-2xl font-black text-blue-950 tracking-tight truncate">
-                  {isLoanSettled 
-                    ? '₹0' 
-                    : nextInstallmentInfo 
-                      ? `₹${nextInstallmentInfo.total.toLocaleString('en-IN')}` 
-                      : '₹0'}
+                  {activeItem.nextInstallment ? `₹${activeItem.nextInstallment.total.toLocaleString('en-IN')}` : '₹0'}
                 </div>
               </div>
               <div className="mt-2.5 pt-2 border-t border-blue-100/90 flex items-center justify-between text-[10.5px]">
                 <span className="font-semibold text-slate-500">Upcoming:</span>
-                <span className="font-bold text-blue-700 truncate max-w-[140px]" title={nextInstallmentInfo?.breakdown ? nextInstallmentInfo.breakdown.map(b => `₹${b.total.toLocaleString('en-IN')} (${b.periodLabel})`).join(' + ') : undefined}>
-                  {isLoanSettled 
-                    ? 'No Dues' 
-                    : nextInstallmentInfo 
-                      ? `${nextInstallmentInfo.periodLabel}${nextInstallmentInfo.activeLoansCount > 1 ? ` (${nextInstallmentInfo.breakdown.map(b => `₹${b.total.toLocaleString('en-IN')}`).join(' + ')})` : ''}` 
-                      : 'Completed'}
+                <span 
+                  className="font-bold text-blue-700 truncate max-w-[140px]" 
+                  title={activeItem.nextInstallment ? `Principal: ₹${activeItem.nextInstallment.principal} + Interest: ₹${activeItem.nextInstallment.interest}` : 'No dues'}
+                >
+                  {activeItem.nextInstallment 
+                    ? `${activeItem.nextInstallment.periodLabel} (₹${activeItem.nextInstallment.principal} + ₹${activeItem.nextInstallment.interest})` 
+                    : 'Completed'}
                 </span>
               </div>
             </div>
@@ -790,34 +732,22 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
             <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className={cn(
-                    "w-7.5 h-7.5 rounded-xl text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform",
-                    isLoanSettled ? "bg-emerald-600" : "bg-rose-600"
-                  )}>
-                    {isLoanSettled ? (
-                      <CheckCircle2 className="w-4 h-4" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4" />
-                    )}
+                  <div className="w-7.5 h-7.5 rounded-xl text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform bg-rose-600">
+                    <AlertCircle className="w-4 h-4" />
                   </div>
-                  <span className={cn(
-                    "text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border",
-                    isLoanSettled 
-                      ? "text-emerald-700 bg-emerald-100/90 border-emerald-200" 
-                      : "text-rose-700 bg-rose-100/90 border-rose-200"
-                  )}>
-                    {isLoanSettled ? 'Settled' : 'Pending'}
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border text-rose-700 bg-rose-100/90 border-rose-200">
+                    Active Due
                   </span>
                 </div>
                 <h4 className="text-rose-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Balance</h4>
                 <div className="mt-0.5 text-xl sm:text-2xl font-black text-rose-700 tracking-tight truncate">
-                  {stats.remainingPrincipal > 0 ? `₹${stats.remainingPrincipal.toLocaleString('en-IN')}` : '₹0'}
+                  ₹{activeItem.remainingPrincipal.toLocaleString('en-IN')}
                 </div>
               </div>
               <div className="mt-2.5 pt-2 border-t border-rose-100/90 flex items-center justify-between text-[10.5px]">
                 <span className="font-semibold text-slate-500">Balance:</span>
                 <span className="font-bold text-rose-700">
-                  {isLoanSettled ? 'Closed' : hasMultipleLoans ? `${activeGroup.activeLoans.length} Loans Due` : 'Principal Due'}
+                  Principal Due
                 </span>
               </div>
             </div>

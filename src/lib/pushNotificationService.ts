@@ -173,15 +173,14 @@ export const isExemptAdministrator = (
   if (!user) return false;
   const email = (user.email || '').toLowerCase().trim();
   const name = (user.displayName || '').toLowerCase().trim();
-  const role = (user.role || '').toLowerCase().trim();
 
+  // Only the system administrator robot account (unnati) is exempt from member obligations.
+  // Admin members like Arun J (arun2102000@gmail.com) are contributing society members and must not be excluded.
   return (
     email === SYSTEM_ADMIN_EMAIL.toLowerCase() ||
-    ADMIN_EMAILS.includes(email) ||
+    email.includes('unnati.finance2026') ||
     name === 'unnati' ||
-    name === 'administrator' ||
-    name.includes('unnati') ||
-    role === 'admin'
+    name === 'administrator'
   );
 };
 

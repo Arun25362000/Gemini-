@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
@@ -102,7 +103,10 @@ import {
   BarChart2,
   Calculator,
   Archive,
-  MapPin
+  MapPin,
+  Send,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -523,7 +527,78 @@ export default function App() {
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
   const [isMemberActionsCollapsed, setIsMemberActionsCollapsed] = useState<boolean>(false);
   const [isMemberDetailsCollapsed, setIsMemberDetailsCollapsed] = useState<boolean>(false);
-  const [openActionMenuMemberId, setOpenActionMenuMemberId] = useState<string | null>(null);
+  const [memberActionMenu, setMemberActionMenu] = useState<{
+    memberKey: string;
+    member: UserProfile;
+    x: number;
+    y: number;
+    openUpwards: boolean;
+  } | null>(null);
+
+  // Dynamically track button position on scroll and resize; close only on outside click or when scrolled out of view
+  useEffect(() => {
+    if (!memberActionMenu) return;
+
+    const updatePosition = () => {
+      const btn = document.querySelector(`[data-member-action-btn="${memberActionMenu.memberKey}"]`);
+      if (btn) {
+        const rect = btn.getBoundingClientRect();
+        // If button is completely scrolled out of viewport, close menu
+        if (rect.bottom < 0 || rect.top > window.innerHeight) {
+          setMemberActionMenu(null);
+          return;
+        }
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const openUpwards = spaceBelow < 330 && rect.top > 300;
+        setMemberActionMenu(prev => {
+          if (!prev || prev.memberKey !== memberActionMenu.memberKey) return null;
+          return {
+            ...prev,
+            x: Math.max(12, window.innerWidth - rect.right),
+            y: openUpwards ? rect.top - 6 : rect.bottom + 6,
+            openUpwards
+          };
+        });
+      } else {
+        setMemberActionMenu(null);
+      }
+    };
+
+    const handlePointerDownOutside = (e: MouseEvent | TouchEvent) => {
+      const menuEl = document.getElementById('member-action-dropdown-portal');
+      const btnEl = document.querySelector(`[data-member-action-btn="${memberActionMenu.memberKey}"]`);
+      if (
+        menuEl && !menuEl.contains(e.target as Node) &&
+        btnEl && !btnEl.contains(e.target as Node)
+      ) {
+        setMemberActionMenu(null);
+      }
+    };
+
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    document.addEventListener('mousedown', handlePointerDownOutside, true);
+    document.addEventListener('touchstart', handlePointerDownOutside, true);
+
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+      document.removeEventListener('mousedown', handlePointerDownOutside, true);
+      document.removeEventListener('touchstart', handlePointerDownOutside, true);
+    };
+  }, [memberActionMenu?.memberKey]);
+
+  useEffect(() => {
+    setMemberActionMenu(null);
+  }, [searchQuery]);
+
+  // Member Management Batch WhatsApp Reminder State
+  const [showBatchReminderModal, setShowBatchReminderModal] = useState<boolean>(false);
+  const [batchSearchQuery, setBatchSearchQuery] = useState<string>('');
+  const [selectedBatchMemberIds, setSelectedBatchMemberIds] = useState<string[]>([]);
+  const [sentBatchMemberIds, setSentBatchMemberIds] = useState<string[]>([]);
+  const [batchQueueIndex, setBatchQueueIndex] = useState<number>(-1);
+  const [isBatchAutoRunning, setIsBatchAutoRunning] = useState<boolean>(false);
 
   const [deletingRepaymentId, setDeletingRepaymentId] = useState<string | null>(null);
 
@@ -901,8 +976,11 @@ export default function App() {
     phone: string;
     waUrl: string;
     message: string;
-    type: 'approved' | 'declined';
+    type?: 'approved' | 'declined';
+    title?: string;
+    actionLabel?: string;
   } | null>(null);
+  const [hasCopiedWhatsApp, setHasCopiedWhatsApp] = useState(false);
   const [isTriggeringContributionCheck, setIsTriggeringContributionCheck] = useState(false);
   const [isTriggeringLoanDueCheck, setIsTriggeringLoanDueCheck] = useState(false);
   const [reminderModalTab, setReminderModalTab] = useState<'contrib5th' | 'loanDue' | 'email5th'>('contrib5th');
@@ -1302,6 +1380,176 @@ export default function App() {
     return items;
   }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery]);
 
+  // Unpaid members for current month batch reminders (includes all 48 members including Arun J; only excludes system unnati account)
+  const unpaidMembersForBatch = useMemo(() => {
+    return allUsers.filter(u => {
+      const email = (u.email || '').toLowerCase().trim();
+      const name = (u.displayName || '').toLowerCase().trim();
+      // Exclude only the system administrator robot account (unnati.finance2026@gmail.com)
+      if (email === SYSTEM_ADMIN_EMAIL.toLowerCase() || email.includes('unnati.finance2026') || name === 'unnati') {
+        return false;
+      }
+      const userContribs = contributions.filter(c => 
+        ((u.uid && c.userId === u.uid) || 
+        (u.email && c.userEmail?.toLowerCase().trim() === email)) &&
+        c.year >= 2026
+      );
+      const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear && (c.status === 'paid' || !c.status));
+      return !paidThisMonth;
+    });
+  }, [allUsers, contributions, currentMonth, currentYear]);
+
+  // Open Batch Reminder Modal
+  const openBatchReminder = useCallback(() => {
+    const validIds = unpaidMembersForBatch
+      .filter(u => Boolean(u.phoneNumber || (u as any).phone))
+      .map(u => u.uid || u.email);
+    setSelectedBatchMemberIds(validIds);
+    setSentBatchMemberIds([]);
+    setBatchSearchQuery('');
+    setBatchQueueIndex(-1);
+    setIsBatchAutoRunning(false);
+    setShowBatchReminderModal(true);
+  }, [unpaidMembersForBatch]);
+
+  // Filtered unpaid members for batch reminder dialog search
+  const filteredBatchMembers = useMemo(() => {
+    if (!batchSearchQuery.trim()) return unpaidMembersForBatch;
+    const q = batchSearchQuery.toLowerCase().trim();
+    return unpaidMembersForBatch.filter(u => {
+      const name = (u.displayName || '').toLowerCase();
+      const email = (u.email || '').toLowerCase();
+      const phone = (u.phoneNumber || (u as any).phone || '').toLowerCase();
+      return name.includes(q) || email.includes(q) || phone.includes(q);
+    });
+  }, [unpaidMembersForBatch, batchSearchQuery]);
+
+  // Toggle selection for all unpaid members (or filtered if searching)
+  const toggleSelectAllBatchMembers = () => {
+    const targetPool = filteredBatchMembers;
+    const validIds = targetPool
+      .filter(u => Boolean(u.phoneNumber || (u as any).phone))
+      .map(u => u.uid || u.email);
+    
+    const allSelected = validIds.length > 0 && validIds.every(id => selectedBatchMemberIds.includes(id));
+    if (allSelected) {
+      setSelectedBatchMemberIds(prev => prev.filter(id => !validIds.includes(id)));
+    } else {
+      setSelectedBatchMemberIds(prev => Array.from(new Set([...prev, ...validIds])));
+    }
+  };
+
+  // Toggle selection for single member
+  const toggleSelectBatchMember = (id: string) => {
+    setSelectedBatchMemberIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  // Send WhatsApp reminders to all selected unpaid members simultaneously in 1 click
+  const sendBatchRemindersSimultaneously = (customMembers?: UserProfile[]) => {
+    const targetMembers = customMembers || unpaidMembersForBatch.filter(u => 
+      selectedBatchMemberIds.includes(u.uid || u.email) &&
+      Boolean(u.phoneNumber || (u as any).phone)
+    );
+
+    if (targetMembers.length === 0) {
+      notify('error', 'No unpaid members with valid phone numbers selected.');
+      return;
+    }
+
+    const monthName = format(new Date(), 'MMMM yyyy');
+    const newSent = targetMembers.map(m => m.uid || m.email);
+    setSentBatchMemberIds(prev => Array.from(new Set([...prev, ...newSent])));
+
+    // Dispatch the first member instantly with direct click gesture
+    const firstMember = targetMembers[0];
+    const firstPhone = formatWhatsAppNumber(firstMember.phoneNumber || (firstMember as any).phone);
+    if (firstPhone) {
+      const msg = `Hi ${firstMember.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
+      window.open(`https://wa.me/${firstPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+
+    // Stagger remaining members smoothly (800ms) to ensure browsers do not block multi-tab popups
+    if (targetMembers.length > 1) {
+      targetMembers.slice(1).forEach((member, idx) => {
+        setTimeout(() => {
+          const rawPhone = member.phoneNumber || (member as any).phone;
+          const phone = formatWhatsAppNumber(rawPhone);
+          if (phone) {
+            const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+          }
+        }, (idx + 1) * 800);
+      });
+      notify('success', `Opening WhatsApp for ${targetMembers.length} unpaid members simultaneously in 1 click!`);
+    } else {
+      notify('success', `Opening WhatsApp reminder for ${firstMember.displayName || 'Member'}!`);
+    }
+  };
+
+  // Send single WhatsApp reminder for a member during batch
+  const sendSingleBatchWhatsApp = (member: UserProfile) => {
+    const rawPhone = member.phoneNumber || (member as any).phone;
+    if (!rawPhone) {
+      notify('error', `No phone number for ${member.displayName || 'Member'}`);
+      return;
+    }
+    const formattedPhone = formatWhatsAppNumber(rawPhone);
+    if (!formattedPhone) {
+      notify('error', `Invalid phone number for ${member.displayName || 'Member'}`);
+      return;
+    }
+    const monthName = format(new Date(), 'MMMM yyyy');
+    const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
+    const memberKey = member.uid || member.email;
+    setSentBatchMemberIds(prev => prev.includes(memberKey) ? prev : [...prev, memberKey]);
+    window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  // Copy WhatsApp group broadcast text
+  const copyBatchGroupBroadcast = () => {
+    const monthName = format(new Date(), 'MMMM yyyy');
+    const memberListStr = unpaidMembersForBatch
+      .map((u, i) => `${i + 1}. ${u.displayName || 'Member'}`)
+      .join('\n');
+    const text = `*Unnati Savings Group - Contribution Reminder*\nMonth: ${monthName}\nAmount: ₹1,000\n\nDear Members, please record your monthly contribution before the 10th to keep your account active.\n\n*Pending Members (${unpaidMembersForBatch.length}):*\n${memberListStr}\n\nPlease ignore if already paid. Thank you!`;
+    navigator.clipboard.writeText(text);
+    notify('success', 'Group reminder copied to clipboard! Paste it directly into your WhatsApp group.');
+  };
+
+  // 1-Click Batch Auto-Runner
+  const startBatchAutoRunner = () => {
+    const membersToSend = unpaidMembersForBatch.filter(u => 
+      selectedBatchMemberIds.includes(u.uid || u.email) &&
+      Boolean(u.phoneNumber || (u as any).phone)
+    );
+    if (membersToSend.length === 0) {
+      notify('error', 'No unpaid members with valid phone numbers selected.');
+      return;
+    }
+
+    setIsBatchAutoRunning(true);
+    setBatchQueueIndex(0);
+    sendSingleBatchWhatsApp(membersToSend[0]);
+    notify('info', `Opening WhatsApp for ${membersToSend[0].displayName || 'Member'} (1 of ${membersToSend.length})...`);
+  };
+
+  const advanceBatchQueue = (nextIdx: number) => {
+    const membersToSend = unpaidMembersForBatch.filter(u => 
+      selectedBatchMemberIds.includes(u.uid || u.email) &&
+      Boolean(u.phoneNumber || (u as any).phone)
+    );
+    if (nextIdx >= membersToSend.length) {
+      setIsBatchAutoRunning(false);
+      setBatchQueueIndex(-1);
+      notify('success', 'All batch WhatsApp reminders dispatched successfully!');
+      return;
+    }
+    setBatchQueueIndex(nextIdx);
+    sendSingleBatchWhatsApp(membersToSend[nextIdx]);
+  };
+
     // Financial summary calculated directly from database records
     const financials = useMemo(() => {
       // Filter contributions to only include paid records from 2026 onwards as requested
@@ -1372,7 +1620,7 @@ export default function App() {
       const email = (u.email || '').toLowerCase().trim();
       const hasPaid = contributions.some(c => {
         const matchesUser = c.userId === uid || (!!c.userEmail && c.userEmail.toLowerCase().trim() === email);
-        return matchesUser && c.month === currentMonth && c.year === currentYear && c.status === 'paid';
+        return matchesUser && c.month === currentMonth && c.year === currentYear && (c.status === 'paid' || !c.status);
       });
       return !hasPaid;
     }).length;
@@ -1381,8 +1629,8 @@ export default function App() {
   const activeLoansPendingCurrentMonth = useMemo(() => {
     return loans.filter(l => {
       if (l.status !== 'approved') return false;
-      // Exclude administrator unnati loans
-      if (isExemptAdministrator(l as any) || (l.userEmail && ADMIN_EMAILS.includes(l.userEmail.toLowerCase()))) {
+      // Exclude only system administrator unnati account loans
+      if (isExemptAdministrator(l as any) || (l.userEmail && l.userEmail.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase())) {
         return false;
       }
       const hasPaid = loanPayments.some(p => {
@@ -2309,13 +2557,90 @@ export default function App() {
     }
   }, [isLatePaymentDate, paymentDate, isAdding, selectedMonth, selectedYear]);
 
+  // Helper to generate simple WhatsApp message acknowledgment for member payments
+  const triggerPaymentWhatsAppAcknowledgment = (params: {
+    targetUser: UserProfile | null | undefined;
+    type: 'subscription_recorded' | 'subscription_approved' | 'loan_recorded' | 'loan_approved';
+    amount: number;
+    principal?: number;
+    interest?: number;
+    month: number;
+    year: number;
+    paymentMode?: string;
+    paymentDate?: string | Date;
+    remainingLoanPrincipal?: number;
+    isLoanFullyPaid?: boolean;
+  }) => {
+    if (!params.targetUser) return;
+    const rawPhone = params.targetUser.phoneNumber || (params.targetUser as any)?.phone;
+    const formattedPhone = rawPhone ? formatWhatsAppNumber(rawPhone) : '';
+    const memberName = params.targetUser.displayName || 'Member';
+    const monthName = format(new Date(params.year, params.month - 1, 1), 'MMMM');
+    const dateStr = params.paymentDate
+      ? (typeof params.paymentDate === 'string' ? params.paymentDate : format(params.paymentDate, 'dd MMM yyyy'))
+      : format(new Date(), 'dd MMM yyyy');
+    const modeStr = (params.paymentMode || 'Online').toUpperCase();
+
+    let message = '';
+    let actionBadge = 'Recorded';
+    let modalTitle = 'WhatsApp Payment Acknowledgment';
+
+    if (params.type === 'subscription_recorded') {
+      actionBadge = 'Subscription Recorded';
+      modalTitle = 'Subscription Payment Recorded';
+      message = `*Unnati Savings - Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Confirmed & Recorded\n\nThank you for your prompt contribution!`;
+    } else if (params.type === 'subscription_approved') {
+      actionBadge = 'Subscription Approved';
+      modalTitle = 'Subscription Payment Approved';
+      message = `*Unnati Savings - Payment Approved* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n\nThank you!`;
+    } else if (params.type === 'loan_recorded') {
+      actionBadge = 'Loan Payment Recorded';
+      modalTitle = 'Loan Payment Recorded';
+      const principalStr = params.principal !== undefined ? `₹${params.principal.toLocaleString('en-IN')}` : '';
+      const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
+      const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
+
+      message = `*Unnati Finance - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+    } else if (params.type === 'loan_approved') {
+      actionBadge = 'Loan Payment Approved';
+      modalTitle = 'Loan Payment Approved';
+      const principalStr = params.principal !== undefined ? `₹${params.principal.toLocaleString('en-IN')}` : '';
+      const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
+      const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
+
+      message = `*Unnati Finance - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+    }
+
+    const encodedMessage = encodeURIComponent(message);
+    const waUrl = formattedPhone ? `https://wa.me/${formattedPhone}?text=${encodedMessage}` : '';
+
+    if (waUrl) {
+      try {
+        window.open(waUrl, '_blank');
+      } catch (e) {
+        console.warn('Popup blocked, modal fallback will be shown', e);
+      }
+    }
+
+    setPendingWhatsAppModal({
+      isOpen: true,
+      recipientName: memberName,
+      phone: formattedPhone,
+      waUrl,
+      message,
+      type: 'approved',
+      title: modalTitle,
+      actionLabel: actionBadge
+    });
+  };
+
   const addContribution = async (month: number, year: number, targetUserId?: string, status: 'paid' | 'pending' = 'paid', customDate?: string, amount?: number, method?: 'cash' | 'online') => {
     if (!user || !profile) return;
     
     const uid = targetUserId || user.uid;
     // Find user by UID or Email (since pre-added users use email as ID)
     const targetUser = allUsers.find(u => 
-      (uid && u.uid === uid) || 
+      (uid && (u.uid === uid || u.id === uid)) || 
       (uid && u.email.toLowerCase() === uid.toLowerCase())
     );
     if (!targetUser) return;
@@ -2349,7 +2674,18 @@ export default function App() {
       
       if (status === 'pending') {
         notify('success', "Payment recorded as pending! The administrator will verify and approve your payment shortly.");
-      } else if (!isAdmin) {
+      } else if (isAdmin) {
+        notify('success', "Subscription payment recorded successfully!");
+        triggerPaymentWhatsAppAcknowledgment({
+          targetUser,
+          type: 'subscription_recorded',
+          amount: finalAmount,
+          month,
+          year,
+          paymentMode: method || 'online',
+          paymentDate: customDate || new Date()
+        });
+      } else {
         notify('success', "Payment recorded successfully!");
       }
     } catch (err: any) {
@@ -2365,20 +2701,21 @@ export default function App() {
         status: 'paid'
       });
       
-      // Send WhatsApp confirmation if possible (PWC feature)
       if (contrib) {
         const targetUser = allUsers.find(u => 
           (contrib.userId && u.uid === contrib.userId) || 
           (contrib.userEmail && u.email.toLowerCase() === contrib.userEmail.toLowerCase())
         );
-        if (targetUser && (targetUser.phoneNumber || (targetUser as any).phone)) {
-          const formattedPhone = formatWhatsAppNumber(targetUser.phoneNumber || (targetUser as any).phone);
-          if (formattedPhone) {
-            const monthName = format(new Date(contrib.year, contrib.month - 1), 'MMMM');
-            const message = `Hi ${targetUser.displayName || 'Member'}, your Unnati contribution of ₹${contrib.amount.toLocaleString('en-IN')} for ${monthName} ${contrib.year} has been successfully verified and approved. Thank you!`;
-            const encodedMessage = encodeURIComponent(message);
-            window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
-          }
+        if (targetUser) {
+          triggerPaymentWhatsAppAcknowledgment({
+            targetUser,
+            type: 'subscription_approved',
+            amount: contrib.amount,
+            month: contrib.month,
+            year: contrib.year,
+            paymentMode: contrib.paymentMethod || 'online',
+            paymentDate: contrib.timestamp?.toDate ? contrib.timestamp.toDate() : new Date()
+          });
         }
       }
       
@@ -2800,6 +3137,36 @@ export default function App() {
     window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
   };
 
+  const sendMemberStatementViaWhatsApp = async (targetUser: UserProfile) => {
+    const rawPhone = targetUser.phoneNumber || (targetUser as any).phone;
+    if (!rawPhone) {
+      notify('error', "No phone number found for this member.");
+      return;
+    }
+    const formattedPhone = formatWhatsAppNumber(rawPhone);
+    if (!formattedPhone) {
+      notify('error', "Invalid phone number for WhatsApp.");
+      return;
+    }
+
+    try {
+      // 1. Generate the exact same PDF as Export PDF
+      const { doc, fileName } = buildMemberStatementPdfDoc(targetUser, contributions, loans, loanPayments);
+
+      // 2. Download the statement PDF locally to the admin device
+      doc.save(fileName);
+
+      // 3. Open WhatsApp directly to member's chat with message "Your statement"
+      const messageText = "Your statement";
+      const encodedMessage = encodeURIComponent(messageText);
+      window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
+      notify('success', 'Statement PDF downloaded! Opening WhatsApp — attach the downloaded PDF from your downloads tray to send.');
+    } catch (err: any) {
+      console.error("Failed to send statement via WhatsApp:", err);
+      notify('error', `Failed to send statement: ${err.message || 'Unknown error'}`);
+    }
+  };
+
   const sendEmailReminder = (u: UserProfile) => {
     const subject = `Payment Reminder: Unnati Contribution - ${format(new Date(), 'MMMM yyyy')}`;
     const body = `Hi ${u.displayName || 'Member'},\n\nThis is a reminder for your monthly Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment on the app.\n\nThanks!`;
@@ -2833,10 +3200,30 @@ export default function App() {
   const updateContribution = async () => {
     if (profile?.role !== 'admin' || !editingContribution) return;
     try {
+      const prevContrib = contributions.find(c => c.id === editingContribution.id);
       await updateDoc(doc(db, 'contributions', editingContribution.id!), {
         amount: editingContribution.amount,
         status: editingContribution.status
       });
+
+      if (editingContribution.status === 'paid' && prevContrib?.status !== 'paid') {
+        const targetUser = allUsers.find(u => 
+          (editingContribution.userId && (u.uid === editingContribution.userId || u.id === editingContribution.userId)) || 
+          (editingContribution.userEmail && u.email.toLowerCase() === editingContribution.userEmail.toLowerCase())
+        );
+        if (targetUser) {
+          triggerPaymentWhatsAppAcknowledgment({
+            targetUser,
+            type: 'subscription_approved',
+            amount: editingContribution.amount,
+            month: editingContribution.month,
+            year: editingContribution.year,
+            paymentMode: editingContribution.paymentMethod || 'online',
+            paymentDate: editingContribution.timestamp?.toDate ? editingContribution.timestamp.toDate() : new Date()
+          });
+        }
+      }
+
       notify('success', "Contribution updated successfully.");
       setEditingContribution(null);
     } catch (err: any) {
@@ -2851,8 +3238,25 @@ export default function App() {
       
       if (status === 'paid') {
         const contrib = contributions.find(c => c.id === id);
-        if (contrib && contrib.userId) {
-          createNotification(contrib.userId, "Payment Verified", `Your contribution for ${format(new Date(contrib.year, contrib.month - 1), 'MMMM')} has been verified.`, 'payment');
+        if (contrib) {
+          if (contrib.userId) {
+            createNotification(contrib.userId, "Payment Verified", `Your contribution for ${format(new Date(contrib.year, contrib.month - 1), 'MMMM')} has been verified.`, 'payment');
+          }
+          const targetUser = allUsers.find(u => 
+            (contrib.userId && u.uid === contrib.userId) || 
+            (contrib.userEmail && u.email.toLowerCase() === contrib.userEmail.toLowerCase())
+          );
+          if (targetUser) {
+            triggerPaymentWhatsAppAcknowledgment({
+              targetUser,
+              type: 'subscription_approved',
+              amount: contrib.amount,
+              month: contrib.month,
+              year: contrib.year,
+              paymentMode: contrib.paymentMethod || 'online',
+              paymentDate: contrib.timestamp?.toDate ? contrib.timestamp.toDate() : new Date()
+            });
+          }
         }
       }
       notify('success', "Status updated successfully.");
@@ -5710,11 +6114,16 @@ export default function App() {
 
       // Check if this was the last payment for the loan
       const loan = loans.find(l => l.id === payment.loanId);
+      let isLoanFullyPaid = false;
+      let remainingPrincipal = 0;
+
       if (loan) {
         const currentPaidPayments = loanPayments.filter(p => p.loanId === loan.id && (p.status === 'paid' || p.id === payment.id));
         const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0);
+        isLoanFullyPaid = Boolean(loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount);
+        remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
         
-        if (totalPrincipalPaid >= loan.approvedAmount!) {
+        if (isLoanFullyPaid) {
           await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
           createNotification(payment.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now fully paid.`, 'loan');
         }
@@ -5722,6 +6131,29 @@ export default function App() {
 
       createNotification(payment.userId, "Loan Payment Approved", `Your loan payment for ${format(new Date(payment.year, payment.month - 1), 'MMMM yyyy')} has been approved.`, 'payment');
       notify('success', "Loan payment approved.");
+
+      // Trigger WhatsApp acknowledgment for the member
+      const targetUser = allUsers.find(u => 
+        (payment.userId && u.uid === payment.userId) || 
+        (payment.userEmail && u.email.toLowerCase() === payment.userEmail.toLowerCase()) ||
+        (loan && loan.userId && u.uid === loan.userId) ||
+        (loan && loan.userEmail && u.email.toLowerCase() === loan.userEmail.toLowerCase())
+      );
+      if (targetUser) {
+        triggerPaymentWhatsAppAcknowledgment({
+          targetUser,
+          type: 'loan_approved',
+          amount: (payment.amount || 0) + (payment.interest || 0),
+          principal: payment.amount || 0,
+          interest: payment.interest || 0,
+          month: payment.month,
+          year: payment.year,
+          paymentMode: payment.paymentMethod || payment.paymentMode || 'Online',
+          paymentDate: payment.timestamp?.toDate ? payment.timestamp.toDate() : new Date(),
+          remainingLoanPrincipal: remainingPrincipal,
+          isLoanFullyPaid
+        });
+      }
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `loanPayments/${payment.id}`);
     }
@@ -5863,7 +6295,10 @@ export default function App() {
       const currentPaidPayments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
       const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0) + (existingPayment?.status === 'paid' ? 0 : amount);
       
-      if (loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount) {
+      const isLoanFullyPaid = Boolean(loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount);
+      const remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
+      
+      if (isLoanFullyPaid) {
         await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
         createNotification(loan.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount.toLocaleString('en-IN')} is now fully paid.`, 'loan');
       }
@@ -5872,6 +6307,27 @@ export default function App() {
       
       notify('success', `Repayment recorded successfully for ${format(new Date(year, month - 1), "MMMM yyyy")}`);
       setAdminManualRepayment(prev => ({ ...prev, isOpen: false }));
+
+      // Trigger WhatsApp acknowledgment for the member
+      const targetUser = allUsers.find(u => 
+        (loan.userId && u.uid === loan.userId) || 
+        (loan.userEmail && u.email.toLowerCase() === loan.userEmail.toLowerCase())
+      );
+      if (targetUser) {
+        triggerPaymentWhatsAppAcknowledgment({
+          targetUser,
+          type: 'loan_recorded',
+          amount: amount + interest,
+          principal: amount,
+          interest: interest,
+          month,
+          year,
+          paymentMode: mode,
+          paymentDate,
+          remainingLoanPrincipal: remainingPrincipal,
+          isLoanFullyPaid
+        });
+      }
     } catch (err: any) {
       handleFirestoreError(err, OperationType.WRITE, 'loanPayments/admin-manual');
     }
@@ -6756,13 +7212,6 @@ export default function App() {
                 >
                   <FileText className="w-4 h-4 sm:w-5 sm:h-5" /> PDF Statement
                 </button>
-                <button 
-                  onClick={() => exportMemberStatementToExcel(user!.uid)}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-2xl font-bold hover:bg-emerald-100 transition-all active:scale-95 shadow-xs cursor-pointer text-xs sm:text-sm"
-                  title="Download Excel (.xlsx) Financial Statement"
-                >
-                  <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" /> Excel Statement
-                </button>
               </div>
             )}
             {isAdmin && activeTab === 'notices' && (
@@ -7144,19 +7593,33 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Send Reminders Button */}
+                      {/* Direct 1-Click Batch WhatsApp Reminder Button */}
+                      <button 
+                        type="button"
+                        onClick={openBatchReminder}
+                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap"
+                        title="Send WhatsApp reminders to multiple unpaid members simultaneously in one click"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Batch Reminder</span>
+                        <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-700 text-emerald-100 border border-emerald-500/50">
+                          {unpaidMembersForBatch.length}
+                        </span>
+                      </button>
+
+                      {/* Send Email Reminders Button */}
                       <button 
                         onClick={() => setShowReminderConfirm(true)}
                         disabled={isTriggeringReminders || isSendingReport}
-                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap"
+                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 disabled:opacity-50 whitespace-nowrap cursor-pointer"
                         title="Send monthly reminders to members who haven't paid"
                       >
                         {isTriggeringReminders ? (
-                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-slate-700 rounded-full animate-spin" />
                         ) : (
-                          <Mail className="w-3.5 h-3.5" />
+                          <Mail className="w-3.5 h-3.5 text-slate-600" />
                         )}
-                        <span>{isTriggeringReminders ? 'Sending...' : 'Send Reminders'}</span>
+                        <span>{isTriggeringReminders ? 'Sending...' : 'Email Reminders'}</span>
                       </button>
                     </div>
                   </div>
@@ -7243,7 +7706,7 @@ export default function App() {
                         </div>
                       </th>
                       <th 
-                        className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group border-r border-slate-200/60 select-none"
+                        className="px-2.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group border-r border-slate-200/60 select-none w-28 whitespace-nowrap"
                         onClick={() => handleSortMembers('totalPaid')}
                       >
                         <div className="flex items-center gap-1.5">
@@ -7256,7 +7719,7 @@ export default function App() {
                         </div>
                       </th>
                       <th 
-                        className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group border-r border-slate-200/60 select-none"
+                        className="px-2.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group border-r border-slate-200/60 select-none w-28 whitespace-nowrap"
                         onClick={() => handleSortMembers('status')}
                       >
                         <div className="flex items-center gap-1.5">
@@ -7268,7 +7731,7 @@ export default function App() {
                           )}
                         </div>
                       </th>
-                      <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right min-w-[290px]">Actions</th>
+                      <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right w-44 whitespace-nowrap">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -7324,67 +7787,33 @@ export default function App() {
                           <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                             <span className="text-xs text-slate-500">{u.joinDate}</span>
                           </td>
-                          <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
+                          <td className="px-2.5 py-3 border-r border-slate-200/60 w-28 whitespace-nowrap">
                             <span className="text-sm font-bold text-slate-900">₹{totalPaid.toLocaleString('en-IN')}</span>
                           </td>
-                          <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
-                            <div className="flex flex-col items-start gap-1">
+                          <td className="px-2.5 py-3 border-r border-slate-200/60 w-28 whitespace-nowrap">
+                            <div className="flex flex-col items-start gap-0.5">
                               <span className={cn(
-                                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black tracking-wide border shadow-2xs transition-all select-none",
+                                "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold border shadow-2xs transition-all select-none",
                                 paidThisMonth 
-                                  ? "bg-gradient-to-r from-emerald-50 via-emerald-100/60 to-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20" 
-                                  : "bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20"
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20" 
+                                  : "bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20"
                               )}>
-                                {paidThisMonth ? (
-                                  <>
-                                    <span className="relative flex h-2 w-2 shrink-0">
-                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                                    </span>
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                    <span>Active</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="relative flex h-2 w-2 shrink-0">
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                    </span>
-                                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                    <span>Pending</span>
-                                  </>
-                                )}
+                                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", paidThisMonth ? "bg-emerald-500 animate-pulse" : "bg-amber-500")} />
+                                <span>{paidThisMonth ? "Paid" : "Pending"}</span>
                               </span>
-                              <span className="text-[10px] font-semibold pl-0.5">
-                                {paidThisMonth ? (
-                                  <span className="text-emerald-700 font-bold">Paid this month</span>
-                                ) : (
-                                  <span className="text-amber-700 font-bold">Unpaid this month</span>
-                                )}
+                              <span className="text-[9.5px] font-medium text-slate-400 pl-0.5 whitespace-nowrap">
+                                {paidThisMonth ? "This month" : "Due this mo"}
                               </span>
                             </div>
                           </td>
-                          <td className="px-3 sm:px-3.5 py-3 text-right">
+                          <td className="px-3 py-3 text-right w-44 whitespace-nowrap">
                             {(() => {
                               const memberKey = u.uid || u.email || `mem-${idx}`;
-                              const isMenuOpen = openActionMenuMemberId === memberKey;
+                              const isMenuOpen = memberActionMenu?.memberKey === memberKey;
 
                               return (
-                                <div className="flex items-center justify-end gap-2 relative">
-                                  {/* 1. WhatsApp Button - ALWAYS VISIBLE */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      sendWhatsAppReminder(u);
-                                    }}
-                                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 border border-emerald-300/90 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer select-none shrink-0"
-                                    title="Send WhatsApp Reminder / Message"
-                                  >
-                                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>WhatsApp</span>
-                                  </button>
-
-                                  {/* 2. Quick Contribution Record Button */}
+                                <div className="flex items-center justify-end gap-1.5 relative">
+                                  {/* Quick Contribution Record Button */}
                                   {isAdmin && (
                                     <button 
                                       type="button"
@@ -7400,7 +7829,7 @@ export default function App() {
                                       }}
                                       disabled={!hasPendingThisYear}
                                       className={cn(
-                                        "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs select-none shrink-0",
+                                        "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-2xs select-none shrink-0",
                                         !hasPendingThisYear 
                                           ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-default opacity-70" 
                                           : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-indigo-200/60 hover:shadow-xs active:scale-95 cursor-pointer"
@@ -7421,16 +7850,30 @@ export default function App() {
                                     </button>
                                   )}
 
-                                  {/* 3. Actions Popover Dropdown (Replaces long row of side-by-side buttons) */}
+                                  {/* 3. Actions Popover Dropdown Toggle */}
                                   <div className="relative text-left shrink-0">
                                     <button
                                       type="button"
+                                      data-member-action-btn={memberKey}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setOpenActionMenuMemberId(prev => prev === memberKey ? null : memberKey);
+                                        if (isMenuOpen) {
+                                          setMemberActionMenu(null);
+                                        } else {
+                                          const rect = e.currentTarget.getBoundingClientRect();
+                                          const spaceBelow = window.innerHeight - rect.bottom;
+                                          const openUpwards = spaceBelow < 330 && rect.top > 300;
+                                          setMemberActionMenu({
+                                            memberKey,
+                                            member: u,
+                                            x: Math.max(12, window.innerWidth - rect.right),
+                                            y: openUpwards ? rect.top - 6 : rect.bottom + 6,
+                                            openUpwards,
+                                          });
+                                        }
                                       }}
                                       className={cn(
-                                        "px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer select-none",
+                                        "px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer select-none",
                                         isMenuOpen && "bg-indigo-50/80 border-indigo-300 text-indigo-700 ring-2 ring-indigo-100"
                                       )}
                                       title="More Member Actions"
@@ -7439,184 +7882,6 @@ export default function App() {
                                       <span>Actions</span>
                                       <ChevronDown className={cn("w-3 h-3 text-slate-400 transition-transform duration-200", isMenuOpen && "rotate-180")} />
                                     </button>
-
-                                    {isMenuOpen && (
-                                      <>
-                                        <div 
-                                          className="fixed inset-0 z-40" 
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setOpenActionMenuMemberId(null);
-                                          }} 
-                                        />
-                                        <div 
-                                          className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100 text-left"
-                                          onClick={(e) => e.stopPropagation()}
-                                        >
-                                          {/* Statements Group */}
-                                          <div className="px-1.5 py-1 space-y-0.5">
-                                            <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                                              Statements
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setOpenActionMenuMemberId(null);
-                                                generateMemberStatement(u);
-                                              }}
-                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-rose-50 hover:text-rose-700 rounded-xl transition-colors cursor-pointer"
-                                            >
-                                              <div className="w-6 h-6 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200/70">
-                                                <FileText className="w-3.5 h-3.5" />
-                                              </div>
-                                              <div className="flex flex-col text-left min-w-0">
-                                                <span className="font-bold text-slate-900 leading-tight">Export PDF</span>
-                                                <span className="text-[10px] text-slate-400 font-normal">Statement report</span>
-                                              </div>
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setOpenActionMenuMemberId(null);
-                                                exportMemberStatementToExcel(u);
-                                              }}
-                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer"
-                                            >
-                                              <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200/70">
-                                                <FileSpreadsheet className="w-3.5 h-3.5" />
-                                              </div>
-                                              <div className="flex flex-col text-left min-w-0">
-                                                <span className="font-bold text-slate-900 leading-tight">Export Excel</span>
-                                                <span className="text-[10px] text-slate-400 font-normal">.xlsx spreadsheet</span>
-                                              </div>
-                                            </button>
-                                          </div>
-
-                                          {/* Communication Group */}
-                                          <div className="px-1.5 py-1 space-y-0.5">
-                                            <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                                              Reminders
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setOpenActionMenuMemberId(null);
-                                                sendWhatsAppReminder(u);
-                                              }}
-                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer"
-                                            >
-                                              <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200/70">
-                                                <MessageSquare className="w-3.5 h-3.5" />
-                                              </div>
-                                              <div className="flex flex-col text-left min-w-0">
-                                                <span className="font-bold text-slate-900 leading-tight">WhatsApp Reminder</span>
-                                                <span className="text-[10px] text-slate-400 font-normal">Open WhatsApp chat</span>
-                                              </div>
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setOpenActionMenuMemberId(null);
-                                                sendEmailReminder(u);
-                                              }}
-                                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-colors cursor-pointer"
-                                            >
-                                              <div className="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-200/70">
-                                                <Mail className="w-3.5 h-3.5" />
-                                              </div>
-                                              <div className="flex flex-col text-left min-w-0">
-                                                <span className="font-bold text-slate-900 leading-tight">Email Reminder</span>
-                                                <span className="text-[10px] text-slate-400 font-normal">Send notification email</span>
-                                              </div>
-                                            </button>
-                                          </div>
-
-                                          {/* Management Group */}
-                                          {isAdmin && (
-                                            <div className="px-1.5 py-1 space-y-0.5">
-                                              <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                                                Manage
-                                              </div>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setOpenActionMenuMemberId(null);
-                                                  setSelectedLoanUserId(u.uid || u.email);
-                                                  setIsAddingLoan(true);
-                                                }}
-                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 rounded-xl transition-colors cursor-pointer"
-                                              >
-                                                <div className="w-6 h-6 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0 border border-purple-200/70">
-                                                  <IndianRupee className="w-3.5 h-3.5" />
-                                                </div>
-                                                <div className="flex flex-col text-left min-w-0">
-                                                  <span className="font-bold text-slate-900 leading-tight">Add Loan</span>
-                                                  <span className="text-[10px] text-slate-400 font-normal">Sanction loan for member</span>
-                                                </div>
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setOpenActionMenuMemberId(null);
-                                                  toggleAdminRole(u);
-                                                }}
-                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-colors cursor-pointer"
-                                              >
-                                                <div className={cn(
-                                                  "w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border",
-                                                  u.role === 'admin' 
-                                                    ? "bg-indigo-600 text-white border-indigo-700" 
-                                                    : "bg-indigo-50 text-indigo-600 border-indigo-200/70"
-                                                )}>
-                                                  <Shield className="w-3.5 h-3.5" />
-                                                </div>
-                                                <div className="flex flex-col text-left min-w-0">
-                                                  <span className="font-bold text-slate-900 leading-tight">
-                                                    {u.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
-                                                  </span>
-                                                  <span className="text-[10px] text-slate-400 font-normal">
-                                                    {u.role === 'admin' ? 'Remove admin access' : 'Grant admin access'}
-                                                  </span>
-                                                </div>
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setOpenActionMenuMemberId(null);
-                                                  setEditingUser(u);
-                                                  setOriginalEditingEmail(u.uid || u.email);
-                                                }}
-                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-700 rounded-xl transition-colors cursor-pointer"
-                                              >
-                                                <div className="w-6 h-6 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-200/70">
-                                                  <Edit2 className="w-3.5 h-3.5" />
-                                                </div>
-                                                <div className="flex flex-col text-left min-w-0">
-                                                  <span className="font-bold text-slate-900 leading-tight">Edit Profile</span>
-                                                  <span className="text-[10px] text-slate-400 font-normal">Update contact & address</span>
-                                                </div>
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setOpenActionMenuMemberId(null);
-                                                  setDeletingUserId(u.uid || u.email);
-                                                }}
-                                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 rounded-xl transition-colors cursor-pointer"
-                                              >
-                                                <div className="w-6 h-6 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-200/70">
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </div>
-                                                <div className="flex flex-col text-left min-w-0">
-                                                  <span className="font-bold text-red-700 leading-tight">Delete Member</span>
-                                                  <span className="text-[10px] text-red-400 font-normal">Remove from group</span>
-                                                </div>
-                                              </button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </>
-                                    )}
                                   </div>
                                 </div>
                               );
@@ -7638,6 +7903,197 @@ export default function App() {
                 </table>
               </div>
             </div>
+
+            {/* Floating Action Menu Portal (escapes all table overflow clipping, remains interactive while scrolling) */}
+            {memberActionMenu && typeof document !== 'undefined' && createPortal(
+              <div 
+                id="member-action-dropdown-portal"
+                style={{
+                  position: 'fixed',
+                  right: `${memberActionMenu.x}px`,
+                  ...(memberActionMenu.openUpwards
+                    ? { bottom: `${window.innerHeight - memberActionMenu.y}px` }
+                    : { top: `${memberActionMenu.y}px` }),
+                  zIndex: 9999,
+                }}
+                className="w-60 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-1.5 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100 text-left max-h-80 overflow-y-auto overscroll-contain select-none pointer-events-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                  {/* Statement Group - PDF & WhatsApp Statement */}
+                  <div className="px-1.5 py-1 space-y-0.5">
+                    <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      Statement
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetUser = memberActionMenu.member;
+                        setMemberActionMenu(null);
+                        generateMemberStatement(targetUser);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-rose-50 hover:text-rose-700 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-200/70">
+                        <FileText className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="font-bold text-slate-900 leading-tight">Export PDF</span>
+                        <span className="text-[10px] text-slate-400 font-normal">Download statement</span>
+                      </div>
+                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetUser = memberActionMenu.member;
+                          setMemberActionMenu(null);
+                          sendMemberStatementViaWhatsApp(targetUser);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer"
+                        title="Send Statement with PDF attachment via WhatsApp"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200/70">
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                        </div>
+                        <div className="flex flex-col text-left min-w-0">
+                          <span className="font-bold text-slate-900 leading-tight">Send Statement</span>
+                          <span className="text-[10px] text-slate-400 font-normal">WhatsApp with PDF attachment</span>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Communication Group */}
+                  <div className="px-1.5 py-1 space-y-0.5">
+                    <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                      Reminders
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetUser = memberActionMenu.member;
+                        setMemberActionMenu(null);
+                        sendWhatsAppReminder(targetUser);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-200/70">
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="font-bold text-slate-900 leading-tight">WhatsApp Reminder</span>
+                        <span className="text-[10px] text-slate-400 font-normal">Open WhatsApp chat</span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetUser = memberActionMenu.member;
+                        setMemberActionMenu(null);
+                        sendEmailReminder(targetUser);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-200/70">
+                        <Mail className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex flex-col text-left min-w-0">
+                        <span className="font-bold text-slate-900 leading-tight">Email Reminder</span>
+                        <span className="text-[10px] text-slate-400 font-normal">Send notification email</span>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Management Group */}
+                  {isAdmin && (
+                    <div className="px-1.5 py-1 space-y-0.5">
+                      <div className="px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Manage
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetUser = memberActionMenu.member;
+                          setMemberActionMenu(null);
+                          setSelectedLoanUserId(targetUser.uid || targetUser.email);
+                          setIsAddingLoan(true);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0 border border-purple-200/70">
+                          <IndianRupee className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col text-left min-w-0">
+                          <span className="font-bold text-slate-900 leading-tight">Add Loan</span>
+                          <span className="text-[10px] text-slate-400 font-normal">Sanction loan for member</span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetUser = memberActionMenu.member;
+                          setMemberActionMenu(null);
+                          toggleAdminRole(targetUser);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <div className={cn(
+                          "w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border",
+                          memberActionMenu.member.role === 'admin' 
+                            ? "bg-indigo-600 text-white border-indigo-700" 
+                            : "bg-indigo-50 text-indigo-600 border-indigo-200/70"
+                        )}>
+                          <Shield className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col text-left min-w-0">
+                          <span className="font-bold text-slate-900 leading-tight">
+                            {memberActionMenu.member.role === 'admin' ? 'Revoke Admin' : 'Make Admin'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-normal">
+                            {memberActionMenu.member.role === 'admin' ? 'Remove admin access' : 'Grant admin access'}
+                          </span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetUser = memberActionMenu.member;
+                          setMemberActionMenu(null);
+                          setEditingUser(targetUser);
+                          setOriginalEditingEmail(targetUser.uid || targetUser.email);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-amber-50 hover:text-amber-700 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-200/70">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col text-left min-w-0">
+                          <span className="font-bold text-slate-900 leading-tight">Edit Profile</span>
+                          <span className="text-[10px] text-slate-400 font-normal">Update contact & address</span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetUser = memberActionMenu.member;
+                          setMemberActionMenu(null);
+                          setDeletingUserId(targetUser.uid || targetUser.email);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-700 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-200/70">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col text-left min-w-0">
+                          <span className="font-bold text-red-700 leading-tight">Delete Member</span>
+                          <span className="text-[10px] text-red-400 font-normal">Remove from group</span>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>,
+              document.body
+            )}
 
             {/* Mobile Card View */}
             <div className="lg:hidden space-y-4">
@@ -7783,20 +8239,22 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={() => generateMemberStatement(u)}
-                          className="flex-1 py-2 px-2.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
+                          className="flex-1 py-2 px-2 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
                           title="Export PDF Statement"
                         >
                           <FileText className="w-3.5 h-3.5 text-rose-600" />
                           <span>PDF</span>
                         </button>
-                        <button 
-                          onClick={() => exportMemberStatementToExcel(u)}
-                          className="flex-1 py-2 px-2.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
-                          title="Export Excel (.xlsx) Statement"
-                        >
-                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Excel</span>
-                        </button>
+                        {isAdmin && (
+                          <button 
+                            onClick={() => sendMemberStatementViaWhatsApp(u)}
+                            className="flex-1 py-2 px-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
+                            title="Send Statement with PDF attachment via WhatsApp"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Send Statement</span>
+                          </button>
+                        )}
                         {isAdmin && (
                           <>
                             <button 
@@ -8519,7 +8977,12 @@ export default function App() {
                       const activeLoansList = sortedLoans.filter(l => l.status === 'approved');
                       const completedLoansList = sortedLoans.filter(l => l.status === 'paid');
 
-                      const renderLoanList = (loanList: Loan[], keyPrefix: string) => (
+                      const renderLoanList = (loanList: Loan[], keyPrefix: string) => {
+                        const isSettledTable = keyPrefix === 'completed';
+                        const currentMonthAbbr = format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMM').toUpperCase();
+                        const statusColumnHeader = isSettledTable ? 'Status' : `Status(${currentMonthAbbr})`;
+
+                        return (
                         <div className="space-y-4">
                           {/* Desktop Table View */}
                           <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
@@ -8574,7 +9037,7 @@ export default function App() {
                                       onClick={() => handleSortLoans('monthlyStatus')}
                                     >
                                       <div className="flex items-center gap-1.5">
-                                        Monthly Status ({format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMM')})
+                                        {statusColumnHeader}
                                         {loanSortConfig.field === 'monthlyStatus' ? (
                                           loanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
                                         ) : (
@@ -8648,15 +9111,22 @@ export default function App() {
                                             </div>
                                           </td>
                                           <td className="px-4 py-3.5 border-r border-slate-200/60">
-                                            <span className={cn(
-                                              "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border",
-                                              (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
-                                              isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
-                                              isLate ? "bg-red-50 text-red-600 border-red-200" : 
-                                              loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
-                                            )}>
-                                              {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
-                                            </span>
+                                            {isSettledTable ? (
+                                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border bg-emerald-50 text-emerald-700 border-emerald-300 shadow-2xs">
+                                                <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                                Closed
+                                              </span>
+                                            ) : (
+                                              <span className={cn(
+                                                "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border",
+                                                (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
+                                                isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
+                                                isLate ? "bg-red-50 text-red-600 border-red-200" : 
+                                                loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
+                                              )}>
+                                                {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                              </span>
+                                            )}
                                           </td>
                                           <td className="px-4 py-3.5 text-right">
                                             <div className="flex items-center justify-end gap-2">
@@ -8913,7 +9383,7 @@ export default function App() {
                                 { key: 'date', label: 'Date' },
                                 { key: 'name', label: 'Member' },
                                 { key: 'remaining', label: 'Loan Balance' },
-                                { key: 'monthlyStatus', label: 'Monthly Status' }
+                                { key: 'monthlyStatus', label: statusColumnHeader }
                               ]}
                               activeField={loanSortConfig.field}
                               direction={loanSortConfig.direction}
@@ -8979,16 +9449,23 @@ export default function App() {
                                         <p className="font-bold text-slate-900">{paidPayments.length} / {l.installments} Paid</p>
                                       </div>
                                       <div className="col-span-2">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Monthly Status</p>
-                                        <span className={cn(
-                                          "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
-                                          (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
-                                          isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
-                                          isLate ? "bg-red-50 text-red-600 border-red-200" : 
-                                          loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
-                                        )}>
-                                          {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
-                                        </span>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">{statusColumnHeader}</p>
+                                        {isSettledTable ? (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black border bg-emerald-50 text-emerald-700 border-emerald-300">
+                                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                            Closed
+                                          </span>
+                                        ) : (
+                                          <span className={cn(
+                                            "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
+                                            (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
+                                            isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
+                                            isLate ? "bg-red-50 text-red-600 border-red-200" : 
+                                            loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
+                                          )}>
+                                            {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
 
@@ -9226,7 +9703,8 @@ export default function App() {
                             })}
                           </div>
                         </div>
-                      );
+                        );
+                      };
 
                       return (
                         <div className="space-y-8">
@@ -11762,6 +12240,317 @@ export default function App() {
           </div>
         )}
 
+        {/* Batch WhatsApp Reminders Modal (1-Click Simultaneous Dispatch) */}
+        {showBatchReminderModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isBatchAutoRunning) setShowBatchReminderModal(false);
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl p-5 sm:p-7 border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden z-10"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0 border border-emerald-200/60">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg sm:text-xl font-black text-slate-900">Batch WhatsApp Reminders</h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        Admin Action
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Send contribution reminders to multiple unpaid members simultaneously in 1 click
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBatchReminderModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                  title="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Stats Summary Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4 shrink-0">
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-center">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Due Month</span>
+                  <span className="text-xs font-black text-slate-800">{format(new Date(), 'MMMM yyyy')}</span>
+                </div>
+                <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-amber-700 block">
+                    {batchSearchQuery ? 'Found / Unpaid' : 'Unpaid Members'}
+                  </span>
+                  <span className="text-base font-black text-amber-900">
+                    {batchSearchQuery ? `${filteredBatchMembers.length} of ${unpaidMembersForBatch.length}` : unpaidMembersForBatch.length}
+                  </span>
+                </div>
+                <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700 block">Selected</span>
+                  <span className="text-base font-black text-emerald-900">{selectedBatchMemberIds.length}</span>
+                </div>
+                <div className="p-3 bg-indigo-50/70 rounded-2xl border border-indigo-200/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-indigo-700 block">Sent Status</span>
+                  <span className="text-base font-black text-indigo-900">{sentBatchMemberIds.length} / {selectedBatchMemberIds.length}</span>
+                </div>
+              </div>
+
+              {/* Progress Bar (Visible if any sent) */}
+              {sentBatchMemberIds.length > 0 && (
+                <div className="mb-4 p-3 bg-emerald-50/60 rounded-2xl border border-emerald-100 shrink-0">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-800 mb-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Dispatched {sentBatchMemberIds.length} of {selectedBatchMemberIds.length} reminders
+                    </span>
+                    <span>{Math.round((sentBatchMemberIds.length / Math.max(1, selectedBatchMemberIds.length)) * 100)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-emerald-200/60 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
+                      style={{ width: `${Math.min(100, Math.round((sentBatchMemberIds.length / Math.max(1, selectedBatchMemberIds.length)) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Batch Actions Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 mb-3 shrink-0">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllBatchMembers}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    {filteredBatchMembers.filter(u => Boolean(u.phoneNumber || (u as any).phone)).every(u => selectedBatchMemberIds.includes(u.uid || u.email)) && filteredBatchMembers.filter(u => Boolean(u.phoneNumber || (u as any).phone)).length > 0 ? (
+                      <>
+                        <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Deselect All</span>
+                      </>
+                    ) : (
+                      <>
+                        <Square className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Select All ({filteredBatchMembers.filter(u => Boolean(u.phoneNumber || (u as any).phone)).length})</span>
+                      </>
+                    )}
+                  </button>
+                  <span className="text-xs text-slate-500 font-medium">
+                    Amount: <strong className="text-slate-800">₹1,000</strong>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={copyBatchGroupBroadcast}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap"
+                    title="Copy formatted group reminder with all pending members listed to paste directly in WhatsApp"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Copy Group Broadcast</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => sendBatchRemindersSimultaneously()}
+                    disabled={selectedBatchMemberIds.length === 0}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200/50 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                    title="Send WhatsApp reminders to multiple unpaid members simultaneously in one click"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                    <span>Send All (1-Click)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Search Bar & Search Button */}
+              <div className="flex items-center gap-2 mb-3 shrink-0">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={batchSearchQuery}
+                    onChange={(e) => setBatchSearchQuery(e.target.value)}
+                    placeholder="Search member by name, phone, or email..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white text-xs text-slate-800 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                  {batchSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setBatchSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
+                      title="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!batchSearchQuery) {
+                      notify('info', 'Type a member name or phone to filter.');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer shrink-0"
+                  title="Search unpaid members"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Search</span>
+                </button>
+              </div>
+
+              {/* Unpaid Member Selection List */}
+              <div className="flex-1 overflow-y-auto min-h-[180px] max-h-[320px] divide-y divide-slate-100 border border-slate-200 rounded-2xl bg-slate-50/40 p-1">
+                {unpaidMembersForBatch.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-800">All Members Paid!</h4>
+                    <p className="text-xs text-slate-500 mt-1">There are no unpaid members for {format(new Date(), 'MMMM yyyy')}.</p>
+                  </div>
+                ) : filteredBatchMembers.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-2.5">
+                      <Search className="w-5 h-5" />
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-700">No members match "{batchSearchQuery}"</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Try searching by name, phone number, or email.</p>
+                    <button
+                      type="button"
+                      onClick={() => setBatchSearchQuery('')}
+                      className="mt-3 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Clear Search
+                    </button>
+                  </div>
+                ) : (
+                  filteredBatchMembers.map(member => {
+                    const memberKey = member.uid || member.email;
+                    const isSelected = selectedBatchMemberIds.includes(memberKey);
+                    const isSent = sentBatchMemberIds.includes(memberKey);
+                    const rawPhone = member.phoneNumber || (member as any).phone;
+                    const formattedPhone = formatWhatsAppNumber(rawPhone);
+                    const hasPhone = Boolean(formattedPhone);
+
+                    return (
+                      <div 
+                        key={memberKey}
+                        className={cn(
+                          "flex items-center justify-between gap-3 p-3 rounded-xl transition-colors",
+                          isSelected ? "bg-white shadow-xs" : "hover:bg-white/60 opacity-80"
+                        )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <button
+                            type="button"
+                            disabled={!hasPhone}
+                            onClick={() => toggleSelectBatchMember(memberKey)}
+                            className="cursor-pointer text-slate-400 hover:text-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-emerald-600" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 uppercase">
+                            {(member.displayName || member.email || 'M').charAt(0)}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-900 truncate">
+                                {member.displayName || 'Member'}
+                              </span>
+                              {isSent ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                                  <CheckCircle2 className="w-2.5 h-2.5" /> Sent
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                                  Pending
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                              {hasPhone ? (
+                                <span className="flex items-center gap-1 font-mono text-[10px] text-slate-600">
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                  {rawPhone}
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-[10px] text-rose-500 font-medium">
+                                  <AlertCircle className="w-3 h-3" />
+                                  No phone registered
+                                </span>
+                              )}
+                              <span className="text-slate-300">•</span>
+                              <span className="text-slate-500 truncate text-[10px]">{member.email}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={!hasPhone}
+                            onClick={() => sendSingleBatchWhatsApp(member)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-50 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                            title={`Send WhatsApp reminder directly to ${member.displayName || 'Member'}`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Send</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Message Preview Box */}
+              <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs shrink-0">
+                <span className="font-bold text-slate-700 block mb-1">WhatsApp Message Preview:</span>
+                <p className="text-slate-600 italic bg-white p-2.5 rounded-xl border border-slate-200/60 leading-relaxed font-mono text-[11px]">
+                  "Hi [Member Name], this is a reminder for your Unnati contribution of ₹1,000 for {format(new Date(), 'MMMM yyyy')}. Please record your payment. Ignore if already paid. Thanks!"
+                </p>
+              </div>
+
+              {/* Footer */}
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between shrink-0">
+                <span className="text-[11px] text-slate-400">
+                  Tip: Clicking "Send All" opens WhatsApp web chat for selected members simultaneously in 1 click.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowBatchReminderModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {/* Automated Reminders & Alerts Hub Modal */}
         {showReminderConfirm && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -12021,15 +12810,17 @@ export default function App() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-black text-slate-900 text-lg">WhatsApp Status Update</h3>
+                    <h3 className="font-black text-slate-900 text-lg">
+                      {pendingWhatsAppModal.title || 'WhatsApp Payment Acknowledgment'}
+                    </h3>
                     <span className={cn(
                       "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider",
                       pendingWhatsAppModal.type === 'approved' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
                     )}>
-                      {pendingWhatsAppModal.type === 'approved' ? 'Approved' : 'Declined'}
+                      {pendingWhatsAppModal.actionLabel || (pendingWhatsAppModal.type === 'approved' ? 'Approved' : 'Declined')}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500">Automated notification prepared for member</p>
+                  <p className="text-xs text-slate-500">Automated acknowledgment prepared for member</p>
                 </div>
               </div>
 
@@ -12045,7 +12836,30 @@ export default function App() {
                   </div>
                 )}
                 <div className="pt-2 border-t border-slate-200/60">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">Message Preview</p>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Message Preview</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(pendingWhatsAppModal.message);
+                        setHasCopiedWhatsApp(true);
+                        setTimeout(() => setHasCopiedWhatsApp(false), 2000);
+                      }}
+                      className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 px-2 py-0.5 rounded-md hover:bg-emerald-50 transition-colors cursor-pointer"
+                    >
+                      {hasCopiedWhatsApp ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy Message</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                   <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 font-mono whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
                     {pendingWhatsAppModal.message}
                   </div>

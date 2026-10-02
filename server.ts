@@ -838,6 +838,256 @@ async function startServer() {
     }
   });
 
+  // In-memory cache for temporary statements (fast retrieval)
+  const statementCache = new Map<string, { base64: string; fileName: string; memberName: string; createdAt: number }>();
+
+  // API to store member statement for WhatsApp sharing
+  app.post('/api/statement/store', async (req, res) => {
+    try {
+      const { base64, fileName, memberName, userId } = req.body;
+      if (!base64) {
+        return res.status(400).json({ error: 'Base64 PDF data is required' });
+      }
+
+      // Generate a unique statement ID
+      const statementId = 'stmt_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      const cleanFileName = (fileName || 'Statement.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+
+      // Cache in memory for quick retrieval
+      statementCache.set(statementId, {
+        base64,
+        fileName: cleanFileName,
+        memberName: memberName || 'Member',
+        createdAt: Date.now(),
+      });
+
+      // Persist to Firestore if available
+      try {
+        const { type, db } = await getDb();
+        if (type === 'admin') {
+          await (db as admin.firestore.Firestore).collection('statements').doc(statementId).set({
+            base64,
+            fileName: cleanFileName,
+            memberName: memberName || 'Member',
+            userId: userId || null,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (dbErr) {
+        console.warn('[Statement Store] Warning saving to Firestore (in-memory cache used):', dbErr);
+      }
+
+      // Prune old in-memory statements older than 7 days
+      const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      for (const [key, val] of statementCache.entries()) {
+        if (val.createdAt < oneWeekAgo) {
+          statementCache.delete(key);
+        }
+      }
+
+      // Determine public base origin
+      let baseOrigin = (req.body.origin || req.get('origin') || '').trim();
+      if (!baseOrigin || baseOrigin.includes('localhost')) {
+        const forwardedHost = req.get('x-forwarded-host');
+        const forwardedProto = req.get('x-forwarded-proto') || 'https';
+        if (forwardedHost && !forwardedHost.includes('localhost')) {
+          baseOrigin = `${forwardedProto}://${forwardedHost}`;
+        }
+      }
+      if (!baseOrigin) {
+        const host = req.get('host') || 'localhost:3000';
+        const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+        baseOrigin = `${protocol}://${host}`;
+      }
+      baseOrigin = baseOrigin.replace(/\/+$/, '');
+
+      const pdfUrl = `${baseOrigin}/api/statement/${statementId}/${cleanFileName}`;
+      const viewerUrl = `${baseOrigin}/statement/${statementId}`;
+
+      return res.json({
+        success: true,
+        statementId,
+        fileName: cleanFileName,
+        url: pdfUrl,
+        viewerUrl,
+      });
+    } catch (err: any) {
+      console.error('[Statement Store] Error:', err);
+      return res.status(500).json({ error: err.message || 'Failed to store statement' });
+    }
+  });
+
+  // HTML Web Viewer for member statement (opens directly from WhatsApp link)
+  app.get('/statement/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).send('Statement ID required');
+
+      let record = statementCache.get(id);
+
+      if (!record) {
+        try {
+          const { type, db } = await getDb();
+          if (type === 'admin') {
+            const docSnap = await (db as admin.firestore.Firestore).collection('statements').doc(id).get();
+            if (docSnap.exists) {
+              const data = docSnap.data();
+              if (data?.base64) {
+                record = {
+                  base64: data.base64,
+                  fileName: data.fileName || 'Statement.pdf',
+                  memberName: data.memberName || 'Member',
+                  createdAt: Date.now(),
+                };
+                statementCache.set(id, record);
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.warn('[Statement View Page] Error querying Firestore:', dbErr);
+        }
+      }
+
+      if (!record || !record.base64) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.status(404).send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>Statement Not Found - Unnati</title>
+              <script src="https://cdn.tailwindcss.com"></script>
+            </head>
+            <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
+              <div class="bg-white max-w-md w-full p-8 rounded-3xl shadow-sm border border-slate-200 text-center">
+                <div class="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 font-bold text-2xl">
+                  !
+                </div>
+                <h1 class="text-xl font-black text-slate-900 mb-2">Statement Link Expired</h1>
+                <p class="text-sm text-slate-500 mb-6">This statement document is no longer active or the link is invalid. Please request an updated statement from the administrator.</p>
+              </div>
+            </body>
+          </html>
+        `);
+      }
+
+      const pdfUrl = `/api/statement/${id}/${encodeURIComponent(record.fileName)}`;
+      const memberName = record.memberName || 'Member';
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(`
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>Unnati Financial Statement - ${memberName}</title>
+            <meta property="og:title" content="Unnati Financial Statement - ${memberName}" />
+            <meta property="og:description" content="View contributions, loan balance, and payment history statement." />
+            <meta property="og:type" content="website" />
+            <meta name="theme-color" content="#4f46e5" />
+            <script src="https://cdn.tailwindcss.com"></script>
+          </head>
+          <body class="bg-slate-100 min-h-screen text-slate-800 flex flex-col font-sans">
+            <header class="bg-indigo-600 text-white shadow-md py-3.5 px-4 sm:px-8 flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-black text-sm">
+                  U
+                </div>
+                <div>
+                  <h1 class="text-base sm:text-lg font-black tracking-tight leading-tight">Unnati Savings Group</h1>
+                  <p class="text-[11px] text-indigo-200 font-medium">Financial Statement</p>
+                </div>
+              </div>
+              <a href="${pdfUrl}" download="${record.fileName}" class="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-indigo-700 font-bold rounded-xl text-xs sm:text-sm shadow-xs hover:bg-indigo-50 transition-all active:scale-95">
+                Download PDF
+              </a>
+            </header>
+
+            <main class="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-4">
+              <div class="bg-white rounded-2xl p-5 shadow-xs border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Official Document
+                  </span>
+                  <h2 class="text-xl sm:text-2xl font-black text-slate-900 mt-1.5">${memberName}</h2>
+                  <p class="text-xs text-slate-500 font-medium">${record.fileName}</p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <a href="${pdfUrl}" download="${record.fileName}" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-sm transition-all active:scale-95">
+                    Download Statement (.pdf)
+                  </a>
+                  <a href="${pdfUrl}" target="_blank" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs sm:text-sm transition-all">
+                    Full Screen
+                  </a>
+                </div>
+              </div>
+
+              <div class="flex-1 bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden min-h-[650px] flex flex-col">
+                <iframe src="${pdfUrl}#toolbar=0" class="w-full flex-1 border-0 min-h-[650px]" title="PDF Statement Preview"></iframe>
+              </div>
+            </main>
+
+            <footer class="py-4 text-center text-xs text-slate-400">
+              Unnati Savings & Loans Management System
+            </footer>
+          </body>
+        </html>
+      `);
+    } catch (err: any) {
+      console.error('[Statement Page Error]:', err);
+      return res.status(500).send('Error loading statement page.');
+    }
+  });
+
+  // API to serve member statement PDF directly
+  app.get(['/api/statement/:id', '/api/statement/:id/:fileName'], async (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!id) return res.status(400).send('Statement ID required');
+
+      let record = statementCache.get(id);
+
+      if (!record) {
+        try {
+          const { type, db } = await getDb();
+          if (type === 'admin') {
+            const docSnap = await (db as admin.firestore.Firestore).collection('statements').doc(id).get();
+            if (docSnap.exists) {
+              const data = docSnap.data();
+              if (data?.base64) {
+                record = {
+                  base64: data.base64,
+                  fileName: data.fileName || 'Statement.pdf',
+                  memberName: data.memberName || 'Member',
+                  createdAt: Date.now(),
+                };
+                statementCache.set(id, record);
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.warn('[Statement Serve] Error querying Firestore:', dbErr);
+        }
+      }
+
+      if (!record || !record.base64) {
+        return res.status(404).send('Statement not found or expired.');
+      }
+
+      const pdfBuffer = Buffer.from(record.base64, 'base64');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${record.fileName}"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.end(pdfBuffer);
+    } catch (err: any) {
+      console.error('[Statement Serve] Error:', err);
+      return res.status(500).send('Internal server error loading statement.');
+    }
+  });
+
   // Welcome Email API
   app.post('/api/admin/send-welcome-email', async (req, res) => {
     const { email, name } = req.body;
