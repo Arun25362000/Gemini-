@@ -2586,14 +2586,43 @@ export default function App() {
     let actionBadge = 'Recorded';
     let modalTitle = 'WhatsApp Payment Acknowledgment';
 
+    // Calculate member's Total Subscription Balance up to and including the month & year being recorded
+    let totalSubscriptionBalance = 0;
+    if (params.type === 'subscription_recorded' || params.type === 'subscription_approved') {
+      const userPaidPriorAndCurrent = contributions.filter(c => {
+        const matchesUser = 
+          (params.targetUser?.uid && (c.userId === params.targetUser.uid || (params.targetUser as any).id === c.userId)) ||
+          (params.targetUser?.email && c.userEmail?.toLowerCase().trim() === params.targetUser.email.toLowerCase().trim());
+        if (!matchesUser) return false;
+
+        const isPrior = c.year < params.year || (c.year === params.year && c.month < params.month);
+        const isCurrent = c.year === params.year && c.month === params.month;
+
+        if (isPrior) {
+          return c.status === 'paid' || !c.status;
+        }
+        if (isCurrent) {
+          return c.status === 'paid';
+        }
+        return false;
+      });
+
+      const sumExistingPaid = userPaidPriorAndCurrent.reduce((sum, c) => sum + (c.amount || 0), 0);
+      const hasCurrentMonthPaidInState = userPaidPriorAndCurrent.some(
+        c => c.year === params.year && c.month === params.month && c.status === 'paid'
+      );
+
+      totalSubscriptionBalance = sumExistingPaid + (hasCurrentMonthPaidInState ? 0 : params.amount);
+    }
+
     if (params.type === 'subscription_recorded') {
       actionBadge = 'Subscription Recorded';
       modalTitle = 'Subscription Payment Recorded';
-      message = `*Unnati Savings - Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Confirmed & Recorded\n\nThank you for your prompt contribution!`;
+      message = `*Unnati Trust - Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Confirmed & Recorded\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you for your prompt contribution!`;
     } else if (params.type === 'subscription_approved') {
       actionBadge = 'Subscription Approved';
       modalTitle = 'Subscription Payment Approved';
-      message = `*Unnati Savings - Payment Approved* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n\nThank you!`;
+      message = `*Unnati Trust - Payment Approved* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you!`;
     } else if (params.type === 'loan_recorded') {
       actionBadge = 'Loan Payment Recorded';
       modalTitle = 'Loan Payment Recorded';
@@ -2601,7 +2630,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Finance - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
     } else if (params.type === 'loan_approved') {
       actionBadge = 'Loan Payment Approved';
       modalTitle = 'Loan Payment Approved';
@@ -2609,30 +2638,41 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Finance - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
     }
 
     const encodedMessage = encodeURIComponent(message);
     const waUrl = formattedPhone ? `https://wa.me/${formattedPhone}?text=${encodedMessage}` : '';
 
+    let popupOpened = false;
     if (waUrl) {
       try {
-        window.open(waUrl, '_blank');
+        const win = window.open(waUrl, '_blank');
+        if (win) {
+          popupOpened = true;
+        }
       } catch (e) {
         console.warn('Popup blocked, modal fallback will be shown', e);
       }
     }
 
-    setPendingWhatsAppModal({
-      isOpen: true,
-      recipientName: memberName,
-      phone: formattedPhone,
-      waUrl,
-      message,
-      type: 'approved',
-      title: modalTitle,
-      actionLabel: actionBadge
-    });
+    // If WhatsApp opened directly, do NOT display the modal dialog in the application,
+    // as admin already navigates to WhatsApp to send the update.
+    // Only display modal if WhatsApp could NOT be launched (e.g. no phone number configured or popup blocked).
+    if (!popupOpened) {
+      setPendingWhatsAppModal({
+        isOpen: true,
+        recipientName: memberName,
+        phone: formattedPhone,
+        waUrl,
+        message,
+        type: 'approved',
+        title: modalTitle,
+        actionLabel: actionBadge
+      });
+    } else {
+      setPendingWhatsAppModal(null);
+    }
   };
 
   const addContribution = async (month: number, year: number, targetUserId?: string, status: 'paid' | 'pending' = 'paid', customDate?: string, amount?: number, method?: 'cash' | 'online') => {
@@ -5979,7 +6019,7 @@ export default function App() {
         if (targetUser?.phoneNumber || (targetUser as any)?.phone) {
           const formattedPhone = formatWhatsAppNumber(targetUser.phoneNumber || (targetUser as any).phone);
           if (formattedPhone) {
-            const message = `*Loan Fully Settled - Unnati Finance*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: ₹${settlePrincipal.toLocaleString('en-IN')}\n- Interest: ₹${settleInterest.toLocaleString('en-IN')}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
+            const message = `*Loan Fully Settled - Unnati Trust*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: ₹${settlePrincipal.toLocaleString('en-IN')}\n- Interest: ₹${settleInterest.toLocaleString('en-IN')}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
             const encodedMessage = encodeURIComponent(message);
             window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
           }

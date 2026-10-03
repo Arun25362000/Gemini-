@@ -118,7 +118,7 @@ export const triggerLoanStatusWhatsAppNotification = (
     const disbursalMode = details?.disbursalMode || loan.paymentMode || 'Online Bank Transfer';
     const installments = details?.installments || loan.installments || Math.ceil((loan.approvedAmount || loan.amount) / 5000) || 10;
 
-    message = `*UNNATI FINANCE - Loan Application Approved* 🎉\n\n` +
+    message = `*UNNATI TRUST - Loan Application Approved* 🎉\n\n` +
       `Dear ${recipientName},\n\n` +
       `We are pleased to inform you that your loan application has been *APPROVED*.\n\n` +
       `📋 *Approval Details:*\n` +
@@ -132,7 +132,7 @@ export const triggerLoanStatusWhatsAppNotification = (
   } else {
     const reason = details?.declineReason || loan.declineReason || 'Criteria not met';
 
-    message = `*UNNATI FINANCE - Loan Application Update*\n\n` +
+    message = `*UNNATI TRUST - Loan Application Update*\n\n` +
       `Dear ${recipientName},\n\n` +
       `Your loan application for *₹${loanAmountFormatted}* has been *DECLINED*.\n\n` +
       `📝 *Reason:* ${reason}\n\n` +
