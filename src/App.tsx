@@ -641,10 +641,11 @@ export default function App() {
   }>({ field: 'date', direction: 'desc' });
 
   // Real-time Loan Projection & EMI Calculator for application modal
+  // Repayment principal is always divided by ₹5,000 per month (up to 20 months for ₹1,00,000 max loan)
   const loanProjection = useMemo(() => {
     const principal = Math.max(0, Number(loanAmount) || 0);
-    const tenure = Math.max(1, Number(loanTenure) || 10);
-    const monthlyPrincipal = Math.round(principal / tenure);
+    const tenure = Math.max(1, Math.ceil(principal / 5000));
+    const monthlyPrincipal = principal > 0 ? Math.min(principal, 5000) : 0;
 
     let remaining = principal;
     let totalInterest = 0;
@@ -658,7 +659,7 @@ export default function App() {
     }> = [];
 
     for (let i = 1; i <= tenure; i++) {
-      const pPayment = i === tenure ? remaining : Math.min(remaining, monthlyPrincipal);
+      const pPayment = i === tenure ? remaining : Math.min(remaining, 5000);
       const interest = Math.round(remaining * 0.005); // 0.5% monthly on reducing balance
       const closing = Math.max(0, remaining - pPayment);
       totalInterest += interest;
@@ -689,7 +690,7 @@ export default function App() {
       lastMonthPayment,
       schedule
     };
-  }, [loanAmount, loanTenure]);
+  }, [loanAmount]);
 
   const [adminManualRepayment, setAdminManualRepayment] = useState<{
     isOpen: boolean;
@@ -3296,10 +3297,17 @@ export default function App() {
   const applyLoan = async () => {
     if (!user || !profile || isAdmin) return;
 
-    if (loanAmount > 50000) {
-      notify('error', "Maximum loan amount is ₹50,000");
+    if (loanAmount > 100000) {
+      notify('error', "Maximum loan amount is ₹1,00,000 (1 Lakh)");
       return;
     }
+
+    if (loanAmount < 1000) {
+      notify('error', "Please enter a valid loan amount (min ₹1,000)");
+      return;
+    }
+
+    const calculatedInstallments = Math.max(1, Math.ceil(loanAmount / 5000));
 
     setIsSubmittingLoan(true);
     try {
@@ -3307,17 +3315,17 @@ export default function App() {
         userId: user.uid,
         userEmail: user.email,
         amount: loanAmount,
-        installments: loanTenure,
+        installments: calculatedInstallments,
         details: loanDetails,
         status: 'pending',
         createdAt: serverTimestamp()
       });
       setIsApplyingLoan(false);
       setLoanAmount(10000);
-      setLoanTenure(10);
+      setLoanTenure(2);
       setShowLoanCalculatorSchedule(false);
       setLoanDetails('');
-      notify('success', "Loan application submitted successfully!");
+      notify('success', `Loan application for ₹${loanAmount.toLocaleString('en-IN')} (${calculatedInstallments} months at ₹5,000/mo) submitted successfully!`);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'loans');
     } finally {
@@ -13418,32 +13426,55 @@ export default function App() {
         )}
 
         {isAddingLoan && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div 
               key="modal-record-loan-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsAddingLoan(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
             />
             <motion.div 
               key="modal-record-loan-content"
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              className="relative bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200/90 flex flex-col max-h-[92vh] overflow-hidden my-auto"
             >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">Record Loan</h2>
-              <div className="space-y-6">
+              {/* Sticky Top Header */}
+              <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 truncate leading-tight">Record Loan</h2>
+                    <p className="text-[11px] text-slate-500 font-medium truncate">Disburse a new loan to a member</p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setIsAddingLoan(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer shrink-0"
+                  title="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Scrollable Form Body */}
+              <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1 overscroll-contain text-xs sm:text-sm">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Select Member</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Select Member <span className="text-rose-500">*</span>
+                  </label>
                   <select 
                     value={selectedLoanUserId || ''}
                     onChange={(e) => setSelectedLoanUserId(e.target.value)}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
                   >
-                    <option value="">Select a member...</option>
+                    <option value="">Choose a member...</option>
                     {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, uidx) => (
                       <option key={`admin-loan-member-${u.id || u.uid || 'member'}-${uidx}`} value={u.uid || u.email}>
                         {u.displayName || u.email}
@@ -13453,131 +13484,161 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Amount (₹)</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[10000, 25000, 50000].map(amt => (
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Loan Amount (₹) <span className="text-rose-500">*</span>
+                    </label>
+                    {financials.availableBalance > 0 && (
+                      <span className="text-[10.5px] font-semibold text-slate-400">
+                        Avail: ₹{financials.availableBalance.toLocaleString('en-IN')}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                    {[10000, 25000, 50000, 75000, 100000].map(amt => (
                       <button
                         key={`admin-loan-quick-amt-${amt}`}
+                        type="button"
                         onClick={() => setAdminLoanAmount(amt)}
                         className={cn(
-                          "py-3 rounded-xl text-sm font-bold transition-all border",
+                          "flex-1 min-w-[60px] py-1 px-2 rounded-lg text-xs font-bold transition-all border cursor-pointer text-center",
                           adminLoanAmount === amt 
-                            ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
-                            : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-xs" 
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                         )}
                       >
-                        ₹{amt.toLocaleString('en-IN')}
+                        {amt >= 100000 ? '₹1 Lakh' : `₹${amt.toLocaleString('en-IN')}`}
                       </button>
                     ))}
                   </div>
-                  <input 
-                    type="number" 
-                    value={adminLoanAmount}
-                    onChange={(e) => setAdminLoanAmount(Number(e.target.value))}
-                    className="w-full mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-bold focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="Enter custom amount"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">₹</span>
+                    <input 
+                      type="number" 
+                      max={100000}
+                      value={adminLoanAmount || ''}
+                      onChange={(e) => setAdminLoanAmount(Number(e.target.value))}
+                      className="w-full py-2 pl-7 pr-3 bg-slate-50 focus:bg-white rounded-xl border border-slate-200 text-slate-900 font-bold text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      placeholder="Enter custom amount (up to ₹1,00,000)"
+                    />
+                  </div>
+                  {adminLoanAmount > 0 && (
+                    <p className="text-[10px] text-slate-500 font-medium mt-1 flex items-center justify-between">
+                      <span>Division: ₹5,000 / month</span>
+                      <span className="font-bold text-indigo-600">
+                        {Math.max(1, Math.ceil(adminLoanAmount / 5000))} monthly installments
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Details / Purpose</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Loan Details / Purpose</label>
                   <textarea 
+                    rows={2}
                     value={adminLoanDetails}
                     onChange={(e) => setAdminLoanDetails(e.target.value)}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none min-h-[100px]"
+                    className="w-full py-2 px-3 bg-slate-50 focus:bg-white rounded-xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none min-h-[52px]"
                     placeholder="e.g. Personal emergency, Business expansion..."
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Loan Date</label>
-                  <input 
-                    type="date"
-                    value={loanDate}
-                    onChange={(e) => setLoanDate(e.target.value)}
-                    className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Loan Date</label>
+                    <input 
+                      type="date"
+                      value={loanDate}
+                      onChange={(e) => setLoanDate(e.target.value)}
+                      className="w-full py-2 px-3 bg-slate-50 focus:bg-white rounded-xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Payment Mode</label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setAdminLoanPaymentMode('Online')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
-                        adminLoanPaymentMode === 'Online' 
-                          ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-indigo-200"
-                      )}
-                    >
-                      <Zap className="w-4 h-4" /> Online
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAdminLoanPaymentMode('Cash')}
-                      className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border flex items-center justify-center gap-2",
-                        adminLoanPaymentMode === 'Cash' 
-                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
-                      )}
-                    >
-                      <Banknote className="w-4 h-4" /> Cash
-                    </button>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Payment Mode</label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setAdminLoanPaymentMode('Online')}
+                        className={cn(
+                          "py-2 px-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1 cursor-pointer",
+                          adminLoanPaymentMode === 'Online' 
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-xs" 
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        )}
+                      >
+                        <Zap className="w-3.5 h-3.5" /> Online
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAdminLoanPaymentMode('Cash')}
+                        className={cn(
+                          "py-2 px-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1 cursor-pointer",
+                          adminLoanPaymentMode === 'Cash' 
+                            ? "bg-amber-600 text-white border-amber-600 shadow-xs" 
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        )}
+                      >
+                        <Banknote className="w-3.5 h-3.5" /> Cash
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Initial Status</label>
-                  <div className="flex gap-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Initial Status</label>
+                  <div className="grid grid-cols-2 gap-2">
                     <button
+                      type="button"
                       onClick={() => setAdminLoanStatus('approved')}
                       className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        "py-2 px-3 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 cursor-pointer",
                         adminLoanStatus === 'approved' 
-                          ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-emerald-200"
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-xs" 
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                       )}
                     >
-                      Approved
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Approved
                     </button>
                     <button
+                      type="button"
                       onClick={() => setAdminLoanStatus('pending')}
                       className={cn(
-                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all border",
+                        "py-2 px-3 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 cursor-pointer",
                         adminLoanStatus === 'pending' 
-                          ? "bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-100" 
-                          : "bg-white text-slate-600 border-slate-200 hover:border-amber-200"
+                          ? "bg-amber-600 text-white border-amber-600 shadow-xs" 
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                       )}
                     >
-                      Pending
+                      <Clock className="w-3.5 h-3.5" /> Pending
                     </button>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex gap-3 pt-4">
-                  <button 
-                    onClick={() => setIsAddingLoan(false)}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    disabled={isSubmittingAdminLoan || !selectedLoanUserId}
-                    onClick={addAdminLoan}
-                    className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
-                  >
-                    {isSubmittingAdminLoan ? (
-                      <>
-                        <Clock className="w-5 h-5 animate-spin" /> Recording...
-                      </>
-                    ) : (
-                      'Record Loan'
-                    )}
-                  </button>
-                </div>
+              {/* Sticky Bottom Actions Footer */}
+              <div className="px-4 py-3 sm:px-5 sm:py-3 border-t border-slate-100 flex items-center justify-end gap-2.5 shrink-0 bg-slate-50/80">
+                <button 
+                  type="button"
+                  onClick={() => setIsAddingLoan(false)}
+                  className="py-2.5 px-4 text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  disabled={isSubmittingAdminLoan || !selectedLoanUserId}
+                  onClick={addAdminLoan}
+                  className="py-2.5 px-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs sm:text-sm transition-all shadow-md shadow-indigo-100 active:scale-95 disabled:opacity-50 disabled:scale-100 disabled:pointer-events-none flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isSubmittingAdminLoan ? (
+                    <>
+                      <Clock className="w-4 h-4 animate-spin" /> Recording...
+                    </>
+                  ) : (
+                    'Record Loan'
+                  )}
+                </button>
               </div>
             </motion.div>
           </div>
@@ -14058,7 +14119,7 @@ export default function App() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Required Amount <span className="text-slate-400 font-normal">(Max ₹50,000)</span>
+                      Required Amount <span className="text-slate-400 font-normal">(Max ₹1,00,000 / 1 Lakh)</span>
                     </label>
                     <span className="text-xs font-black text-indigo-600">
                       ₹{Number(loanAmount || 0).toLocaleString('en-IN')}
@@ -14067,13 +14128,13 @@ export default function App() {
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-lg">₹</span>
                     <input 
-                      type="number"
-                      max={50000}
+                      type="number" 
+                      max={100000}
                       min={1000}
                       step={1000}
                       value={loanAmount || ''}
-                      onChange={(e) => setLoanAmount(Math.min(50000, Math.max(0, Number(e.target.value))))}
-                      placeholder="Enter amount (e.g. 10000)"
+                      onChange={(e) => setLoanAmount(Math.min(100000, Math.max(0, Number(e.target.value))))}
+                      placeholder="Enter amount (e.g. 10000 or up to 100000)"
                       className="w-full pl-9 pr-4 py-3 sm:py-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-black text-xl sm:text-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
                     />
                   </div>
@@ -14081,24 +14142,26 @@ export default function App() {
                   {/* Range Slider */}
                   <div className="mt-3 px-1">
                     <input 
-                      type="range"
-                      min={2000}
-                      max={50000}
-                      step={1000}
+                      type="range" 
+                      min={5000}
+                      max={100000}
+                      step={5000}
                       value={loanAmount}
                       onChange={(e) => setLoanAmount(Number(e.target.value))}
                       className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                     />
                     <div className="flex justify-between text-[10px] text-slate-400 font-bold mt-1">
-                      <span>₹2,000</span>
+                      <span>₹5,000</span>
                       <span>₹25,000</span>
                       <span>₹50,000</span>
+                      <span>₹75,000</span>
+                      <span>₹1,00,000</span>
                     </div>
                   </div>
 
                   {/* Quick Select Chips */}
                   <div className="mt-2.5 flex flex-wrap gap-1.5">
-                    {[5000, 10000, 20000, 25000, 50000].map(amt => (
+                    {[5000, 10000, 25000, 50000, 75000, 100000].map(amt => (
                       <button 
                         key={`apply-loan-quick-amt-${amt}`}
                         type="button"
@@ -14110,7 +14173,7 @@ export default function App() {
                             : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                         )}
                       >
-                        ₹{amt.toLocaleString('en-IN')}
+                        {amt >= 100000 ? '₹1 Lakh' : `₹${amt.toLocaleString('en-IN')}`}
                       </button>
                     ))}
                   </div>
@@ -14130,30 +14193,26 @@ export default function App() {
                     </span>
                   </div>
 
-                  {/* Tenure Selection */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                        Repayment Tenure: <span className="text-indigo-600">{loanTenure} Months</span>
-                      </label>
-                      <span className="text-[10px] text-slate-400 font-medium">Standard is 10 Months</span>
+                  {/* Fixed Monthly Principal Rule Banner */}
+                  <div className="bg-white p-3 rounded-xl border border-indigo-100/90 shadow-2xs flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-xs shrink-0 border border-indigo-200/60">
+                        ₹5K
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          Monthly Principal: <span className="text-indigo-600 font-black">₹5,000 / month</span>
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-medium">
+                          Loan is divided by ₹5,000 per month (e.g. ₹50,000 = 10 mos, ₹1,00,000 = 20 mos)
+                        </p>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-5 gap-1.5">
-                      {[6, 10, 12, 15, 20].map((t) => (
-                        <button
-                          key={`calc-tenure-${t}`}
-                          type="button"
-                          onClick={() => setLoanTenure(t)}
-                          className={cn(
-                            "py-1.5 px-1 rounded-xl text-xs font-bold transition-all border text-center cursor-pointer",
-                            loanTenure === t
-                              ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                          )}
-                        >
-                          {t}M {t === 10 ? '★' : ''}
-                        </button>
-                      ))}
+                    <div className="text-right">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Calculated Tenure</span>
+                      <span className="text-xs sm:text-sm font-black text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200/80 inline-block">
+                        {loanProjection.tenure} Months ({loanProjection.tenure} Installments)
+                      </span>
                     </div>
                   </div>
 
@@ -14165,7 +14224,7 @@ export default function App() {
                       <p className="text-sm sm:text-base font-black text-slate-900 mt-0.5 truncate">
                         ₹{loanProjection.monthlyPrincipal.toLocaleString('en-IN')}
                       </p>
-                      <p className="text-[9.5px] text-slate-400 mt-0.5 truncate">{loanTenure} installments</p>
+                      <p className="text-[9.5px] text-slate-400 mt-0.5 truncate">{loanProjection.tenure} installments</p>
                     </div>
 
                     {/* 1st Month Payment */}
@@ -14205,7 +14264,7 @@ export default function App() {
                     >
                       <div className="flex items-center gap-2">
                         <Table className="w-3.5 h-3.5 text-indigo-500" />
-                        <span>{showLoanCalculatorSchedule ? 'Hide' : 'View'} Month-by-Month Projected Schedule ({loanTenure} Months)</span>
+                        <span>{showLoanCalculatorSchedule ? 'Hide' : 'View'} Month-by-Month Projected Schedule ({loanProjection.tenure} Months)</span>
                       </div>
                       <ChevronDown className={cn("w-4 h-4 text-indigo-500 transition-transform duration-200", showLoanCalculatorSchedule && "rotate-180")} />
                     </button>
@@ -14230,13 +14289,13 @@ export default function App() {
                                   className={cn(
                                     "hover:bg-slate-50/80 transition-colors",
                                     row.month === 1 && "bg-indigo-50/30",
-                                    row.month === loanTenure && "bg-emerald-50/30"
+                                    row.month === loanProjection.tenure && "bg-emerald-50/30"
                                   )}
                                 >
                                   <td className="py-1.5 px-2.5 font-bold text-slate-900">
                                     Month {row.month}
                                     {row.month === 1 && <span className="ml-1 text-[9px] text-indigo-600 font-semibold">(1st)</span>}
-                                    {row.month === loanTenure && <span className="ml-1 text-[9px] text-emerald-600 font-semibold">(Last)</span>}
+                                    {row.month === loanProjection.tenure && <span className="ml-1 text-[9px] text-emerald-600 font-semibold">(Last)</span>}
                                   </td>
                                   <td className="py-1.5 px-2 text-right">₹{row.principalPayment.toLocaleString('en-IN')}</td>
                                   <td className="py-1.5 px-2 text-right text-indigo-600 font-semibold">₹{row.interestPayment.toLocaleString('en-IN')}</td>
@@ -14313,7 +14372,7 @@ export default function App() {
                     ) : (
                       <>
                         <Calculator className="w-4 h-4" />
-                        <span>Submit Loan (₹{Number(loanAmount || 0).toLocaleString('en-IN')})</span>
+                        <span>Submit Loan (₹{Number(loanAmount || 0).toLocaleString('en-IN')} • {loanProjection.tenure} Mos)</span>
                       </>
                     )}
                   </button>

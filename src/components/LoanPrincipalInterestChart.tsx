@@ -428,23 +428,23 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
   return (
     <div className={cn(
-      "bg-gradient-to-b from-purple-50/40 via-white to-white rounded-3xl border-2 border-purple-200/90 shadow-sm p-4 sm:p-6 transition-all relative overflow-visible",
+      "bg-gradient-to-b from-purple-50/40 via-white to-white rounded-2xl sm:rounded-3xl border-2 border-purple-200/90 shadow-sm p-3 sm:p-4 md:p-5 transition-all relative overflow-visible",
       className
     )}>
       {/* Top Header & Interactive Active Loan Selector */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-purple-100/80">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-purple-100/80">
         {/* Title & Context */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
-            <BarChart2 className="w-5 h-5" />
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+            <BarChart2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h4 className="font-black text-slate-900 text-sm sm:text-base tracking-tight">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <h4 className="font-black text-slate-900 text-xs sm:text-sm md:text-base tracking-tight truncate">
                 Principal vs. Interest Breakdown
               </h4>
               <span className={cn(
-                "px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",
+                "px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-wider border shrink-0",
                 hasMultipleActiveLoans
                   ? "bg-indigo-100/90 text-indigo-700 border-indigo-300/90"
                   : "bg-purple-100/80 text-purple-700 border-purple-300/80"
@@ -452,23 +452,23 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 {hasMultipleActiveLoans ? `${activeItem.activeLabel} of ${activeItem.memberActiveLoansCount}` : 'Active Loan'}
               </span>
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-500 font-medium mt-1">
-              <span>Repayment timeline:</span>
-              <span className="font-bold text-purple-800 bg-purple-100/70 px-2 py-0.5 rounded-md border border-purple-200/80">
+            <div className="flex items-center gap-1.5 flex-wrap text-[11px] sm:text-xs text-slate-500 font-medium mt-0.5">
+              <span className="hidden xs:inline">Timeline:</span>
+              <span className="font-bold text-purple-800 bg-purple-100/70 px-1.5 sm:px-2 py-0.5 rounded-md border border-purple-200/80 truncate max-w-[150px] sm:max-w-none">
                 {activeItem.borrowerName}
               </span>
               {hasMultipleActiveLoans && (
-                <span className="text-[11px] text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/80">
-                  {activeItem.activeLabel} (Disbursed: {activeItem.sanctionDateStr})
+                <span className="text-[10.5px] text-indigo-700 font-bold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200/80">
+                  {activeItem.activeLabel} ({activeItem.sanctionDateStr})
                 </span>
               )}
             </div>
 
             {/* Quick Sibling Loan Switcher Pills for Members with Multiple Active Loans */}
             {activeItem.siblingActiveLoans.length > 1 && (
-              <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-1.5 border-t border-purple-100/70">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-0.5">
-                  Member Active Loans:
+              <div className="flex items-center gap-1.5 flex-wrap mt-1.5 pt-1 border-t border-purple-100/70">
+                <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mr-0.5">
+                  Member Loans:
                 </span>
                 {activeItem.siblingActiveLoans.map((sibling) => {
                   const isCurrent = sibling.loanId === activeItem.id;
@@ -478,14 +478,14 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                       type="button"
                       onClick={() => handleSelectLoan(sibling.loanId)}
                       className={cn(
-                        "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs",
+                        "px-2 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 border shadow-2xs",
                         isCurrent
-                          ? "bg-purple-600 text-white border-purple-700 shadow-xs ring-2 ring-purple-300"
+                          ? "bg-purple-600 text-white border-purple-700 shadow-xs ring-1 ring-purple-300"
                           : "bg-white hover:bg-purple-50 text-purple-700 border-purple-200"
                       )}
                     >
                       <span>{sibling.label}</span>
-                      <span className={cn("text-[10.5px]", isCurrent ? "text-purple-100 font-semibold" : "text-slate-500 font-medium")}>
+                      <span className={cn("text-[10px]", isCurrent ? "text-purple-100 font-semibold" : "text-slate-500 font-medium")}>
                         ₹{sibling.amount.toLocaleString('en-IN')}
                       </span>
                     </button>
@@ -497,27 +497,27 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
         </div>
 
         {/* Active Loan Switcher Controls */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap shrink-0">
           {/* Previous / Next buttons */}
           <div className="flex items-center bg-white border border-slate-200/90 rounded-xl shadow-2xs overflow-hidden shrink-0">
             <button
               type="button"
               onClick={handlePrev}
-              className="p-2 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors border-r border-slate-200/90 disabled:opacity-40 cursor-pointer"
+              className="p-1.5 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors border-r border-slate-200/90 disabled:opacity-40 cursor-pointer"
               title="Previous Active Loan"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2.5 text-[11px] font-bold text-slate-600 select-none">
+            <span className="px-2 text-[10.5px] sm:text-[11px] font-bold text-slate-600 select-none">
               {activeIndex + 1} / {activeLoanItems.length}
             </span>
             <button
               type="button"
               onClick={handleNext}
-              className="p-2 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors disabled:opacity-40 cursor-pointer"
+              className="p-1.5 hover:bg-purple-50 text-slate-500 hover:text-purple-600 transition-colors disabled:opacity-40 cursor-pointer"
               title="Next Active Loan"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -526,22 +526,22 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
             <button
               type="button"
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="w-52 sm:w-60 md:w-64 flex items-center justify-between gap-2 px-3 py-1.5 bg-white hover:bg-purple-50/50 border border-purple-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800 cursor-pointer shrink-0"
+              className="w-44 sm:w-52 md:w-56 flex items-center justify-between gap-1.5 px-2.5 py-1.5 bg-white hover:bg-purple-50/50 border border-purple-200 rounded-xl shadow-2xs transition-all text-left text-xs font-semibold text-slate-800 cursor-pointer shrink-0"
             >
-              <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                <div className="w-6.5 h-6.5 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[11px] shrink-0 border border-purple-200">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                <div className="w-5.5 h-5.5 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[10px] shrink-0 border border-purple-200">
                   {activeItem.borrowerInitial}
                 </div>
                 <div className="min-w-0 flex-1 overflow-hidden">
-                  <p className="truncate font-bold text-slate-900 leading-tight" title={activeItem.dropdownTitle}>
+                  <p className="truncate font-bold text-slate-900 leading-tight text-[11px] sm:text-xs" title={activeItem.dropdownTitle}>
                     {activeItem.dropdownTitle}
                   </p>
-                  <p className="truncate text-[10.5px] text-purple-600 font-bold">
+                  <p className="truncate text-[9.5px] sm:text-[10px] text-purple-600 font-bold">
                     ₹{activeItem.principalAmount.toLocaleString('en-IN')} • {activeItem.sanctionDateStr}
                   </p>
                 </div>
               </div>
-              <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 shrink-0 ml-1 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
+              <ChevronDown className={cn("w-3 h-3 text-slate-400 shrink-0 ml-0.5 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
             </button>
 
             {/* Dropdown Menu */}
@@ -551,8 +551,8 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                   className="fixed inset-0 z-40" 
                   onClick={() => setIsDropdownOpen(false)} 
                 />
-                <div className="absolute right-0 top-full mt-2 w-72 sm:w-84 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="p-2 border-b border-slate-100">
+                <div className="absolute right-0 top-full mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="p-1.5 border-b border-slate-100">
                     <div className="relative">
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
@@ -565,7 +565,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                       />
                     </div>
                   </div>
-                  <div className="max-h-60 overflow-y-auto divide-y divide-slate-50 py-1">
+                  <div className="max-h-56 overflow-y-auto divide-y divide-slate-50 py-1">
                     {filteredDropdownItems.length === 0 ? (
                       <p className="text-center py-4 text-xs text-slate-400">No matching active loans found</p>
                     ) : (
@@ -583,13 +583,13 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                               setSearchQuery('');
                             }}
                             className={cn(
-                              "w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-left transition-colors cursor-pointer",
+                              "w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-left transition-colors cursor-pointer",
                               isSelected ? "bg-purple-50 text-purple-900 font-bold" : "hover:bg-slate-50 text-slate-700"
                             )}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
                               <div className={cn(
-                                "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 border",
+                                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 border",
                                 isSelected 
                                   ? "bg-purple-600 text-white border-purple-700 shadow-xs" 
                                   : "bg-slate-100 text-slate-600 border-slate-200"
@@ -598,14 +598,14 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                               </div>
                               <div className="min-w-0">
                                 <p className="truncate text-xs leading-tight font-bold">{item.dropdownTitle}</p>
-                                <p className="truncate text-[10px] text-slate-500 font-normal">
+                                <p className="truncate text-[9.5px] text-slate-500 font-normal">
                                   ₹{item.principalAmount.toLocaleString('en-IN')} • Disbursed {item.sanctionDateStr}
                                 </p>
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <span className={cn(
-                                "px-2 py-0.5 rounded-md text-[9.5px] font-bold uppercase",
+                                "px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase",
                                 isMulti 
                                   ? "bg-indigo-100 text-indigo-800 border border-indigo-200" 
                                   : "bg-purple-100 text-purple-800 border border-purple-200"
@@ -630,8 +630,8 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
           <button
             type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-            title={isCollapsed ? "Expand Chart" : "Collapse Chart"}
+            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+            title={isCollapsed ? "Expand Breakdown" : "Collapse Breakdown"}
           >
             <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isCollapsed && "-rotate-90")} />
           </button>
@@ -639,26 +639,26 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       </div>
 
       {!isCollapsed && (
-        <div className="pt-4 space-y-4">
-          {/* KPI Stat Cards for the Selected Active Loan - 4 Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-3.5">
-            {/* Card 1: Sanctioned Loan (Indigo) */}
-            <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+        <div className="pt-3 space-y-3">
+          {/* KPI Stat Cards for the Selected Active Loan - 4 Cards styled cleanly like Loan Repayment tab */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+            {/* Card 1: Sanctioned Loan (Purple/Indigo) */}
+            <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Wallet className="w-4 h-4" />
+                <div className="flex items-center justify-between gap-1.5 mb-2">
+                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {activeItem.totalInstallments} Months • {activeItem.activeLabel}
+                  <span className="text-[9.5px] sm:text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                    {activeItem.totalInstallments} Mos • {activeItem.activeLabel}
                   </span>
                 </div>
                 <h4 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Sanctioned Loan</h4>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-indigo-950 tracking-tight truncate">
+                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-indigo-950 tracking-tight truncate">
                   ₹{activeItem.principalAmount.toLocaleString('en-IN')}
                 </div>
               </div>
-              <div className="mt-2.5 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10.5px]">
+              <div className="mt-2 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px]">
                 <span className="font-semibold text-slate-500">Disbursed:</span>
                 <span className="font-bold text-indigo-700 truncate max-w-[130px]" title={activeItem.sanctionDateStr}>
                   {activeItem.sanctionDateStr}
@@ -666,85 +666,84 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
               </div>
             </div>
 
-            {/* Card 2: Total Repaid (Principal Paid + Interest Paid) (Emerald) */}
-            <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+            {/* Card 2: Total Repaid (Emerald) */}
+            <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <CheckCircle2 className="w-4 h-4" />
+                <div className="flex items-center justify-between gap-1.5 mb-2">
+                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  <span className="text-[9.5px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
                     {activeItem.repaymentProgress}% Paid
                   </span>
                 </div>
                 <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Repaid</h4>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-700 tracking-tight truncate">
+                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-emerald-700 tracking-tight truncate">
                   ₹{activeItem.totalPaid.toLocaleString('en-IN')}
                 </div>
-                <div className="w-full bg-emerald-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div className="w-full bg-emerald-200/60 h-1.5 rounded-full mt-1.5 overflow-hidden">
                   <div 
                     className="bg-emerald-600 h-full rounded-full transition-all duration-300"
                     style={{ width: `${activeItem.repaymentProgress}%` }}
                   />
                 </div>
               </div>
-              <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] font-semibold">
-                <span className="text-emerald-800">
+              <div className="mt-2 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[9.5px] sm:text-[10px] font-semibold gap-1">
+                <span className="text-emerald-800 truncate">
                   Principal: <strong className="font-bold">₹{activeItem.totalPrincipalPaid.toLocaleString('en-IN')}</strong>
                 </span>
-                <span className="text-slate-300">•</span>
-                <span className="text-amber-800">
+                <span className="text-amber-800 truncate">
                   Interest: <strong className="font-bold">₹{activeItem.totalInterestPaid.toLocaleString('en-IN')}</strong>
                 </span>
               </div>
             </div>
 
-            {/* Card 3: Next Installment (Blue) */}
-            <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+            {/* Card 3: Next Installment (Blue/Amber) */}
+            <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-blue-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Calendar className="w-4 h-4" />
+                <div className="flex items-center justify-between gap-1.5 mb-2">
+                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-blue-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  <span className="text-[9.5px] sm:text-[10px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
                     {activeItem.nextInstallment ? `Inst #${activeItem.nextInstallment.installmentNumber} Due` : 'Due'}
                   </span>
                 </div>
                 <h4 className="text-blue-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Next Installment</h4>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-blue-950 tracking-tight truncate">
+                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-blue-950 tracking-tight truncate">
                   {activeItem.nextInstallment ? `₹${activeItem.nextInstallment.total.toLocaleString('en-IN')}` : '₹0'}
                 </div>
               </div>
-              <div className="mt-2.5 pt-2 border-t border-blue-100/90 flex items-center justify-between text-[10.5px]">
+              <div className="mt-2 pt-2 border-t border-blue-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px]">
                 <span className="font-semibold text-slate-500">Upcoming:</span>
                 <span 
-                  className="font-bold text-blue-700 truncate max-w-[140px]" 
-                  title={activeItem.nextInstallment ? `Principal: ₹${activeItem.nextInstallment.principal} + Interest: ₹${activeItem.nextInstallment.interest}` : 'No dues'}
+                  className="font-bold text-blue-700 truncate max-w-[130px] sm:max-w-[150px]" 
+                  title={activeItem.nextInstallment ? `${activeItem.nextInstallment.periodLabel}: Principal ₹${activeItem.nextInstallment.principal} + Interest ₹${activeItem.nextInstallment.interest}` : 'No dues'}
                 >
                   {activeItem.nextInstallment 
-                    ? `${activeItem.nextInstallment.periodLabel} (₹${activeItem.nextInstallment.principal} + ₹${activeItem.nextInstallment.interest})` 
+                    ? `${activeItem.nextInstallment.periodLabel} (₹${activeItem.nextInstallment.principal}+₹${activeItem.nextInstallment.interest})` 
                     : 'Completed'}
                 </span>
               </div>
             </div>
 
             {/* Card 4: Outstanding Balance (Rose) */}
-            <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
+            <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
               <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform bg-rose-600">
-                    <AlertCircle className="w-4 h-4" />
+                <div className="flex items-center justify-between gap-1.5 mb-2">
+                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform bg-rose-600">
+                    <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border text-rose-700 bg-rose-100/90 border-rose-200">
-                    Active Due
+                  <span className="text-[9.5px] sm:text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border text-rose-700 bg-rose-100/90 border-rose-200">
+                    Principal Due
                   </span>
                 </div>
                 <h4 className="text-rose-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Balance</h4>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-rose-700 tracking-tight truncate">
+                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-rose-700 tracking-tight truncate">
                   ₹{activeItem.remainingPrincipal.toLocaleString('en-IN')}
                 </div>
               </div>
-              <div className="mt-2.5 pt-2 border-t border-rose-100/90 flex items-center justify-between text-[10.5px]">
+              <div className="mt-2 pt-2 border-t border-rose-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px]">
                 <span className="font-semibold text-slate-500">Balance:</span>
                 <span className="font-bold text-rose-700">
                   Principal Due
