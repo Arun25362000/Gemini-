@@ -235,7 +235,7 @@ const getUPIConfig = () => {
 
 const { vpa: UPI_VPA, name: PI_NAME, mcc: MERCHANT_CODE, isPersonal: IS_PERSONAL_UPI } = getUPIConfig();
 const MERCHANT_ID = "BCR2DN5TQ322VPIY"; // Merchant ID for Google Pay
-const GROUP_NAME = "Unnati Savings Group";
+const GROUP_NAME = "Unnati Trust";
 
 // Helper to format phone number for WhatsApp international URL format (wa.me)
 const formatWhatsAppNumber = (phone?: string | null): string => {
@@ -1514,7 +1514,7 @@ export default function App() {
     const memberListStr = unpaidMembersForBatch
       .map((u, i) => `${i + 1}. ${u.displayName || 'Member'}`)
       .join('\n');
-    const text = `*Unnati Savings Group - Contribution Reminder*\nMonth: ${monthName}\nAmount: ₹1,000\n\nDear Members, please record your monthly contribution before the 10th to keep your account active.\n\n*Pending Members (${unpaidMembersForBatch.length}):*\n${memberListStr}\n\nPlease ignore if already paid. Thank you!`;
+    const text = `*Unnati Trust - Contribution Reminder*\nMonth: ${monthName}\nAmount: ₹1,000\n\nDear Members, please record your monthly contribution before the 10th to keep your account active.\n\n*Pending Members (${unpaidMembersForBatch.length}):*\n${memberListStr}\n\nPlease ignore if already paid. Thank you!`;
     navigator.clipboard.writeText(text);
     notify('success', 'Group reminder copied to clipboard! Paste it directly into your WhatsApp group.');
   };
@@ -2644,34 +2644,34 @@ export default function App() {
     const encodedMessage = encodeURIComponent(message);
     const waUrl = formattedPhone ? `https://wa.me/${formattedPhone}?text=${encodedMessage}` : '';
 
-    let popupOpened = false;
     if (waUrl) {
       try {
-        const win = window.open(waUrl, '_blank');
-        if (win) {
-          popupOpened = true;
-        }
+        const link = document.createElement('a');
+        link.href = waUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
       } catch (e) {
-        console.warn('Popup blocked, modal fallback will be shown', e);
+        window.open(waUrl, '_blank');
       }
-    }
 
-    // If WhatsApp opened directly, do NOT display the modal dialog in the application,
-    // as admin already navigates to WhatsApp to send the update.
-    // Only display modal if WhatsApp could NOT be launched (e.g. no phone number configured or popup blocked).
-    if (!popupOpened) {
+      // Explicitly ensure modal dialog does NOT show or stay in the application,
+      // as WhatsApp opens directly and admin already navigates to WhatsApp to send the update.
+      setPendingWhatsAppModal(null);
+    } else {
+      // Only display modal if member has NO phone number configured
       setPendingWhatsAppModal({
         isOpen: true,
         recipientName: memberName,
         phone: formattedPhone,
-        waUrl,
+        waUrl: '',
         message,
         type: 'approved',
         title: modalTitle,
         actionLabel: actionBadge
       });
-    } else {
-      setPendingWhatsAppModal(null);
     }
   };
 
