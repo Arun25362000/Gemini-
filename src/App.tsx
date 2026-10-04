@@ -2571,6 +2571,9 @@ export default function App() {
     paymentDate?: string | Date;
     remainingLoanPrincipal?: number;
     isLoanFullyPaid?: boolean;
+    totalPrincipalPaid?: number;
+    totalInterestPaid?: number;
+    loanId?: string;
   }) => {
     if (!params.targetUser) return;
     const rawPhone = params.targetUser.phoneNumber || (params.targetUser as any)?.phone;
@@ -2615,6 +2618,32 @@ export default function App() {
       totalSubscriptionBalance = sumExistingPaid + (hasCurrentMonthPaidInState ? 0 : params.amount);
     }
 
+    // Calculate Total Principal Paid and Total Interest Paid for the loan
+    let totalPrincipalPaid = params.totalPrincipalPaid;
+    let totalInterestPaid = params.totalInterestPaid;
+
+    if (params.type === 'loan_recorded' || params.type === 'loan_approved') {
+      if (totalPrincipalPaid === undefined || totalInterestPaid === undefined) {
+        const targetLoan = (params.loanId ? loans.find(l => l.id === params.loanId) : null) || 
+          loans.find(l => 
+            (params.targetUser?.uid && l.userId === params.targetUser.uid) ||
+            (params.targetUser?.email && l.userEmail && l.userEmail.toLowerCase() === params.targetUser.email.toLowerCase())
+          );
+
+        if (targetLoan) {
+          const paymentsForLoan = loanPayments.filter(p => p.loanId === targetLoan.id && p.status === 'paid');
+          const sumPrincipal = paymentsForLoan.reduce((acc, p) => acc + (p.amount || 0), 0);
+          const sumInterest = paymentsForLoan.reduce((acc, p) => acc + (p.interest || 0), 0);
+          const isCurrentAlreadyPaidInState = paymentsForLoan.some(p => p.year === params.year && p.month === params.month);
+          totalPrincipalPaid = sumPrincipal + (isCurrentAlreadyPaidInState ? 0 : (params.principal ?? params.amount));
+          totalInterestPaid = sumInterest + (isCurrentAlreadyPaidInState ? 0 : (params.interest ?? 0));
+        } else {
+          totalPrincipalPaid = params.principal ?? params.amount;
+          totalInterestPaid = params.interest ?? 0;
+        }
+      }
+    }
+
     if (params.type === 'subscription_recorded') {
       actionBadge = 'Subscription Recorded';
       modalTitle = 'Subscription Payment Recorded';
@@ -2630,7 +2659,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
     } else if (params.type === 'loan_approved') {
       actionBadge = 'Loan Payment Approved';
       modalTitle = 'Loan Payment Approved';
@@ -2638,7 +2667,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
     }
 
     const encodedMessage = encodeURIComponent(message);
@@ -6164,10 +6193,13 @@ export default function App() {
       const loan = loans.find(l => l.id === payment.loanId);
       let isLoanFullyPaid = false;
       let remainingPrincipal = 0;
+      let totalPrincipalPaid = 0;
+      let totalInterestPaid = 0;
 
       if (loan) {
         const currentPaidPayments = loanPayments.filter(p => p.loanId === loan.id && (p.status === 'paid' || p.id === payment.id));
-        const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0);
+        totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0);
+        totalInterestPaid = currentPaidPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
         isLoanFullyPaid = Boolean(loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount);
         remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
         
@@ -6191,6 +6223,7 @@ export default function App() {
         triggerPaymentWhatsAppAcknowledgment({
           targetUser,
           type: 'loan_approved',
+          loanId: payment.loanId,
           amount: (payment.amount || 0) + (payment.interest || 0),
           principal: payment.amount || 0,
           interest: payment.interest || 0,
@@ -6199,7 +6232,9 @@ export default function App() {
           paymentMode: payment.paymentMethod || payment.paymentMode || 'Online',
           paymentDate: payment.timestamp?.toDate ? payment.timestamp.toDate() : new Date(),
           remainingLoanPrincipal: remainingPrincipal,
-          isLoanFullyPaid
+          isLoanFullyPaid,
+          totalPrincipalPaid,
+          totalInterestPaid
         });
       }
     } catch (err: any) {
@@ -6341,7 +6376,10 @@ export default function App() {
       // Note: Since we are using current loanPayments from state, we need to be careful.
       // But typically state will update soon.
       const currentPaidPayments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
-      const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0) + (existingPayment?.status === 'paid' ? 0 : amount);
+      const prevPrincipal = existingPayment?.status === 'paid' ? existingPayment.amount : 0;
+      const prevInterest = existingPayment?.status === 'paid' ? (existingPayment.interest || 0) : 0;
+      const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0) - prevPrincipal + amount;
+      const totalInterestPaid = currentPaidPayments.reduce((acc, p) => acc + (p.interest || 0), 0) - prevInterest + interest;
       
       const isLoanFullyPaid = Boolean(loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount);
       const remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
@@ -6365,6 +6403,7 @@ export default function App() {
         triggerPaymentWhatsAppAcknowledgment({
           targetUser,
           type: 'loan_recorded',
+          loanId: loan.id,
           amount: amount + interest,
           principal: amount,
           interest: interest,
@@ -6373,7 +6412,9 @@ export default function App() {
           paymentMode: mode,
           paymentDate,
           remainingLoanPrincipal: remainingPrincipal,
-          isLoanFullyPaid
+          isLoanFullyPaid,
+          totalPrincipalPaid,
+          totalInterestPaid
         });
       }
     } catch (err: any) {
