@@ -649,7 +649,7 @@ const Graphs: React.FC<GraphsProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-lg font-black text-slate-900 group-hover:text-emerald-700 transition-colors">
-                    Month-wise Paid Collections: Subscriptions & Loans ({selectedYear})
+                    Paid Collections: Subscriptions & Loans ({selectedYear})
                   </h3>
                   <span className="text-slate-400 group-hover:text-emerald-700 transition-colors">
                     {collapsedGraphs['monthly-paid-counts'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
@@ -910,7 +910,7 @@ const Graphs: React.FC<GraphsProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
-                      Month-wise Loan Sanctions & Repayments ({selectedYear})
+                      Loan Sanctions & Repayments ({selectedYear})
                     </h3>
                     <span className="text-slate-400 group-hover:text-indigo-600 transition-colors">
                       {collapsedGraphs['sanctions-repayments'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
@@ -1183,7 +1183,7 @@ const Graphs: React.FC<GraphsProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-black text-slate-900 group-hover:text-violet-600 transition-colors">
-                      Member-wise Loan Disbursements by Month ({selectedYear})
+                      Member-wise Loan Disbursements ({selectedYear})
                     </h3>
                     <span className="text-slate-400 group-hover:text-violet-600 transition-colors">
                       {collapsedGraphs['member-disbursements'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
