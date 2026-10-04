@@ -2054,3 +2054,170 @@ export async function exportGraphLoanPerformanceExcel({
   const fileName = `Loan_Performance_${fiscalYearLabel.replace(/[^a-zA-Z0-9_-]/g, '_')}_${format(new Date(), 'MMMyyyy')}.xlsx`;
   await saveOrDownloadWorkbook(wb, fileName, notify);
 }
+
+export interface MonthlyPaidCountItem {
+  month: number;
+  year: number;
+  monthName: string;
+  fullName: string;
+  subscriptionPaidCount: number;
+  loanPaidCount: number;
+  totalPaidCollections: number;
+  isPastMonth: boolean;
+  isCurrentMonth: boolean;
+  isFutureMonth: boolean;
+}
+
+export async function exportGraphMonthlyPaidCountsExcel({
+  data,
+  selectedYear,
+  totalSubscriptionsPaid,
+  totalLoansPaid,
+  chartImage,
+  notify
+}: {
+  data: MonthlyPaidCountItem[];
+  selectedYear: number;
+  totalSubscriptionsPaid: number;
+  totalLoansPaid: number;
+  chartImage?: { base64: string; width: number; height: number } | null;
+  notify?: (type: 'success' | 'error' | 'info', message: string) => void;
+}) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Unnati Trust (R)';
+  wb.created = new Date();
+
+  const dateStr = format(new Date(), 'dd-MMM-yyyy hh:mm a');
+
+  const ws = wb.addWorksheet('Paid Collections Counts', {
+    pageSetup: {
+      orientation: 'landscape',
+      paperSize: 9, // A4
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 1,
+      margins: {
+        left: 0.35,
+        right: 0.35,
+        top: 0.4,
+        bottom: 0.4,
+        header: 0.2,
+        footer: 0.2
+      }
+    }
+  });
+
+  const colCount = 5;
+  ws.columns = [
+    { width: 18 }, // Month
+    { width: 28 }, // Subscriptions Paid (Count)
+    { width: 28 }, // Loan Repayments Paid (Count)
+    { width: 28 }, // Total Collections (Count)
+    { width: 22 }  // Cycle Status
+  ];
+
+  // Row 1: Header
+  const r1 = ws.addRow(['UNNATI TRUST (R)']);
+  ws.mergeCells(1, 1, 1, colCount);
+  r1.height = 28;
+  r1.getCell(1).font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+  r1.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E1B4B' } };
+  r1.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  // Row 2: Subtitle
+  const r2 = ws.addRow([`MONTHLY PAID COLLECTIONS SUMMARY: SUBSCRIPTIONS & LOANS (YEAR ${selectedYear})`]);
+  ws.mergeCells(2, 1, 2, colCount);
+  r2.height = 22;
+  r2.getCell(1).font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+  r2.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF312E81' } };
+  r2.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  // Row 3: Meta
+  const r3 = ws.addRow([`Generated On: ${dateStr} | Source: Monthly Collection Summary Reconciled Ledger`]);
+  ws.mergeCells(3, 1, 3, colCount);
+  r3.height = 18;
+  r3.getCell(1).font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF64748B' } };
+  r3.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  ws.addRow([]); // Blank line
+
+  // Row 5: Column Headers
+  const headerRow = ws.addRow([
+    'Month',
+    'Subscriptions Paid (Members)',
+    'Loan Repayments Paid (Loans)',
+    'Total Collections (Count)',
+    'Month Status'
+  ]);
+  headerRow.height = 25;
+  headerRow.eachCell((cell) => {
+    cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4338CA' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = BORDER_THIN;
+  });
+
+  // Data rows
+  data.forEach((d, idx) => {
+    const isEven = idx % 2 === 0;
+    const statusLabel = d.isPastMonth ? 'Closed' : (d.isCurrentMonth ? 'Active Current Month' : 'Upcoming');
+    const row = ws.addRow([
+      d.fullName,
+      d.subscriptionPaidCount,
+      d.loanPaidCount,
+      d.totalPaidCollections,
+      statusLabel
+    ]);
+    row.height = 21;
+    row.eachCell((cell, colNumber) => {
+      cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF0F172A' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: isEven ? 'FFFFFFFF' : 'FFF8FAFC' }
+      };
+      cell.alignment = {
+        horizontal: colNumber === 1 ? 'left' : (colNumber === 5 ? 'center' : 'right'),
+        vertical: 'middle'
+      };
+      cell.border = BORDER_THIN;
+      if (colNumber >= 2 && colNumber <= 4 && typeof cell.value === 'number') {
+        cell.numFmt = '#,##0';
+      }
+    });
+  });
+
+  // Summary Row
+  const totalCollectionsAll = totalSubscriptionsPaid + totalLoansPaid;
+  const totalRow = ws.addRow([
+    'TOTAL',
+    totalSubscriptionsPaid,
+    totalLoansPaid,
+    totalCollectionsAll,
+    `${selectedYear} Annual Total`
+  ]);
+  totalRow.height = 24;
+  totalRow.eachCell((cell, colNumber) => {
+    cell.font = { name: 'Segoe UI', size: 10.5, bold: true, color: { argb: 'FF065F46' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } };
+    cell.alignment = {
+      horizontal: colNumber === 1 || colNumber === 5 ? 'center' : 'right',
+      vertical: 'middle'
+    };
+    cell.border = BORDER_DOUBLE_BOTTOM;
+    if (colNumber >= 2 && colNumber <= 4 && typeof cell.value === 'number') {
+      cell.numFmt = '#,##0';
+    }
+  });
+
+  if (chartImage && chartImage.base64 && chartImage.width > 0) {
+    addVisualGraphSheet(wb, {
+      graphTitle: 'Month-wise Paid Counts (Subscriptions vs Loans)',
+      selectedYear,
+      chartImage
+    });
+  }
+
+  const fileName = `Monthly_Paid_Counts_${selectedYear}_${format(new Date(), 'MMMyyyy')}.xlsx`;
+  await saveOrDownloadWorkbook(wb, fileName, notify);
+}

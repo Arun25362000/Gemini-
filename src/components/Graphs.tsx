@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LabelList, Cell
 } from 'recharts';
-import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { HandCoins, TrendingUp, Calendar, CheckCircle2, Users, UserCheck, ChevronDown, ChevronUp, CircleDot, Wallet, FileSpreadsheet, Loader2, Layers } from 'lucide-react';
 import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
 import { cn } from '../lib/utils';
 import {
@@ -10,6 +10,7 @@ import {
   exportGraphMemberDisbursementsExcel,
   exportGraphMemberwiseBorrowedRepaidExcel,
   exportGraphFinancialHealthExcel,
+  exportGraphMonthlyPaidCountsExcel,
   captureChartImage
 } from '../lib/graphExcelExport';
 
@@ -498,10 +499,389 @@ const Graphs: React.FC<GraphsProps> = ({
     };
   }, [contributions, sanctionedLoansInYear, paidLoanPaymentsInYear, selectedYear]);
 
+  // 5. Month-wise Paid Collections: Subscriptions & Loans (matching Monthly Collection Summary exactly)
+  const monthlyPaidCountsData = React.useMemo(() => {
+    const now = new Date();
+    const currentCalMonth = now.getMonth() + 1;
+    const currentCalYear = now.getFullYear();
+
+    const isPaymentBelongingToLoan = (p: LoanPayment, loan: Loan): boolean => {
+      if (p.loanId) return p.loanId === loan.id;
+      const isMatchUser = (loan.userId && p.userId === loan.userId) ||
+        (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
+      if (isMatchUser) return true;
+      const pEmail = (p.userEmail || '').toLowerCase().trim();
+      const lEmail = (loan.userEmail || '').toLowerCase().trim();
+      const isPraneshP = pEmail.includes('pranesh') || p.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
+      const isPraneshL = lEmail.includes('pranesh') || loan.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
+      return Boolean(isPraneshP && isPraneshL);
+    };
+
+    const eligibleMembers = allUsers.filter(u => u.email?.toLowerCase() !== 'unnati.finance2026@gmail.com');
+
+    const result = [];
+
+    for (let m = 1; m <= 12; m++) {
+      const isPastMonth = selectedYear < currentCalYear || (selectedYear === currentCalYear && m < currentCalMonth);
+      const isCurrentMonth = selectedYear === currentCalYear && m === currentCalMonth;
+      const isFutureMonth = selectedYear > currentCalYear || (selectedYear === currentCalYear && m > currentCalMonth);
+
+      // Subscriptions Paid count for month m
+      const monthlyPaidContribs = contributions.filter(c =>
+        (c.status === 'paid' || !c.status) &&
+        c.month === m &&
+        c.year === selectedYear
+      );
+
+      const subscriptionPaidCount = eligibleMembers.filter(user => {
+        return monthlyPaidContribs.some(c =>
+          (c.userId && user.uid && c.userId === user.uid) ||
+          (c.userEmail && user.email && c.userEmail.toLowerCase().trim() === user.email.toLowerCase().trim())
+        );
+      }).length;
+
+      // Loans Paid count for month m (matching Monthly Collection Summary exactly)
+      const monthlyPaidLoans = loanPayments.filter(p =>
+        p.status === 'paid' &&
+        p.month === m &&
+        p.year === selectedYear
+      );
+
+      let loanPaidCount = 0;
+      if (isPastMonth) {
+        loanPaidCount = monthlyPaidLoans.length;
+      } else {
+        const activeLoansForMonth = loans.filter(loan => {
+          const hasPaymentThisMonth = loanPayments.some(p =>
+            isPaymentBelongingToLoan(p, loan) &&
+            p.month === m &&
+            p.year === selectedYear &&
+            p.status === 'paid'
+          );
+          if (hasPaymentThisMonth) return true;
+
+          if (loan.status === 'declined') return false;
+          const principalAmount = loan.approvedAmount || loan.amount || 0;
+          if (principalAmount <= 0) return false;
+
+          const sanctionDate = loan.approvedAt?.toDate ? loan.approvedAt.toDate() : (loan.createdAt?.toDate ? loan.createdAt.toDate() : new Date());
+          const targetMonthEnd = new Date(selectedYear, m, 0, 23, 59, 59, 999);
+          if (sanctionDate > targetMonthEnd) return false;
+
+          const priorPayments = loanPayments.filter(p => {
+            if (!isPaymentBelongingToLoan(p, loan) || p.status !== 'paid') return false;
+            if (p.year && p.month) {
+              return p.year < selectedYear || (p.year === selectedYear && p.month < m);
+            }
+            return false;
+          });
+          const priorPaidPrincipal = priorPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+          return (principalAmount - priorPaidPrincipal) > 0;
+        });
+
+        loanPaidCount = activeLoansForMonth.filter(loan => {
+          return loanPayments.some(p =>
+            isPaymentBelongingToLoan(p, loan) &&
+            p.month === m &&
+            p.year === selectedYear &&
+            p.status === 'paid'
+          );
+        }).length;
+      }
+
+      const totalPaidCollections = subscriptionPaidCount + loanPaidCount;
+
+      result.push({
+        month: m,
+        year: selectedYear,
+        monthName: MONTH_NAMES[m],
+        fullName: `${MONTH_NAMES[m]} ${selectedYear}`,
+        subscriptionPaidCount,
+        loanPaidCount,
+        totalPaidCollections,
+        isPastMonth,
+        isCurrentMonth,
+        isFutureMonth
+      });
+    }
+
+    return result;
+  }, [allUsers, contributions, loans, loanPayments, selectedYear]);
+
+  const totalYearSubscriptionsPaid = React.useMemo(() => {
+    return monthlyPaidCountsData.reduce((sum, d) => sum + d.subscriptionPaidCount, 0);
+  }, [monthlyPaidCountsData]);
+
+  const totalYearLoansPaid = React.useMemo(() => {
+    return monthlyPaidCountsData.reduce((sum, d) => sum + d.loanPaidCount, 0);
+  }, [monthlyPaidCountsData]);
+
+  const totalYearCollectionsPaid = totalYearSubscriptionsPaid + totalYearLoansPaid;
+
   return (
     <div className={cn("space-y-8 pb-12", isAndroid && "space-y-4 pb-8 px-1")}>
       <div className={cn("grid grid-cols-1 lg:grid-cols-2 gap-8", isAndroid && "gap-4")}>
         
+        {/* Graph Card #1: Month-wise Paid Collections: Subscriptions & Loans */}
+        <div 
+          id="graph-card-monthly-paid-counts"
+          className={cn(
+            "bg-gradient-to-b from-emerald-50/40 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-emerald-200/90 shadow-sm hover:shadow-md hover:border-emerald-300/90 lg:col-span-2 relative overflow-hidden transition-all",
+            isAndroid && "p-4 overflow-hidden"
+          )}
+        >
+          {/* Top-Right Index Badge */}
+          <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-emerald-600 text-xs font-black text-white rounded-bl-2xl shadow-xs z-10 select-none">
+            #1
+          </div>
+
+          <div 
+            onClick={() => toggleGraph('monthly-paid-counts')}
+            className={cn(
+              "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors pr-12 sm:pr-14",
+              !collapsedGraphs['monthly-paid-counts'] ? "mb-6" : "mb-0"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-100/90 border border-emerald-300/80 flex items-center justify-center text-emerald-700 shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-black text-slate-900 group-hover:text-emerald-700 transition-colors">
+                    Month-wise Paid Collections: Subscriptions & Loans ({selectedYear})
+                  </h3>
+                  <span className="text-slate-400 group-hover:text-emerald-700 transition-colors">
+                    {collapsedGraphs['monthly-paid-counts'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Live counts of member subscriptions paid and loan repayments paid for each month (strictly matches Monthly Collection Summary)
+                </p>
+              </div>
+            </div>
+
+            {/* Header KPI Badges & Excel Export */}
+            <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-300 text-xs font-bold shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                <span>Subscriptions: {totalYearSubscriptionsPaid} Paid</span>
+              </div>
+
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-800 rounded-xl border border-indigo-300 text-xs font-bold shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-indigo-600" />
+                <span>Loans: {totalYearLoansPaid} Paid</span>
+              </div>
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  disabled={exportingGraph === 'monthly-paid-counts'}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (exportingGraph) return;
+                    try {
+                      setExportingGraph('monthly-paid-counts');
+                      if (collapsedGraphs['monthly-paid-counts']) {
+                        setCollapsedGraphs(prev => ({ ...prev, 'monthly-paid-counts': false }));
+                        await new Promise(r => setTimeout(r, 300));
+                      } else {
+                        await new Promise(r => setTimeout(r, 60));
+                      }
+                      const chartImg = await captureChartImage('graph-card-monthly-paid-counts');
+                      await exportGraphMonthlyPaidCountsExcel({
+                        data: monthlyPaidCountsData,
+                        selectedYear,
+                        totalSubscriptionsPaid: totalYearSubscriptionsPaid,
+                        totalLoansPaid: totalYearLoansPaid,
+                        chartImage: chartImg,
+                        notify
+                      });
+                    } catch (err: any) {
+                      console.error('Failed to export Monthly Paid Counts graph:', err);
+                      notify?.('error', 'Failed to export Excel report');
+                    } finally {
+                      setExportingGraph(null);
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer",
+                    exportingGraph === 'monthly-paid-counts'
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 active:scale-95"
+                  )}
+                  title="Export this chart and monthly paid count records to Excel"
+                >
+                  {exportingGraph === 'monthly-paid-counts' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                  )}
+                  <span className="hidden sm:inline">Excel</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!collapsedGraphs['monthly-paid-counts'] && (
+            <div className="space-y-4">
+              {/* Responsive BarChart Container */}
+              <div className="w-full overflow-x-auto overflow-y-hidden pb-2 pt-2 scrollbar-thin scrollbar-thumb-slate-200">
+                <div style={{ minWidth: `${getDynamicChartWidth(12)}px`, height: isAndroid ? 340 : 400 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={monthlyPaidCountsData}
+                      margin={{ top: 28, right: 16, left: -10, bottom: 8 }}
+                      barGap={4}
+                    >
+                      <defs>
+                        <linearGradient id="paidCountsSubscriptionGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.95} />
+                          <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
+                        </linearGradient>
+                        <linearGradient id="paidCountsLoanGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.95} />
+                          <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.9} />
+                        </linearGradient>
+                      </defs>
+
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      
+                      <XAxis 
+                        dataKey="monthName" 
+                        stroke="#64748b" 
+                        tick={{ fontSize: isAndroid ? 11 : 12, fill: '#334155', fontWeight: 600 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#cbd5e1' }}
+                      />
+                      
+                      <YAxis 
+                        stroke="#64748b" 
+                        tick={{ fontSize: isAndroid ? 10 : 11, fill: '#64748b' }}
+                        allowDecimals={false}
+                        domain={[0, 'auto']}
+                        tickLine={false}
+                        axisLine={{ stroke: '#cbd5e1' }}
+                      />
+
+                      <Tooltip 
+                        content={({ active, payload }: any) => {
+                          if (active && payload && payload.length) {
+                            const d = payload[0].payload;
+                            const isPast = d.isPastMonth;
+                            const isCurrent = d.isCurrentMonth;
+                            const statusText = isPast ? 'Closed Month' : (isCurrent ? 'Current Month (Live)' : 'Upcoming');
+                            const statusBadge = isPast 
+                              ? 'bg-slate-100 text-slate-700 border-slate-300' 
+                              : (isCurrent ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-black' : 'bg-amber-100 text-amber-800 border-amber-300');
+
+                            return (
+                              <div className="bg-white/95 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2.5 min-w-[240px]">
+                                <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                                  <div className="flex items-center gap-1.5 font-bold text-slate-900 text-sm">
+                                    <Calendar className="w-4 h-4 text-emerald-600" />
+                                    <span>{d.fullName}</span>
+                                  </div>
+                                  <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold border", statusBadge)}>
+                                    {statusText}
+                                  </span>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span className="flex items-center gap-1.5 font-semibold text-slate-600">
+                                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
+                                      Subscriptions Paid:
+                                    </span>
+                                    <span className="font-bold text-emerald-700 text-sm">
+                                      {d.subscriptionPaidCount} members
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span className="flex items-center gap-1.5 font-semibold text-slate-600">
+                                      <span className="w-2.5 h-2.5 rounded-sm bg-indigo-600 inline-block" />
+                                      Loan Repayments Paid:
+                                    </span>
+                                    <span className="font-bold text-indigo-700 text-sm">
+                                      {d.loanPaidCount} loans
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="pt-2 border-t border-slate-100 flex items-center justify-between font-black text-slate-800">
+                                  <span>Total Collections:</span>
+                                  <span className="text-sm font-bold text-slate-900">
+                                    {d.totalPaidCollections}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }} 
+                      />
+
+                      <Legend 
+                        wrapperStyle={{ paddingTop: '16px' }}
+                        formatter={(value) => <span className="text-xs font-bold text-slate-700">{value}</span>}
+                      />
+
+                      <Bar 
+                        dataKey="subscriptionPaidCount" 
+                        name="Subscriptions Paid (Count)" 
+                        fill="url(#paidCountsSubscriptionGradient)" 
+                        radius={[6, 6, 0, 0]} 
+                        maxBarSize={36}
+                      >
+                        <LabelList 
+                          dataKey="subscriptionPaidCount" 
+                          position="top" 
+                          formatter={(val: any) => (Number(val) > 0 ? val : '')} 
+                          style={{ fontSize: '11px', fontWeight: 800, fill: '#059669' }} 
+                        />
+                      </Bar>
+
+                      <Bar 
+                        dataKey="loanPaidCount" 
+                        name="Loan Repayments Paid (Count)" 
+                        fill="url(#paidCountsLoanGradient)" 
+                        radius={[6, 6, 0, 0]} 
+                        maxBarSize={36}
+                      >
+                        <LabelList 
+                          dataKey="loanPaidCount" 
+                          position="top" 
+                          formatter={(val: any) => (Number(val) > 0 ? val : '')} 
+                          style={{ fontSize: '11px', fontWeight: 800, fill: '#4f46e5' }} 
+                        />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Bottom Reassurance Strip */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-semibold text-slate-700">
+                    Reconciled live counts matching Monthly Collection Summary.
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] font-bold">
+                  <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                    Total Subscriptions: {totalYearSubscriptionsPaid}
+                  </span>
+                  <span className="text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                    Total Loan Repayments: {totalYearLoansPaid}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Month-wise Sanctioned Loans & Repayments Chart (Admin Only) */}
         {isAdmin && (
           <div 
@@ -513,7 +893,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-indigo-50/90 text-xs font-black text-indigo-700 rounded-bl-2xl border-b border-l border-indigo-200/80 shadow-2xs z-10 select-none">
-              #1
+              #2
             </div>
 
             <div 
@@ -786,7 +1166,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-violet-50/90 text-xs font-black text-violet-700 rounded-bl-2xl border-b border-l border-violet-200/80 shadow-2xs z-10 select-none">
-              #2
+              #3
             </div>
 
             <div 
@@ -1042,7 +1422,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-cyan-50/90 text-xs font-black text-cyan-800 rounded-bl-2xl border-b border-l border-cyan-200/80 shadow-2xs z-10 select-none">
-              {isAdmin ? '#3' : '#1'}
+              {isAdmin ? '#4' : '#2'}
             </div>
 
             <div
@@ -1243,7 +1623,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-indigo-50/90 text-xs font-black text-indigo-800 rounded-bl-2xl border-b border-l border-indigo-200/80 shadow-2xs z-10 select-none">
-              {isAdmin ? '#4' : '#2'}
+              {isAdmin ? '#5' : '#3'}
             </div>
 
             <div

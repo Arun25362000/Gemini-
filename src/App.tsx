@@ -10481,6 +10481,101 @@ export default function App() {
               const grandTotalCashReceived = monthlyContribCashReceived + monthlyLoanCashReceived;
               const grandTotalOnlineReceived = monthlyContribOnlineReceived + monthlyLoanOnlineReceived;
 
+              // 1. Contribution real-time Paid and Due member counts for this month
+              const eligibleSocietyMembers = allUsers.filter(u => {
+                const email = (u.email || '').toLowerCase().trim();
+                const name = (u.displayName || '').toLowerCase().trim();
+                if (email === SYSTEM_ADMIN_EMAIL.toLowerCase() || email.includes('unnati.finance2026') || name === 'unnati') {
+                  return false;
+                }
+                return true;
+              });
+
+              const contribPaidCount = eligibleSocietyMembers.filter(u => {
+                const email = (u.email || '').toLowerCase().trim();
+                return contributions.some(c => 
+                  ((u.uid && c.userId === u.uid) || (email && c.userEmail?.toLowerCase().trim() === email)) &&
+                  c.month === collectionMonth &&
+                  c.year === collectionYear &&
+                  (c.status === 'paid' || !c.status)
+                );
+              }).length;
+              const contribDueCount = Math.max(0, eligibleSocietyMembers.length - contribPaidCount);
+
+              // 2. Loan real-time Paid and Due member counts for this month
+              const now = new Date();
+              const currentCalMonth = now.getMonth() + 1;
+              const currentCalYear = now.getFullYear();
+              const isPastMonth = collectionYear < currentCalYear || (collectionYear === currentCalYear && collectionMonth < currentCalMonth);
+
+              const isPaymentBelongingToLoan = (p: LoanPayment, loan: Loan): boolean => {
+                if (p.loanId) return p.loanId === loan.id;
+                const isMatchUser = (loan.userId && p.userId === loan.userId) ||
+                  (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
+                if (isMatchUser) return true;
+                const pEmail = (p.userEmail || '').toLowerCase().trim();
+                const lEmail = (loan.userEmail || '').toLowerCase().trim();
+                const isPraneshP = pEmail.includes('pranesh') || p.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
+                const isPraneshL = lEmail.includes('pranesh') || loan.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
+                return Boolean(isPraneshP && isPraneshL);
+              };
+
+              let loanPaidCount = 0;
+              let loanDueCount = 0;
+
+              if (isPastMonth) {
+                // When a month is closed / in the past (like Sep 2026), all collections are completed and reconciled.
+                // There are NEVER any pending/due loans in a closed month.
+                loanPaidCount = monthlyPaidLoanPayments.length;
+                loanDueCount = 0;
+              } else {
+                // Current or future month:
+                // Active loans for this month:
+                // 1. Any loan that has a paid repayment for this month (e.g. 6 paid loans in Oct 2026)
+                // 2. OR any running loan that was sanctioned on/before this month and had outstanding balance at start of this month (the 6 due loans)
+                const activeLoansForCollection = loans.filter(loan => {
+                  const hasPaymentThisMonth = loanPayments.some(p => 
+                    isPaymentBelongingToLoan(p, loan) &&
+                    p.month === collectionMonth &&
+                    p.year === collectionYear &&
+                    p.status === 'paid'
+                  );
+                  if (hasPaymentThisMonth) return true;
+
+                  if (loan.status === 'declined') return false;
+                  const principalAmount = loan.approvedAmount || loan.amount || 0;
+                  if (principalAmount <= 0) return false;
+
+                  // Loan must have been sanctioned on or before this month
+                  const sanctionDate = loan.approvedAt?.toDate ? loan.approvedAt.toDate() : (loan.createdAt?.toDate ? loan.createdAt.toDate() : new Date());
+                  const targetMonthEnd = new Date(collectionYear, collectionMonth, 0, 23, 59, 59, 999);
+                  if (sanctionDate > targetMonthEnd) return false;
+
+                  // Principal repayments made strictly BEFORE this month
+                  const priorPayments = loanPayments.filter(p => {
+                    if (!isPaymentBelongingToLoan(p, loan) || p.status !== 'paid') return false;
+                    if (p.year && p.month) {
+                      return p.year < collectionYear || (p.year === collectionYear && p.month < collectionMonth);
+                    }
+                    return false;
+                  });
+                  const priorPaidPrincipal = priorPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+                  const remainingAtMonthStart = principalAmount - priorPaidPrincipal;
+
+                  return remainingAtMonthStart > 0;
+                });
+
+                loanPaidCount = activeLoansForCollection.filter(loan => {
+                  return loanPayments.some(p => 
+                    isPaymentBelongingToLoan(p, loan) &&
+                    p.month === collectionMonth &&
+                    p.year === collectionYear &&
+                    p.status === 'paid'
+                  );
+                }).length;
+                loanDueCount = Math.max(0, activeLoansForCollection.length - loanPaidCount);
+              }
+
               // Member lookup and mapping for contributions
               const mappedContribs = monthlyPaidContributions.map((c, idx) => {
                 const mUser = allUsers.find(u => 
@@ -10640,9 +10735,35 @@ export default function App() {
                             </span>
                           </div>
                           {isMonthlyCollectionSummaryExpanded ? (
-                            <p className="text-xs text-slate-500 mt-0.5">
-                              Total received including member contributions &amp; loan repayments for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")}
-                            </p>
+                            <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-[11px] sm:text-xs font-medium mt-1">
+                              {/* Contributions counts */}
+                              <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                                <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Contributions -</span>
+                                <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
+                                  Paid: {contribPaidCount}
+                                </span>
+                                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                                  Due: {contribDueCount}
+                                </span>
+                              </div>
+
+                              <span className="text-slate-300 hidden sm:inline select-none">•</span>
+
+                              {/* Loan counts */}
+                              <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                                <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Loan -</span>
+                                <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
+                                  Paid: {loanPaidCount}
+                                </span>
+                                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                                  Due: {loanDueCount}
+                                </span>
+                              </div>
+                            </div>
                           ) : (
                             <p className="text-xs text-slate-500 mt-0.5">
                               {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} • ₹{grandTotalMonthlyReceived.toLocaleString("en-IN")} Total
