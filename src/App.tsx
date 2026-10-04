@@ -44,6 +44,7 @@ import {
   checkAndTriggerMonthlyContributionPushReminder,
   checkAndTriggerLoanRepaymentDuePushReminder,
   isExemptAdministrator,
+  launchWhatsApp,
 } from './lib/pushNotificationService';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -1468,7 +1469,7 @@ export default function App() {
     const firstPhone = formatWhatsAppNumber(firstMember.phoneNumber || (firstMember as any).phone);
     if (firstPhone) {
       const msg = `Hi ${firstMember.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
-      window.open(`https://wa.me/${firstPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      launchWhatsApp(firstPhone, msg);
     }
 
     // Stagger remaining members smoothly (800ms) to ensure browsers do not block multi-tab popups
@@ -1479,7 +1480,7 @@ export default function App() {
           const phone = formatWhatsAppNumber(rawPhone);
           if (phone) {
             const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
-            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+            launchWhatsApp(phone, msg);
           }
         }, (idx + 1) * 800);
       });
@@ -1505,7 +1506,7 @@ export default function App() {
     const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
     const memberKey = member.uid || member.email;
     setSentBatchMemberIds(prev => prev.includes(memberKey) ? prev : [...prev, memberKey]);
-    window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+    launchWhatsApp(formattedPhone, msg);
   };
 
   // Copy WhatsApp group broadcast text
@@ -2670,21 +2671,9 @@ export default function App() {
       message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
     }
 
-    const encodedMessage = encodeURIComponent(message);
-    const waUrl = formattedPhone ? `https://wa.me/${formattedPhone}?text=${encodedMessage}` : '';
-
-    if (waUrl) {
-      try {
-        const link = document.createElement('a');
-        link.href = waUrl;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (e) {
-        window.open(waUrl, '_blank');
-      }
+    if (formattedPhone) {
+      // Launch WhatsApp (uses native app scheme whatsapp:// on mobile to avoid 'whatsapp web not found')
+      launchWhatsApp(formattedPhone, message);
 
       // Explicitly ensure modal dialog does NOT show or stay in the application,
       // as WhatsApp opens directly and admin already navigates to WhatsApp to send the update.
@@ -3203,8 +3192,7 @@ export default function App() {
       return;
     }
     const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment.Ignore if already paid. Thanks!`;
-    const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
+    launchWhatsApp(formattedPhone, message);
   };
 
   const sendMemberStatementViaWhatsApp = async (targetUser: UserProfile) => {
@@ -3228,8 +3216,7 @@ export default function App() {
 
       // 3. Open WhatsApp directly to member's chat with message "Your statement"
       const messageText = "Your statement";
-      const encodedMessage = encodeURIComponent(messageText);
-      window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
+      launchWhatsApp(formattedPhone, messageText);
       notify('success', 'Statement PDF downloaded! Opening WhatsApp — attach the downloaded PDF from your downloads tray to send.');
     } catch (err: any) {
       console.error("Failed to send statement via WhatsApp:", err);
@@ -3256,8 +3243,7 @@ export default function App() {
       return;
     }
     const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of ₹${amount.toLocaleString('en-IN')} for ${month}. Please pay before the 10th to avoid late fees.Ignore if already paid. Thanks!`;
-    const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
+    launchWhatsApp(formattedPhone, message);
   };
 
   const sendLoanEmailReminder = (u: UserProfile, amount: number, month: string) => {
@@ -6049,8 +6035,7 @@ export default function App() {
           const formattedPhone = formatWhatsAppNumber(targetUser.phoneNumber || (targetUser as any).phone);
           if (formattedPhone) {
             const message = `*Loan Fully Settled - Unnati Trust*\n\nHi ${targetUser.displayName || 'Member'},\n\nCongratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now *Paid in Full*.\n\n*Settlement Details:*\n- Principal: ₹${settlePrincipal.toLocaleString('en-IN')}\n- Interest: ₹${settleInterest.toLocaleString('en-IN')}\n- Date: ${format(new Date(settleDate), 'MMM dd, yyyy')}\n\nThank you for being a responsible member!`;
-            const encodedMessage = encodeURIComponent(message);
-            window.open(`https://wa.me/${formattedPhone}?text=${encodedMessage}`, '_blank');
+            launchWhatsApp(formattedPhone, message);
           }
         }
 
@@ -12962,17 +12947,18 @@ export default function App() {
                 >
                   Close
                 </button>
-                {pendingWhatsAppModal.waUrl ? (
-                  <a
-                    href={pendingWhatsAppModal.waUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => setPendingWhatsAppModal(null)}
-                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5"
+                {pendingWhatsAppModal.phone ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      launchWhatsApp(pendingWhatsAppModal.phone, pendingWhatsAppModal.message);
+                      setPendingWhatsAppModal(null);
+                    }}
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <MessageSquare className="w-4 h-4" />
                     <span>Open in WhatsApp</span>
-                  </a>
+                  </button>
                 ) : (
                   <button
                     disabled

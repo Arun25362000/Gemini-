@@ -80,6 +80,85 @@ export const formatWhatsAppNumber = (phone?: string | null): string => {
 };
 
 /**
+ * Detects if the current client is a mobile device or small touchscreen viewport
+ */
+export const isMobileDevice = (): boolean => {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  return (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent)) ||
+    (typeof window.innerWidth !== 'undefined' && window.innerWidth <= 768)
+  );
+};
+
+/**
+ * Universal WhatsApp launcher supporting both mobile native app (whatsapp://send)
+ * and desktop browser (wa.me), preventing "whatsapp web not found" on mobile devices.
+ */
+export const launchWhatsApp = (
+  phone?: string | null,
+  message: string = ''
+): {
+  success: boolean;
+  url: string;
+} => {
+  const formattedPhone = formatWhatsAppNumber(phone);
+  if (!formattedPhone) return { success: false, url: '' };
+
+  const encodedMessage = encodeURIComponent(message);
+  const isMobile = isMobileDevice();
+
+  // On mobile devices, whatsapp://send opens the native WhatsApp application directly,
+  // preventing mobile browsers from being redirected to web.whatsapp.com which throws "WhatsApp Web not found".
+  const appUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMessage}`;
+  const webUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+  const apiUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMessage}`;
+
+  if (typeof window !== 'undefined') {
+    if (isMobile) {
+      try {
+        // Direct click without target="_blank" so mobile OS intercepts the custom URL scheme
+        const link = document.createElement('a');
+        link.href = appUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e) {
+        console.warn('Failed link click with app scheme:', e);
+      }
+
+      // Fast location fallback to guarantee native app opening on Android / iOS
+      setTimeout(() => {
+        try {
+          window.location.href = appUrl;
+        } catch (err) {
+          window.location.href = apiUrl;
+        }
+      }, 50);
+
+      return { success: true, url: appUrl };
+    } else {
+      // Desktop: Open wa.me in a new browser tab
+      try {
+        const link = document.createElement('a');
+        link.href = webUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (e) {
+        window.open(webUrl, '_blank');
+      }
+
+      return { success: true, url: webUrl };
+    }
+  }
+
+  return { success: true, url: isMobile ? appUrl : webUrl };
+};
+
+/**
  * Triggers an automated WhatsApp message when loan application status changes to 'approved' or 'declined'
  */
 export const triggerLoanStatusWhatsAppNotification = (
@@ -140,20 +219,11 @@ export const triggerLoanStatusWhatsAppNotification = (
       `_Unnati Administration_`;
   }
 
-  const encodedMessage = encodeURIComponent(message);
-  const waUrl = formattedPhone ? `https://wa.me/${formattedPhone}?text=${encodedMessage}` : '';
-
-  if (waUrl && typeof window !== 'undefined') {
-    try {
-      window.open(waUrl, '_blank');
-    } catch (e) {
-      console.warn('Popup blocked while opening WhatsApp:', e);
-    }
-  }
+  const result = launchWhatsApp(formattedPhone, message);
 
   return {
     success: !!formattedPhone,
-    waUrl,
+    waUrl: result.url,
     message,
     phone: formattedPhone,
     recipientName,
