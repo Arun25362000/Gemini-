@@ -461,7 +461,9 @@ export default function App() {
   const [originalEditingEmail, setOriginalEditingEmail] = useState<string | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
   const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs' | 'monthlyCollection' | 'reports'>('contributions');
-  const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments' | 'breakdown'>('applications');
+  const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments' | 'breakdown' | 'projection'>('applications');
+  const [projectionSelectedUserId, setProjectionSelectedUserId] = useState<string>('');
+  const [adminProjectionScheduleExpanded, setAdminProjectionScheduleExpanded] = useState<boolean>(true);
   const [isApplyingLoan, setIsApplyingLoan] = useState(false);
   const [loanAmount, setLoanAmount] = useState(10000);
   const [loanTenure, setLoanTenure] = useState(10);
@@ -1334,6 +1336,33 @@ export default function App() {
     return items;
   }, [contributions, myContributions, isAdmin, appliedFilter, sortConfig, allUsers, searchQuery, paymentMethodFilter]);
 
+  // Set of user UIDs and emails with active loans (approved and remaining principal > 0)
+  const activeLoanUserIdentifiers = useMemo(() => {
+    const activeSet = new Set<string>();
+    loans.forEach(loan => {
+      if (loan.status !== 'approved') return;
+      const approvedAmount = loan.approvedAmount || loan.amount || 0;
+      if (approvedAmount <= 0) return;
+      
+      const payments = loanPayments.filter(p => {
+        if (p.loanId) return p.loanId === loan.id;
+        const isMatchUser = (loan.userId && p.userId === loan.userId) ||
+          (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
+        return Boolean(isMatchUser);
+      });
+      const paidPrincipal = payments
+        .filter(p => p.status === 'paid')
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      const isFullyPaid = paidPrincipal >= approvedAmount;
+      if (!isFullyPaid) {
+        if (loan.userId) activeSet.add(loan.userId);
+        if (loan.userEmail) activeSet.add(loan.userEmail.toLowerCase().trim());
+      }
+    });
+    return activeSet;
+  }, [loans, loanPayments]);
+
   const sortedMembers = useMemo(() => {
     let items = allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL);
     
@@ -1594,24 +1623,206 @@ export default function App() {
 
   const calculateLoanRemainingTotal = (l: Loan, payments: LoanPayment[]) => {
     const paidPayments = payments.filter(p => p.status === 'paid');
-    const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
-    const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
+    const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+    const approved = l.approvedAmount || l.amount || 0;
+    const remainingPrincipal = Math.max(0, approved - totalPrincipalPaid);
     
     if (remainingPrincipal <= 0) return 0;
 
     // Estimate remaining total (Principal + Interest)
-    // We assume the user continues to pay the standard principal (e.g. 5000) or whatever is left
-    const standardPrincipal = l.approvedAmount! / (l.installments || 10);
+    // Base 5000 per month for future payments
+    const standardPrincipal = 5000;
     const remainingInstallments = Math.ceil(remainingPrincipal / standardPrincipal);
     
     let totalRemaining = 0;
     for (let i = 0; i < remainingInstallments; i++) {
       const currentBalance = remainingPrincipal - (i * standardPrincipal);
-      const interest = Math.max(0, currentBalance * 0.005);
+      const interest = Math.round(Math.max(0, currentBalance * 0.005));
       const principalForThisMonth = i === remainingInstallments - 1 ? (remainingPrincipal % standardPrincipal || standardPrincipal) : standardPrincipal;
       totalRemaining += (principalForThisMonth + interest);
     }
     return totalRemaining;
+  };
+
+  const getAdjustedLoanSchedule = (loan: Loan, payments: LoanPayment[]) => {
+    const approvedAmount = loan.approvedAmount || loan.amount || 0;
+    let approvedDate: Date;
+    if (loan.approvedAt?.toDate) {
+      approvedDate = loan.approvedAt.toDate();
+    } else if (loan.createdAt?.toDate) {
+      approvedDate = loan.createdAt.toDate();
+    } else if (loan.approvedAt) {
+      approvedDate = new Date(loan.approvedAt);
+    } else if (loan.createdAt) {
+      approvedDate = new Date(loan.createdAt);
+    } else {
+      approvedDate = new Date();
+    }
+
+    const baseMonthlyPrincipal = 5000;
+    const loanPaymentsList = payments.filter(p => p.loanId === loan.id || (!p.loanId && loan.userId && p.userId === loan.userId));
+    
+    const settlement = loan.status === 'paid'
+      ? [...loanPaymentsList].filter(p => p.status === 'paid').sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0]
+      : null;
+
+    const now = new Date();
+    const currentCalYear = now.getFullYear();
+    const currentCalMonth = now.getMonth() + 1;
+
+    // Repayment starts from next month
+    const startMonthDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + 1, 1);
+
+    let runningPrincipal = approvedAmount;
+    let monthIndex = 0;
+    const schedule: Array<{
+      installmentNum: number;
+      installmentDate: Date;
+      installmentMonth: number;
+      installmentYear: number;
+      isPaid: boolean;
+      isPending: boolean;
+      payment?: LoanPayment;
+      displayPayment?: LoanPayment;
+      scheduledPrincipal: number;
+      principalToDisplay: number;
+      interestToDisplay: number;
+      total: number;
+      startingBalance: number;
+      remainingBalanceAfter: number;
+      isCurrentMonth: boolean;
+      isFuture: boolean;
+      isFutureMonth: boolean;
+      paidOnDate: string;
+    }> = [];
+
+    const maxMonths = 60; // Up to 5 years ceiling
+
+    while (monthIndex < maxMonths) {
+      const instDate = new Date(startMonthDate.getFullYear(), startMonthDate.getMonth() + monthIndex, 1);
+      const instMonth = instDate.getMonth() + 1;
+      const instYear = instDate.getFullYear();
+
+      // Hide installments strictly following the settlement month
+      if (settlement && (instYear > (settlement.year || 0) || (instYear === (settlement.year || 0) && instMonth > (settlement.month || 0)))) {
+        break;
+      }
+
+      const monthPayment = loanPaymentsList
+        .filter(p => p.month === instMonth && p.year === instYear)
+        .sort((a, b) => {
+          const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
+          const orderA = statusOrder[a.status] ?? 3;
+          const orderB = statusOrder[b.status] ?? 3;
+          if (orderA !== orderB) return orderA - orderB;
+          return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
+        })[0];
+
+      const displayPayment = monthPayment || (loan.status === 'paid' ? settlement : undefined);
+      const isPaid = monthPayment?.status === 'paid' || (loan.status === 'paid' && !!settlement && settlement.month === instMonth && settlement.year === instYear);
+      const isPending = !isPaid && monthPayment?.status === 'pending';
+
+      // If running principal is 0 and no payment in this month or later, stop
+      if (runningPrincipal <= 0 && !isPaid && !isPending) {
+        const hasLaterPayments = loanPaymentsList.some(p => {
+          if (p.status !== 'paid' && p.status !== 'pending') return false;
+          return (p.year > instYear) || (p.year === instYear && p.month > instMonth);
+        });
+        if (!hasLaterPayments) {
+          break;
+        }
+      }
+
+      const startingBalance = runningPrincipal;
+      const scheduledBasePrincipal = Math.min(baseMonthlyPrincipal, Math.max(0, runningPrincipal));
+      const scheduledInterest = Math.round(Math.max(0, runningPrincipal) * 0.005);
+
+      let principalToDisplay: number;
+      let interestToDisplay: number;
+
+      if (isPaid) {
+        principalToDisplay = monthPayment?.amount ?? scheduledBasePrincipal;
+        interestToDisplay = monthPayment?.interest ?? scheduledInterest;
+        runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
+      } else if (isPending) {
+        principalToDisplay = monthPayment?.amount ?? scheduledBasePrincipal;
+        interestToDisplay = monthPayment?.interest ?? scheduledInterest;
+        runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
+      } else {
+        principalToDisplay = scheduledBasePrincipal;
+        interestToDisplay = scheduledInterest;
+        runningPrincipal = Math.max(0, runningPrincipal - scheduledBasePrincipal);
+      }
+
+      const total = principalToDisplay + interestToDisplay;
+      const isCurrentMonth = currentCalMonth === instMonth && currentCalYear === instYear;
+      const isFuture = instDate > now && loan.status !== 'paid';
+      const isFutureMonth = (instYear > currentCalYear) || (instYear === currentCalYear && instMonth > currentCalMonth);
+
+      const paidOnDate = isPaid ? (
+        displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
+        displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
+      ) : '-';
+
+      schedule.push({
+        installmentNum: monthIndex + 1,
+        installmentDate: instDate,
+        installmentMonth: instMonth,
+        installmentYear: instYear,
+        isPaid,
+        isPending,
+        payment: monthPayment,
+        displayPayment,
+        scheduledPrincipal: principalToDisplay,
+        principalToDisplay,
+        interestToDisplay,
+        total,
+        startingBalance,
+        remainingBalanceAfter: runningPrincipal,
+        isCurrentMonth,
+        isFuture,
+        isFutureMonth,
+        paidOnDate
+      });
+
+      monthIndex++;
+
+      if (runningPrincipal <= 0) {
+        const hasLaterPayments = loanPaymentsList.some(p => {
+          if (p.status !== 'paid' && p.status !== 'pending') return false;
+          return (p.year > instYear) || (p.year === instYear && p.month > instMonth);
+        });
+        if (!hasLaterPayments) {
+          break;
+        }
+      }
+    }
+
+    if (schedule.length === 0) {
+      const instDate = startMonthDate;
+      const baseAmt = Math.min(baseMonthlyPrincipal, approvedAmount);
+      const intAmt = Math.round(approvedAmount * 0.005);
+      schedule.push({
+        installmentNum: 1,
+        installmentDate: instDate,
+        installmentMonth: instDate.getMonth() + 1,
+        installmentYear: instDate.getFullYear(),
+        isPaid: false,
+        isPending: false,
+        scheduledPrincipal: baseAmt,
+        principalToDisplay: baseAmt,
+        interestToDisplay: intAmt,
+        total: baseAmt + intAmt,
+        startingBalance: approvedAmount,
+        remainingBalanceAfter: Math.max(0, approvedAmount - baseAmt),
+        isCurrentMonth: false,
+        isFuture: true,
+        isFutureMonth: true,
+        paidOnDate: '-'
+      });
+    }
+
+    return schedule;
   };
 
   const membersUnpaidContributionCount = useMemo(() => {
@@ -5818,7 +6029,7 @@ export default function App() {
     }
 
     const safeName = (targetUser.displayName || targetUser.email?.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const fileName = `Unnati_Statement_${safeName}_${format(new Date(), 'yyyyMMdd')}.pdf`;
+    const fileName = `${safeName}_${format(new Date(), 'yyyyMMdd')}.pdf`;
 
     return { doc, fileName };
   };
@@ -6198,7 +6409,23 @@ export default function App() {
   const deleteLoanRepayment = async (paymentId: string) => {
     if (profile?.role !== 'admin') return;
     try {
+      const payment = loanPayments.find(p => p.id === paymentId);
       await deleteDoc(doc(db, 'loanPayments', paymentId));
+      if (payment) {
+        const loan = loans.find(l => l.id === payment.loanId);
+        if (loan) {
+          const remainingPaid = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid' && p.id !== paymentId);
+          const totalPaid = remainingPaid.reduce((acc, p) => acc + (p.amount || 0), 0);
+          const approved = loan.approvedAmount || loan.amount || 0;
+          const remainingPrincipal = Math.max(0, approved - totalPaid);
+          const remainingFuture = Math.ceil(remainingPrincipal / 5000);
+          const newTenure = remainingPaid.length + remainingFuture;
+          await updateDoc(doc(db, 'loans', loan.id!), {
+            status: totalPaid >= approved ? 'paid' : 'approved',
+            installments: newTenure
+          });
+        }
+      }
       notify('success', "Loan repayment record deleted successfully.");
       setDeletingRepaymentId(null);
     } catch (err: any) {
@@ -6228,9 +6455,19 @@ export default function App() {
         isLoanFullyPaid = Boolean(loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount);
         remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
         
+        const remainingFutureTenure = Math.ceil(remainingPrincipal / 5000);
+        const newTotalInstallments = isLoanFullyPaid ? currentPaidPayments.length : (currentPaidPayments.length + remainingFutureTenure);
+
         if (isLoanFullyPaid) {
-          await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+          await updateDoc(doc(db, 'loans', loan.id!), { 
+            status: 'paid',
+            installments: currentPaidPayments.length
+          });
           createNotification(payment.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now fully paid.`, 'loan');
+        } else {
+          await updateDoc(doc(db, 'loans', loan.id!), {
+            installments: newTotalInstallments
+          });
         }
       }
 
@@ -6409,9 +6646,20 @@ export default function App() {
       const isLoanFullyPaid = Boolean(loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount);
       const remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
       
+      const paidCountAfter = existingPayment?.status === 'paid' ? currentPaidPayments.length : (currentPaidPayments.length + 1);
+      const remainingFutureTenure = Math.ceil(remainingPrincipal / 5000);
+      const newTotalInstallments = isLoanFullyPaid ? paidCountAfter : (paidCountAfter + remainingFutureTenure);
+
       if (isLoanFullyPaid) {
-        await updateDoc(doc(db, 'loans', loan.id!), { status: 'paid' });
+        await updateDoc(doc(db, 'loans', loan.id!), { 
+          status: 'paid',
+          installments: paidCountAfter
+        });
         createNotification(loan.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount.toLocaleString('en-IN')} is now fully paid.`, 'loan');
+      } else {
+        await updateDoc(doc(db, 'loans', loan.id!), {
+          installments: newTotalInstallments
+        });
       }
 
       createNotification(loan.userId, "Loan Payment Recorded", `Admin has recorded your loan payment for ${format(new Date(year, month - 1), 'MMMM yyyy')}.`, 'payment');
@@ -7748,6 +7996,18 @@ export default function App() {
               <Layers className="w-3.5 h-3.5" />
               Loan Summary
             </button>
+            <button 
+              onClick={() => setLoanSubTab('projection')}
+              className={cn(
+                "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                loanSubTab === 'projection' 
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-200" 
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-blue-600 border border-slate-200/80 shadow-2xs"
+              )}
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              LoanProjection
+            </button>
           </div>
         )}
 
@@ -8006,6 +8266,10 @@ export default function App() {
                       // Check if any month from Jan to current month is pending
                       const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                         .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                      const hasActiveLoan = Boolean(
+                        (u.uid && activeLoanUserIdentifiers.has(u.uid)) ||
+                        (u.email && activeLoanUserIdentifiers.has(u.email.toLowerCase().trim()))
+                      );
 
                       return (
                         <motion.tr 
@@ -8025,7 +8289,10 @@ export default function App() {
                               </div>
                               <div className="flex flex-col min-w-0">
                                 <span className="text-sm font-semibold text-slate-900 truncate">{u.displayName || 'Unnamed'}</span>
-                                <span className="text-[11px] text-slate-400 font-medium">{(u.role || 'member').toUpperCase()}</span>
+                                <span className="text-[11px] font-medium text-slate-400">
+                                  {(u.role || 'member').toUpperCase()}
+                                  {hasActiveLoan && <span className="text-amber-600 font-bold ml-0.5">(Loan)</span>}
+                                </span>
                               </div>
                             </div>
                           </td>
@@ -9314,17 +9581,19 @@ export default function App() {
                                   {loanList.map((l, idx) => {
                                     const payments = loanPayments.filter(p => p.loanId === l.id);
                                     const paidPayments = payments.filter(p => p.status === 'paid');
-                                    const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
-                                    const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
+                                    const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+                                    const remainingPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - totalPrincipalPaid);
                                     const remainingTotal = calculateLoanRemainingTotal(l, payments);
+                                    const loanSchedule = getAdjustedLoanSchedule(l, payments);
+                                    const totalTenure = loanSchedule.length;
                                     const targetUser = allUsers.find(u => 
                                       (l.userId && u.uid === l.userId) || 
                                       (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
                                     );
                                     
-                                    // Calculate current installment interest based on actual remaining principal
-                                    const principal = l.approvedAmount! / (l.installments || 10);
-                                    const interest = remainingPrincipal * 0.005;
+                                    // Calculate current installment interest based on actual remaining principal and base 5000
+                                    const principal = Math.min(5000, remainingPrincipal);
+                                    const interest = Math.round(remainingPrincipal * 0.005);
                                     const currentTotal = principal + interest;
                                     const isPaidThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
                                     const isPendingThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
@@ -9361,11 +9630,11 @@ export default function App() {
                                           </td>
                                           <td className="px-4 py-3.5 border-r border-slate-200/60">
                                             <div>
-                                              <p className="font-bold text-slate-900 text-xs">{paidPayments.length} / {l.installments} Paid</p>
+                                              <p className="font-bold text-slate-900 text-xs">{paidPayments.length} / {totalTenure} Paid</p>
                                               <div className="w-24 bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
                                                 <div 
                                                   className="bg-indigo-600 h-full rounded-full transition-all duration-300" 
-                                                  style={{ width: `${Math.min(100, (paidPayments.length / (l.installments || 10)) * 100)}%` }}
+                                                  style={{ width: `${Math.min(100, (paidPayments.length / totalTenure) * 100)}%` }}
                                                 />
                                               </div>
                                             </div>
@@ -9444,178 +9713,142 @@ export default function App() {
                                                         <span className="text-xs font-bold text-indigo-700">— {targetUser?.displayName || l.userEmail}</span>
                                                       </h4>
                                                       <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
-                                                        Loan: ₹{(l.approvedAmount || 0).toLocaleString('en-IN')} • 0.5% Monthly Interest • {l.installments || 10} Months Tenure
+                                                        Loan: ₹{(l.approvedAmount || 0).toLocaleString('en-IN')} • 0.5% Monthly Interest • {totalTenure} Months Tenure
                                                       </p>
                                                     </div>
                                                   </div>
                                                   <div className="flex items-center gap-2">
                                                     <span className="text-xs font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-2xs">
                                                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                                      {paidPayments.length} / {l.installments || 10} Paid
+                                                      {paidPayments.length} / {totalTenure} Paid
                                                     </span>
                                                   </div>
                                                 </div>
                                                 
                                                 <div className="p-4 sm:p-5 space-y-3 bg-slate-50/60">
-                                                  {(() => {
-                                                    const approvedAmount = l.approvedAmount || 0;
-                                                    const installments = l.installments || 10;
-                                                    const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                                                  {loanSchedule.map((item, i) => {
+                                                    const installmentNum = item.installmentNum;
+                                                    const installmentDate = item.installmentDate;
+                                                    const installmentMonth = item.installmentMonth;
+                                                    const installmentYear = item.installmentYear;
+                                                    const isPaid = item.isPaid;
+                                                    const isPending = item.isPending;
+                                                    const displayPayment = item.displayPayment;
+                                                    const payment = item.payment;
+                                                    const principalToDisplay = item.principalToDisplay;
+                                                    const interestToDisplay = item.interestToDisplay;
+                                                    const total = item.total;
+                                                    const isCurrentMonth = item.isCurrentMonth;
+                                                    const isFuture = item.isFuture;
+                                                    const isFutureMonth = item.isFutureMonth;
+                                                    const paidOnDate = item.paidOnDate;
+                                                    const isSettledOrClosed = l.status === 'paid' || remainingPrincipal <= 0;
 
-                                                    // Find settlement month for fully paid loans
-                                                    const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
-
-                                                    return Array.from({ length: installments }).map((_, i) => {
-                                                      const installmentNum = i + 1;
-                                                      const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-                                                      const installmentMonth = installmentDate.getMonth() + 1;
-                                                      const installmentYear = installmentDate.getFullYear();
-
-                                                      // Hide installments strictly following the settlement month
-                                                      if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
-                                                        return null;
-                                                      }
-
-                                                      const payment = payments.find(p => p.month === installmentMonth && p.year === installmentYear);
-                                                      const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
-                                                      const displayPayment = payment || settlementPayment;
-                                                      const isPaid = l.status === 'paid' || payment?.status === 'paid';
-                                                      const isPending = !isPaid && payment?.status === 'pending';
-                                                      
-                                                      // Calculate interest based on planned reducing balance
-                                                      const scheduledPrincipal = approvedAmount / installments;
-                                                      const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
-                                                      const interest = Math.round(plannedRemainingPrincipal * 0.005);
-                                                      const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
-                                                      const interestToDisplay = (isPaid || isPending) ? (payment?.interest ?? (isPaid ? interest : 0)) : interest;
-                                                      const total = principalToDisplay + interestToDisplay;
-
-                                                      const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
-                                                      const isFuture = installmentDate > new Date() && l.status !== 'paid';
-                                                      const now = new Date();
-                                                      const currentYear = now.getFullYear();
-                                                      const currentMonth = now.getMonth() + 1;
-                                                      const isFutureMonth = (installmentYear > currentYear) || (installmentYear === currentYear && installmentMonth > currentMonth);
-                                                      const isSettledOrClosed = l.status === 'paid' || remainingPrincipal <= 0;
-
-                                                      const paidOnDate = isPaid ? (
-                                                        displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
-                                                        displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
-                                                      ) : '-';
-
-                                                      return (
-                                                        <div 
-                                                          key={`admin-loan-schedule-${l.id || 'loan'}-${idx}-${i}`} 
-                                                          className={cn(
-                                                            "flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl border-2 transition-all shadow-2xs relative overflow-hidden",
-                                                            isPaid ? "bg-gradient-to-r from-emerald-50/90 via-teal-50/40 to-emerald-50/20 border-emerald-300/80" :
-                                                            isPending ? "bg-gradient-to-r from-amber-50/95 via-orange-50/40 to-amber-50/20 border-amber-300/90" :
-                                                            isCurrentMonth ? "bg-gradient-to-r from-indigo-50 via-blue-50/60 to-indigo-50/30 border-indigo-400 ring-2 ring-indigo-200/60 shadow-xs" :
-                                                            isFuture ? "bg-gradient-to-r from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" :
-                                                            "bg-gradient-to-r from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
-                                                          )}
-                                                        >
-                                                          <div className="flex items-center gap-3.5 min-w-0">
-                                                            <div className={cn(
-                                                              "w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
-                                                              isPaid ? "bg-emerald-600 text-white" :
-                                                              isPending ? "bg-amber-500 text-white" :
-                                                              isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" :
-                                                              isFuture ? "bg-slate-200 text-slate-700" :
-                                                              "bg-rose-500 text-white"
-                                                            )}>
-                                                              #{installmentNum}
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                              <div className="flex items-center gap-2 flex-wrap">
-                                                                <p className="text-sm font-black text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
-                                                                <span className={cn(
-                                                                  "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border shadow-2xs",
-                                                                  isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
-                                                                  isPending ? "bg-amber-100 text-amber-800 border-amber-300" :
-                                                                  isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" :
-                                                                  isFuture ? "bg-slate-100 text-slate-600 border-slate-200" :
-                                                                  "bg-rose-100 text-rose-800 border-rose-300"
-                                                                )}>
-                                                                  {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />}
-                                                                  {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
-                                                                </span>
-                                                              </div>
-                                                              <p className="text-[11px] text-slate-600 font-medium mt-0.5">
-                                                                <span className="font-bold text-slate-800">Principal: ₹{principalToDisplay.toLocaleString('en-IN')}</span>
-                                                                <span className="mx-1 text-slate-400">•</span>
-                                                                <span className="font-bold text-indigo-700">Interest (0.5%): ₹{interestToDisplay.toLocaleString('en-IN')}</span>
-                                                              </p>
-                                                            </div>
+                                                    return (
+                                                      <div 
+                                                        key={`admin-loan-schedule-${l.id || 'loan'}-${idx}-${i}`} 
+                                                        className={cn(
+                                                          "flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl border-2 transition-all shadow-2xs relative overflow-hidden",
+                                                          isPaid ? "bg-gradient-to-r from-emerald-50/90 via-teal-50/40 to-emerald-50/20 border-emerald-300/80" :
+                                                          isPending ? "bg-gradient-to-r from-amber-50/95 via-orange-50/40 to-amber-50/20 border-amber-300/90" :
+                                                          isCurrentMonth ? "bg-gradient-to-r from-indigo-50 via-blue-50/60 to-indigo-50/30 border-indigo-400 ring-2 ring-indigo-200/60 shadow-xs" :
+                                                          isFuture ? "bg-gradient-to-r from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" :
+                                                          "bg-gradient-to-r from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
+                                                        )}
+                                                      >
+                                                        <div className="flex items-center gap-3.5 min-w-0">
+                                                          <div className={cn(
+                                                            "w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
+                                                            isPaid ? "bg-emerald-600 text-white" :
+                                                            isPending ? "bg-amber-500 text-white" :
+                                                            isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" :
+                                                            isFuture ? "bg-slate-200 text-slate-700" :
+                                                            "bg-rose-500 text-white"
+                                                          )}>
+                                                            #{installmentNum}
                                                           </div>
-
-                                                          <div className="flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200/60">
-                                                            <div className="bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200/80 text-center min-w-[70px]">
-                                                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Mode</p>
-                                                              <p className={cn(
-                                                                "text-xs font-black truncate",
-                                                                displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                                                          <div className="min-w-0">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                              <p className="text-sm font-black text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
+                                                              <span className={cn(
+                                                                "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border shadow-2xs",
+                                                                isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
+                                                                isPending ? "bg-amber-100 text-amber-800 border-amber-300" :
+                                                                isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" :
+                                                                isFuture ? "bg-slate-100 text-slate-600 border-slate-200" :
+                                                                "bg-rose-100 text-rose-800 border-rose-300"
                                                               )}>
-                                                                {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
-                                                              </p>
+                                                                {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />}
+                                                                {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
+                                                              </span>
                                                             </div>
-
-                                                            <div className="bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200/80 text-center min-w-[85px]">
-                                                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Paid On</p>
-                                                              <p className="text-xs font-bold text-slate-700 truncate">
-                                                                {paidOnDate}
-                                                              </p>
-                                                            </div>
-
-                                                            <div className="text-right min-w-[90px]">
-                                                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total</p>
-                                                              <span className="text-sm sm:text-base font-black text-slate-950">₹{total.toLocaleString('en-IN')}</span>
-                                                            </div>
-
-                                                            <div className="flex items-center gap-2">
-                                                              {isAdmin && !isSettledOrClosed && isPaid && (payment?.id || displayPayment?.id) && (
-                                                                <button 
-                                                                  onClick={() => setDeletingRepaymentId((payment?.id || displayPayment?.id)!)}
-                                                                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-slate-200/60 hover:border-red-200 cursor-pointer"
-                                                                  title="Delete Repayment Record"
-                                                                >
-                                                                  <Trash2 className="w-4 h-4 text-red-500" />
-                                                                </button>
-                                                              )}
-                                                              {!isPaid && !isPending && isAdmin && (
-                                                                <button 
-                                                                  disabled={isFutureMonth}
-                                                                  onClick={() => {
-                                                                    if (isFutureMonth) return;
-                                                                    setAdminManualRepayment({
-                                                                      isOpen: true,
-                                                                      loan: l,
-                                                                      month: installmentMonth,
-                                                                      year: installmentYear,
-                                                                      amount: scheduledPrincipal,
-                                                                      interest: interest,
-                                                                      method: 'cash',
-                                                                      paymentDate: format(new Date(), 'yyyy-MM-dd')
-                                                                    });
-                                                                  }}
-                                                                  className={cn(
-                                                                    "flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs",
-                                                                    isFutureMonth 
-                                                                      ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60 shadow-none hover:bg-slate-100" 
-                                                                      : "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer active:scale-95"
-                                                                  )}
-                                                                  title={isFutureMonth ? "Cannot record payment for future months" : "Record Payment Manually"}
-                                                                >
-                                                                  <PlusCircle className="w-3.5 h-3.5" />
-                                                                  <span>Record</span>
-                                                                </button>
-                                                              )}
-                                                            </div>
+                                                            <p className="text-[11px] text-slate-600 font-medium mt-0.5">
+                                                              <span className="font-bold text-slate-800">Principal: ₹{principalToDisplay.toLocaleString('en-IN')}</span>
+                                                              <span className="mx-1 text-slate-400">•</span>
+                                                              <span className="font-bold text-indigo-700">Interest (0.5%): ₹{interestToDisplay.toLocaleString('en-IN')}</span>
+                                                            </p>
                                                           </div>
                                                         </div>
-                                                      );
-                                                    });
-                                                  })()}
+
+                                                        <div className="flex items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-200/60">
+                                                          <div className="bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200/80 text-center min-w-[70px]">
+                                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Mode</p>
+                                                            <p className={cn(
+                                                              "text-xs font-black truncate",
+                                                              displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                                                            )}>
+                                                              {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                                            </p>
+                                                          </div>
+
+                                                          <div className="bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200/80 text-center min-w-[85px]">
+                                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Paid On</p>
+                                                            <p className="text-xs font-bold text-slate-700 truncate">
+                                                              {paidOnDate}
+                                                            </p>
+                                                          </div>
+
+                                                          <div className="text-right min-w-[90px]">
+                                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total</p>
+                                                            <span className="text-sm sm:text-base font-black text-slate-950">₹{total.toLocaleString('en-IN')}</span>
+                                                          </div>
+
+                                                          <div className="flex items-center gap-2">
+                                                            {isAdmin && !isSettledOrClosed && isPaid && (payment?.id || displayPayment?.id) && (
+                                                              <button 
+                                                                onClick={() => setDeletingRepaymentId((payment?.id || displayPayment?.id)!)}
+                                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-slate-200/60 hover:border-red-200 cursor-pointer"
+                                                                title="Delete Repayment Record"
+                                                              >
+                                                                <Trash2 className="w-4 h-4 text-red-500" />
+                                                              </button>
+                                                            )}
+                                                            {!isPaid && !isPending && isAdmin && !isSettledOrClosed && (
+                                                              <button 
+                                                                onClick={() => {
+                                                                  setAdminManualRepayment({
+                                                                    isOpen: true,
+                                                                    loan: l,
+                                                                    month: installmentMonth,
+                                                                    year: installmentYear,
+                                                                    amount: principalToDisplay,
+                                                                    interest: interestToDisplay,
+                                                                    method: 'cash',
+                                                                    paymentDate: format(new Date(), 'yyyy-MM-dd')
+                                                                  });
+                                                                }}
+                                                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer active:scale-95"
+                                                                title="Record Payment Manually"
+                                                              >
+                                                                <PlusCircle className="w-3.5 h-3.5" />
+                                                                <span>Record</span>
+                                                              </button>
+                                                            )}
+                                                          </div>
+                                                        </div>
+                                                      </div>
+                                                    );
+                                                  })}
                                                 </div>
                                               </div>
                                             </td>
@@ -9656,6 +9889,8 @@ export default function App() {
                               const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
                               const remainingPrincipal = Math.max(0, l.approvedAmount! - totalPrincipalPaid);
                               const remainingTotal = calculateLoanRemainingTotal(l, payments);
+                              const loanSchedule = getAdjustedLoanSchedule(l, payments);
+                              const totalTenure = loanSchedule.length;
                               const targetUser = allUsers.find(u => 
                                 (l.userId && u.uid === l.userId) || 
                                 (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
@@ -9706,7 +9941,7 @@ export default function App() {
                                       </div>
                                       <div>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase">Progress</p>
-                                        <p className="font-bold text-slate-900">{paidPayments.length} / {l.installments} Paid</p>
+                                        <p className="font-bold text-slate-900">{paidPayments.length} / {totalTenure} Paid</p>
                                       </div>
                                       <div className="col-span-2">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">{statusColumnHeader}</p>
@@ -9780,181 +10015,147 @@ export default function App() {
                                               Repayment Schedule <span className="text-indigo-700 font-bold">— {targetUser?.displayName || l.userEmail}</span>
                                             </h4>
                                             <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
-                                              Loan: ₹{(l.approvedAmount || 0).toLocaleString('en-IN')} • 0.5% Monthly Interest • {l.installments || 10} Months Tenure
+                                              Loan: ₹{(l.approvedAmount || 0).toLocaleString('en-IN')} • 0.5% Monthly Interest • {totalTenure} Months Tenure
                                             </p>
                                           </div>
                                         </div>
                                         <span className="text-[11px] font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1 rounded-xl flex items-center gap-1 shadow-2xs">
                                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                          {paidPayments.length} / {l.installments || 10} Paid
+                                          {paidPayments.length} / {totalTenure} Paid
                                         </span>
                                       </div>
 
                                       <div className="mt-3 space-y-3">
-                                        {(() => {
-                                          const approvedAmount = l.approvedAmount || 0;
-                                          const installments = l.installments || 10;
-                                          const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                                        {loanSchedule.map((item, i) => {
+                                          const installmentNum = item.installmentNum;
+                                          const installmentDate = item.installmentDate;
+                                          const installmentMonth = item.installmentMonth;
+                                          const installmentYear = item.installmentYear;
+                                          const isPaid = item.isPaid;
+                                          const isPending = item.isPending;
+                                          const displayPayment = item.displayPayment;
+                                          const payment = item.payment;
+                                          const principalToDisplay = item.principalToDisplay;
+                                          const interestToDisplay = item.interestToDisplay;
+                                          const total = item.total;
+                                          const isCurrentMonth = item.isCurrentMonth;
+                                          const isFuture = item.isFuture;
+                                          const isFutureMonth = item.isFutureMonth;
+                                          const paidOnDate = item.paidOnDate;
+                                          const isSettledOrClosed = l.status === 'paid' || remainingPrincipal <= 0;
+                                          const targetPaymentId = payment?.id || displayPayment?.id;
 
-                                          const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
-
-                                          return Array.from({ length: installments }).map((_, i) => {
-                                            const installmentNum = i + 1;
-                                            const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-                                            const installmentMonth = installmentDate.getMonth() + 1;
-                                            const installmentYear = installmentDate.getFullYear();
-
-                                            if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
-                                              return null;
-                                            }
-
-                                            const payment = payments.find(p => p.month === installmentMonth && p.year === installmentYear);
-                                            const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
-                                            const displayPayment = payment || settlementPayment;
-                                            const isPaid = l.status === 'paid' || payment?.status === 'paid';
-                                            const isPending = !isPaid && payment?.status === 'pending';
-                                            
-                                            const scheduledPrincipal = approvedAmount / installments;
-                                            const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
-                                            const interest = Math.round(plannedRemainingPrincipal * 0.005);
-                                            const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
-                                            const interestToDisplay = (isPaid || isPending) ? (payment?.interest ?? (isPaid ? interest : 0)) : interest;
-                                            const total = principalToDisplay + interestToDisplay;
-
-                                            const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
-                                            const isFuture = installmentDate > new Date() && l.status !== 'paid';
-                                            const now = new Date();
-                                            const currentYear = now.getFullYear();
-                                            const currentMonth = now.getMonth() + 1;
-                                            const isFutureMonth = (installmentYear > currentYear) || (installmentYear === currentYear && installmentMonth > currentMonth);
-                                            const isSettledOrClosed = l.status === 'paid' || remainingPrincipal <= 0;
-
-                                            const paidOnDate = isPaid ? (
-                                              displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
-                                              displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
-                                            ) : '-';
-
-                                            const targetPaymentId = payment?.id || displayPayment?.id;
-
-                                            return (
-                                              <div 
-                                                key={`admin-loan-schedule-mob-${l.id || 'loan'}-${idx}-${i}`} 
-                                                className={cn(
-                                                  "p-4 rounded-2xl border-2 shadow-2xs flex flex-col gap-3 relative overflow-hidden transition-all",
-                                                  isPaid ? "bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/20 border-emerald-300/80" :
-                                                  isPending ? "bg-gradient-to-br from-amber-50/95 via-orange-50/40 to-amber-50/20 border-amber-300/90" :
-                                                  isCurrentMonth ? "bg-gradient-to-br from-indigo-50 via-blue-50/60 to-indigo-50/30 border-indigo-400 ring-2 ring-indigo-200/60 shadow-xs" :
-                                                  isFuture ? "bg-gradient-to-br from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" :
-                                                  "bg-gradient-to-br from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
-                                                )}
-                                              >
-                                                <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-slate-900 text-[10px] font-black text-white rounded-bl-lg border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
-                                                  #{installmentNum}
-                                                </div>
-                                                <div className="flex items-center justify-between pr-8">
-                                                  <div className="flex items-center gap-2.5">
-                                                    <div className={cn(
-                                                      "w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
-                                                      isPaid ? "bg-emerald-600 text-white" : 
-                                                      isPending ? "bg-amber-500 text-white" : 
-                                                      isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" :
-                                                      isFuture ? "bg-slate-200 text-slate-700" :
-                                                      "bg-rose-500 text-white"
-                                                    )}>
-                                                      {installmentNum}
-                                                    </div>
-                                                    <div>
-                                                      <p className="text-xs sm:text-sm font-black text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
-                                                      <span className={cn(
-                                                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-extrabold border mt-0.5",
-                                                        isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
-                                                        isPending ? "bg-amber-100 text-amber-800 border-amber-300" :
-                                                        isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" :
-                                                        isFuture ? "bg-slate-100 text-slate-600 border-slate-200" :
-                                                        "bg-rose-100 text-rose-800 border-rose-300"
-                                                      )}>
-                                                        {isPaid && <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 inline" />}
-                                                        {isPaid ? 'PAID' : isPending ? 'AWAITING' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
-                                                      </span>
-                                                    </div>
-                                                  </div>
-                                                  <div className="text-right flex items-center gap-2">
-                                                    <div>
-                                                      <p className="text-[9px] font-bold text-slate-400 uppercase">Total</p>
-                                                      <span className="text-sm font-black text-slate-950">₹{total.toLocaleString('en-IN')}</span>
-                                                    </div>
-                                                    {isAdmin && !isSettledOrClosed && isPaid && targetPaymentId && (
-                                                      <button 
-                                                        onClick={() => setDeletingRepaymentId(targetPaymentId)}
-                                                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer border border-slate-200/60"
-                                                        title="Delete Repayment Record"
-                                                      >
-                                                        <Trash2 className="w-4 h-4 text-red-500" />
-                                                      </button>
-                                                    )}
-                                                  </div>
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-2 bg-white/90 backdrop-blur-xs p-3 rounded-xl border border-slate-200/80 text-xs shadow-2xs">
-                                                  <div>
-                                                    <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Principal</span>
-                                                    <span className="font-extrabold text-slate-900">₹{principalToDisplay.toLocaleString('en-IN')}</span>
-                                                  </div>
-                                                  <div>
-                                                    <span className="text-[9.5px] font-bold text-indigo-500 uppercase block">Interest (0.5%)</span>
-                                                    <span className="font-extrabold text-indigo-700">₹{interestToDisplay.toLocaleString('en-IN')}</span>
-                                                  </div>
-                                                  <div className="pt-1.5 border-t border-slate-100">
-                                                    <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Mode</span>
-                                                    <span className={cn(
-                                                      "font-bold text-xs",
-                                                      displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
-                                                    )}>
-                                                      {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
-                                                    </span>
-                                                  </div>
-                                                  <div className="pt-1.5 border-t border-slate-100">
-                                                    <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Paid On</span>
-                                                    <span className="font-bold text-slate-700 text-xs">
-                                                      {paidOnDate}
-                                                    </span>
-                                                  </div>
-                                                </div>
-
-                                                {!isPaid && !isPending && isAdmin && (
-                                                  <div className="pt-0.5">
-                                                    <button 
-                                                      disabled={isFutureMonth}
-                                                      onClick={() => {
-                                                        if (isFutureMonth) return;
-                                                        setAdminManualRepayment({
-                                                          isOpen: true,
-                                                          loan: l,
-                                                          month: installmentMonth,
-                                                          year: installmentYear,
-                                                          amount: scheduledPrincipal,
-                                                          interest: interest,
-                                                          method: 'cash',
-                                                          paymentDate: format(new Date(), 'yyyy-MM-dd')
-                                                        });
-                                                      }}
-                                                      className={cn(
-                                                        "w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs",
-                                                        isFutureMonth
-                                                          ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60 shadow-none hover:bg-slate-100"
-                                                          : "bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 cursor-pointer"
-                                                      )}
-                                                      title={isFutureMonth ? "Cannot record payment for future months" : "Record Payment Manually"}
-                                                    >
-                                                      <PlusCircle className="w-4 h-4 text-white" />
-                                                      <span>Record Payment Manually</span>
-                                                    </button>
-                                                  </div>
-                                                )}
+                                          return (
+                                            <div 
+                                              key={`admin-loan-schedule-mob-${l.id || 'loan'}-${idx}-${i}`} 
+                                              className={cn(
+                                                "p-4 rounded-2xl border-2 shadow-2xs flex flex-col gap-3 relative overflow-hidden transition-all",
+                                                isPaid ? "bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-emerald-50/20 border-emerald-300/80" :
+                                                isPending ? "bg-gradient-to-br from-amber-50/95 via-orange-50/40 to-amber-50/20 border-amber-300/90" :
+                                                isCurrentMonth ? "bg-gradient-to-br from-indigo-50 via-blue-50/60 to-indigo-50/30 border-indigo-400 ring-2 ring-indigo-200/60 shadow-xs" :
+                                                isFuture ? "bg-gradient-to-br from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" :
+                                                "bg-gradient-to-br from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
+                                              )}
+                                            >
+                                              <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-slate-900 text-[10px] font-black text-white rounded-bl-lg border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
+                                                #{installmentNum}
                                               </div>
-                                            );
-                                          });
-                                        })()}
+                                              <div className="flex items-center justify-between pr-8">
+                                                <div className="flex items-center gap-2.5">
+                                                  <div className={cn(
+                                                    "w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
+                                                    isPaid ? "bg-emerald-600 text-white" : 
+                                                    isPending ? "bg-amber-500 text-white" : 
+                                                    isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" :
+                                                    isFuture ? "bg-slate-200 text-slate-700" :
+                                                    "bg-rose-500 text-white"
+                                                  )}>
+                                                    {installmentNum}
+                                                  </div>
+                                                  <div>
+                                                    <p className="text-xs sm:text-sm font-black text-slate-900">{format(installmentDate, 'MMMM yyyy')}</p>
+                                                    <span className={cn(
+                                                      "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-extrabold border mt-0.5",
+                                                      isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" :
+                                                      isPending ? "bg-amber-100 text-amber-800 border-amber-300" :
+                                                      isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" :
+                                                      isFuture ? "bg-slate-100 text-slate-600 border-slate-200" :
+                                                      "bg-rose-100 text-rose-800 border-rose-300"
+                                                    )}>
+                                                      {isPaid && <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 inline" />}
+                                                      {isPaid ? 'PAID' : isPending ? 'AWAITING' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                                <div className="text-right flex items-center gap-2">
+                                                  <div>
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Total</p>
+                                                    <span className="text-sm font-black text-slate-950">₹{total.toLocaleString('en-IN')}</span>
+                                                  </div>
+                                                  {isAdmin && !isSettledOrClosed && isPaid && targetPaymentId && (
+                                                    <button 
+                                                      onClick={() => setDeletingRepaymentId(targetPaymentId)}
+                                                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer border border-slate-200/60"
+                                                      title="Delete Repayment Record"
+                                                    >
+                                                      <Trash2 className="w-4 h-4 text-red-500" />
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              <div className="grid grid-cols-2 gap-2 bg-white/90 backdrop-blur-xs p-3 rounded-xl border border-slate-200/80 text-xs shadow-2xs">
+                                                <div>
+                                                  <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Principal</span>
+                                                  <span className="font-extrabold text-slate-900">₹{principalToDisplay.toLocaleString('en-IN')}</span>
+                                                </div>
+                                                <div>
+                                                  <span className="text-[9.5px] font-bold text-indigo-500 uppercase block">Interest (0.5%)</span>
+                                                  <span className="font-extrabold text-indigo-700">₹{interestToDisplay.toLocaleString('en-IN')}</span>
+                                                </div>
+                                                <div className="pt-1.5 border-t border-slate-100">
+                                                  <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Mode</span>
+                                                  <span className={cn(
+                                                    "font-bold text-xs",
+                                                    displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                                                  )}>
+                                                    {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                                  </span>
+                                                </div>
+                                                <div className="pt-1.5 border-t border-slate-100">
+                                                  <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Paid On</span>
+                                                  <span className="font-bold text-slate-700 text-xs">
+                                                    {paidOnDate}
+                                                  </span>
+                                                </div>
+                                              </div>
+
+                                              {!isPaid && !isPending && isAdmin && !isSettledOrClosed && (
+                                                <div className="pt-0.5">
+                                                  <button 
+                                                    onClick={() => {
+                                                      setAdminManualRepayment({
+                                                        isOpen: true,
+                                                        loan: l,
+                                                        month: installmentMonth,
+                                                        year: installmentYear,
+                                                        amount: principalToDisplay,
+                                                        interest: interestToDisplay,
+                                                        method: 'cash',
+                                                        paymentDate: format(new Date(), 'yyyy-MM-dd')
+                                                      });
+                                                    }}
+                                                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 cursor-pointer"
+                                                    title="Record Payment Manually"
+                                                  >
+                                                    <PlusCircle className="w-4 h-4 text-white" />
+                                                    <span>Record Payment Manually</span>
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     </div>
                                   )}
@@ -10060,7 +10261,7 @@ export default function App() {
                       );
                     })()}
                   </div>
-                ) : (
+                ) : loanSubTab === 'breakdown' ? (
                   <MonthWiseLoanBreakdown
                     loans={loans}
                     loanPayments={loanPayments}
@@ -10068,6 +10269,348 @@ export default function App() {
                     isAndroid={Capacitor.getPlatform() === 'android'}
                     searchQuery={searchQuery}
                   />
+                ) : (
+                  <div className="space-y-6">
+                    <div className="bg-white rounded-3xl p-5 sm:p-7 border-2 border-indigo-200/90 shadow-sm space-y-6">
+                      {/* Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold shrink-0 shadow-xs border border-indigo-200/70">
+                            <Calculator className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">LoanProjection &amp; EMI Calculator</h3>
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                0.5% Monthly Reducing Rate
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium mt-0.5">
+                              Calculate future EMI payments, interest and month-by-month repayment projections for members before recording loan
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Quick Share / Copy Actions */}
+                        <div className="flex items-center gap-2 self-start sm:self-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const targetUser = allUsers.find(u => u.uid === projectionSelectedUserId);
+                              const memberName = targetUser?.displayName || 'Member';
+                              const text = 
+`*UNNATI TRUST (R) - LOAN EMI PROJECTION*
+----------------------------------------
+*Applicant:* ${memberName}
+*Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
+*Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
+*Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
+*Interest Rate:* 0.5% monthly (reducing balance)
+
+*PAYMENT SUMMARY:*
+• 1st Month EMI (Peak): ₹${loanProjection.firstMonthPayment.toLocaleString('en-IN')}
+• Last Month EMI: ₹${loanProjection.lastMonthPayment.toLocaleString('en-IN')}
+• Total Interest: ₹${loanProjection.totalInterest.toLocaleString('en-IN')}
+• Total Repayable: ₹${loanProjection.totalRepayable.toLocaleString('en-IN')}
+
+*MONTH-WISE REPAYMENT SCHEDULE:*
+${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')} (Balance ₹${s.closingBalance.toLocaleString('en-IN')})`).join('\n')}
+
+*Note:* Installments are payable between 1st and 10th of every month.`;
+
+                              navigator.clipboard.writeText(text);
+                              notify('success', 'Loan projection summary copied to clipboard!');
+                            }}
+                            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+                            title="Copy formatted summary to clipboard"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy Summary</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const targetUser = allUsers.find(u => u.uid === projectionSelectedUserId);
+                              const memberName = targetUser?.displayName || 'Member';
+                              const text = encodeURIComponent(
+`*UNNATI TRUST (R) - LOAN EMI PROJECTION*
+----------------------------------------
+*Applicant:* ${memberName}
+*Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
+*Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
+*Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
+*Interest Rate:* 0.5% monthly (reducing balance)
+
+*PAYMENT SUMMARY:*
+• 1st Month EMI (Peak): ₹${loanProjection.firstMonthPayment.toLocaleString('en-IN')}
+• Last Month EMI: ₹${loanProjection.lastMonthPayment.toLocaleString('en-IN')}
+• Total Interest: ₹${loanProjection.totalInterest.toLocaleString('en-IN')}
+• Total Repayable: ₹${loanProjection.totalRepayable.toLocaleString('en-IN')}
+
+*MONTH-WISE REPAYMENT SCHEDULE:*
+${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')}`).join('\n')}
+
+*Note:* Installments are payable between 1st and 10th of every month.`
+                              );
+                              const phone = targetUser?.phoneNumber?.replace(/[^0-9]/g, '') || '';
+                              const url = phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${text}` : `https://api.whatsapp.com/send?text=${text}`;
+                              window.open(url, '_blank');
+                            }}
+                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+                            title="Share on WhatsApp with member"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Share WhatsApp</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Optional Member Selection */}
+                      <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                            Select Member (Optional):
+                          </label>
+                        </div>
+                        <select
+                          value={projectionSelectedUserId}
+                          onChange={(e) => setProjectionSelectedUserId(e.target.value)}
+                          className="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 cursor-pointer min-w-[200px]"
+                        >
+                          <option value="">General / Prospective Member</option>
+                          {allUsers
+                            .slice()
+                            .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''))
+                            .map(u => (
+                              <option key={`projection-user-${u.uid || u.email}`} value={u.uid || u.email}>
+                                {u.displayName || u.email} {u.phoneNumber ? `(${u.phoneNumber})` : ''}
+                              </option>
+                            ))
+                          }
+                        </select>
+                      </div>
+
+                      {/* Loan Amount Input & Presets */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                            Required Loan Amount <span className="text-slate-400 font-normal">(Max ₹1,00,000 / 1 Lakh)</span>
+                          </label>
+                          <span className="text-sm font-black text-indigo-600">
+                            ₹{Number(loanAmount || 0).toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-lg">₹</span>
+                          <input 
+                            type="number" 
+                            max={100000}
+                            min={1000}
+                            step={1000}
+                            value={loanAmount || ''}
+                            onChange={(e) => setLoanAmount(Math.min(100000, Math.max(0, Number(e.target.value))))}
+                            placeholder="Enter amount (e.g. 10000 or up to 100000)"
+                            className="w-full pl-9 pr-4 py-3 sm:py-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-black text-xl sm:text-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
+                          />
+                        </div>
+
+                        {/* Range Slider */}
+                        <div className="px-1">
+                          <input 
+                            type="range" 
+                            min={5000}
+                            max={100000}
+                            step={5000}
+                            value={loanAmount}
+                            onChange={(e) => setLoanAmount(Number(e.target.value))}
+                            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                          />
+                          <div className="flex justify-between text-[10px] text-slate-400 font-bold mt-1">
+                            <span>₹5,000</span>
+                            <span>₹25,000</span>
+                            <span>₹50,000</span>
+                            <span>₹75,000</span>
+                            <span>₹1,00,000</span>
+                          </div>
+                        </div>
+
+                        {/* Quick Select Chips */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {[5000, 10000, 25000, 50000, 75000, 100000].map(amt => (
+                            <button 
+                              key={`admin-proj-quick-amt-${amt}`}
+                              type="button"
+                              onClick={() => setLoanAmount(amt)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer",
+                                loanAmount === amt 
+                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-xs" 
+                                  : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                              )}
+                            >
+                              {amt >= 100000 ? '₹1 Lakh' : `₹${amt.toLocaleString('en-IN')}`}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Interactive Loan Calculator Tool Container */}
+                      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-slate-50 border-2 border-indigo-200/80 shadow-xs space-y-4">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <Calculator className="w-4 h-4 text-indigo-600" />
+                            <span className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                              Projected EMI &amp; Repayment Calculator
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                            0.5% Monthly Reducing
+                          </span>
+                        </div>
+
+                        {/* Fixed Monthly Principal Rule Banner */}
+                        <div className="bg-white p-3 rounded-xl border border-indigo-100/90 shadow-2xs flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-xs shrink-0 border border-indigo-200/60">
+                              ₹5K
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                                Monthly Principal: <span className="text-indigo-600 font-black">₹5,000 / month</span>
+                              </p>
+                              <p className="text-[10px] text-slate-500 font-medium">
+                                Loan is divided by ₹5,000 per month (e.g. ₹50,000 = 10 mos, ₹1,00,000 = 20 mos)
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Calculated Tenure</span>
+                            <span className="text-xs sm:text-sm font-black text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200/80 inline-block">
+                              {loanProjection.tenure} Months ({loanProjection.tenure} Installments)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 4 Projected Key Metric Cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {/* Monthly Principal */}
+                          <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200/90 shadow-2xs">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">Principal / Mo</p>
+                            <p className="text-sm sm:text-base font-black text-slate-900 mt-0.5 truncate">
+                              ₹{loanProjection.monthlyPrincipal.toLocaleString('en-IN')}
+                            </p>
+                            <p className="text-[9.5px] text-slate-400 mt-0.5 truncate">{loanProjection.tenure} installments</p>
+                          </div>
+
+                          {/* 1st Month Payment */}
+                          <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-indigo-200/90 shadow-2xs bg-gradient-to-b from-indigo-50/30 to-white">
+                            <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider truncate">1st Month EMI</p>
+                            <p className="text-sm sm:text-base font-black text-indigo-600 mt-0.5 truncate">
+                              ₹{loanProjection.firstMonthPayment.toLocaleString('en-IN')}
+                            </p>
+                            <p className="text-[9.5px] text-indigo-500/80 mt-0.5 truncate">Peak payment</p>
+                          </div>
+
+                          {/* Total Interest */}
+                          <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-purple-200/90 shadow-2xs bg-gradient-to-b from-purple-50/30 to-white">
+                            <p className="text-[10px] font-bold text-purple-600 uppercase tracking-wider truncate">Total Interest</p>
+                            <p className="text-sm sm:text-base font-black text-purple-700 mt-0.5 truncate">
+                              ₹{loanProjection.totalInterest.toLocaleString('en-IN')}
+                            </p>
+                            <p className="text-[9.5px] text-purple-500/80 mt-0.5 truncate">Over full term</p>
+                          </div>
+
+                          {/* Total Repayable */}
+                          <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-emerald-200/90 shadow-2xs bg-gradient-to-b from-emerald-50/30 to-white">
+                            <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider truncate">Total Due</p>
+                            <p className="text-sm sm:text-base font-black text-emerald-700 mt-0.5 truncate">
+                              ₹{loanProjection.totalRepayable.toLocaleString('en-IN')}
+                            </p>
+                            <p className="text-[9.5px] text-emerald-600/80 mt-0.5 truncate">P + Interest</p>
+                          </div>
+                        </div>
+
+                        {/* Month-by-Month Projected Schedule */}
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setAdminProjectionScheduleExpanded(!adminProjectionScheduleExpanded)}
+                            className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-slate-50 border border-indigo-200/80 rounded-xl text-xs font-bold text-indigo-700 transition-colors shadow-2xs cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Table className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>{adminProjectionScheduleExpanded ? 'Hide' : 'View'} Month-by-Month Projected Schedule ({loanProjection.tenure} Months)</span>
+                            </div>
+                            <ChevronDown className={cn("w-4 h-4 text-indigo-500 transition-transform duration-200", adminProjectionScheduleExpanded && "rotate-180")} />
+                          </button>
+
+                          {adminProjectionScheduleExpanded && (
+                            <div className="mt-2.5 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                              <div className="max-h-72 overflow-y-auto">
+                                <table className="w-full text-left text-xs">
+                                  <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 bg-slate-50/95 backdrop-blur-xs">
+                                    <tr>
+                                      <th className="py-2 px-2.5">Month</th>
+                                      <th className="py-2 px-2 text-right">Principal</th>
+                                      <th className="py-2 px-2 text-right">Interest (0.5%)</th>
+                                      <th className="py-2 px-2 text-right">Monthly Due</th>
+                                      <th className="py-2 px-2.5 text-right">Balance</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                                    {loanProjection.schedule.map((row) => (
+                                      <tr 
+                                        key={`admin-calc-row-${row.month}`}
+                                        className={cn(
+                                          "hover:bg-slate-50/80 transition-colors",
+                                          row.month === 1 && "bg-indigo-50/30",
+                                          row.month === loanProjection.tenure && "bg-emerald-50/30"
+                                        )}
+                                      >
+                                        <td className="py-1.5 px-2.5 font-bold text-slate-900">
+                                          Month {row.month}
+                                          {row.month === 1 && <span className="ml-1 text-[9px] text-indigo-600 font-semibold">(1st)</span>}
+                                          {row.month === loanProjection.tenure && <span className="ml-1 text-[9px] text-emerald-600 font-semibold">(Last)</span>}
+                                        </td>
+                                        <td className="py-1.5 px-2 text-right">₹{row.principalPayment.toLocaleString('en-IN')}</td>
+                                        <td className="py-1.5 px-2 text-right text-indigo-600 font-semibold">₹{row.interestPayment.toLocaleString('en-IN')}</td>
+                                        <td className="py-1.5 px-2 text-right font-black text-slate-900">₹{row.totalPayment.toLocaleString('en-IN')}</td>
+                                        <td className="py-1.5 px-2.5 text-right font-bold text-slate-500">
+                                          {row.closingBalance > 0 ? `₹${row.closingBalance.toLocaleString('en-IN')}` : '₹0'}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot className="bg-slate-100/90 border-t border-slate-200 text-xs font-black text-slate-900">
+                                    <tr>
+                                      <td className="py-2 px-2.5">Total</td>
+                                      <td className="py-2 px-2 text-right">₹{loanProjection.principal.toLocaleString('en-IN')}</td>
+                                      <td className="py-2 px-2 text-right text-indigo-600">₹{loanProjection.totalInterest.toLocaleString('en-IN')}</td>
+                                      <td className="py-2 px-2 text-right text-emerald-700">₹{loanProjection.totalRepayable.toLocaleString('en-IN')}</td>
+                                      <td className="py-2 px-2.5 text-right text-slate-500">-</td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                              <p className="p-2 text-[10px] text-slate-400 text-center border-t border-slate-100 bg-slate-50/50">
+                                *Installments are due between the 1st and 10th of every month. Reducing interest rate is 0.5% monthly.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Admin Guidance Box */}
+                      <div className="p-3.5 bg-blue-50/70 rounded-2xl border border-blue-200/80 flex items-start gap-3">
+                        <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                        <p className="text-xs text-blue-900 leading-relaxed font-medium">
+                          Share this projection with members prior to sanctioning and disbursement so they are fully aware of their monthly principal (₹5,000/mo), reducing interest, and exact due dates.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </>
             ) : null}
@@ -10100,6 +10643,8 @@ export default function App() {
                       const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
                       const remainingPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - totalPrincipalPaid);
                       const remainingTotal = calculateLoanRemainingTotal(l, payments);
+                      const loanSchedule = getAdjustedLoanSchedule(l, payments);
+                      const totalTenure = loanSchedule.length;
                       const loanKey = l.id || `loan-${idx}`;
                       const isGroupExpanded = expandedMemberLoanGroups[loanKey] !== false; // expanded by default
                       const isScheduleExpanded = !!expandedMemberLoanSchedules[loanKey];
@@ -10248,7 +10793,7 @@ export default function App() {
                                       <div className="flex items-center gap-2.5 sm:gap-3">
                                         <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100/80 px-3 py-1.5 rounded-xl text-xs font-black border border-emerald-300 shadow-2xs shrink-0">
                                           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                          <span>{paidPayments.length} / {l.installments || 10} Paid</span>
+                                          <span>{paidPayments.length} / {totalTenure} Paid</span>
                                         </div>
                                         <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-slate-600 border border-slate-200 shadow-2xs shrink-0">
                                           {isScheduleExpanded ? (
@@ -10272,183 +10817,151 @@ export default function App() {
                                         >
                                           <div className="p-4 sm:p-6 pt-0 sm:pt-0 border-t border-slate-200/70">
                                             <div className="pt-4 space-y-3.5">
-                                              {(() => {
-                                                 const approvedAmount = l.approvedAmount || 0;
-                                                 const installments = l.installments || 10;
-                                                 const approvedDate = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
+                                              {loanSchedule.map((item, i) => {
+                                                const installmentNum = item.installmentNum;
+                                                const installmentDate = item.installmentDate;
+                                                const installmentMonth = item.installmentMonth;
+                                                const installmentYear = item.installmentYear;
+                                                const isPaid = item.isPaid;
+                                                const isPending = item.isPending;
+                                                const displayPayment = item.displayPayment;
+                                                const payment = item.payment;
+                                                const principalToDisplay = item.principalToDisplay;
+                                                const interest = item.interestToDisplay;
+                                                const total = item.total;
+                                                const isCurrentMonth = item.isCurrentMonth;
+                                                const isFuture = item.isFuture;
 
-                                                 // Find settlement month for fully paid loans
-                                                 const settlement = l.status === 'paid' ? [...payments].filter(p => p.status === 'paid').sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
+                                                return (
+                                                  <div 
+                                                    key={`loan-schedule-${loanKey}-${i}`}
+                                                    className={cn(
+                                                      "p-4 sm:p-5 rounded-3xl border-2 transition-all flex flex-col gap-3 relative overflow-hidden shadow-2xs",
+                                                      isPaid ? "bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-emerald-50/30 border-emerald-300/80" : 
+                                                      isPending ? "bg-gradient-to-br from-amber-50/95 via-orange-50/40 to-amber-50/25 border-amber-300/90 shadow-xs" :
+                                                      isCurrentMonth ? "bg-gradient-to-br from-indigo-50 via-blue-50/70 to-indigo-50/40 border-indigo-400 ring-2 ring-indigo-200/70 shadow-md" :
+                                                      isFuture ? "bg-gradient-to-br from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" : 
+                                                      "bg-gradient-to-br from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
+                                                    )}
+                                                  >
+                                                    <div className="absolute top-0 right-0 px-3 py-1 bg-indigo-100 text-[10.5px] font-black text-indigo-950 rounded-bl-xl border-b border-l border-indigo-200/90 shadow-2xs select-none tracking-wide">
+                                                      #{installmentNum}
+                                                    </div>
 
-                                                 return Array.from({ length: installments }).map((_, i) => {
-                                                   const installmentNum = i + 1;
-                                                   // Repayment starts from next month
-                                                   const installmentDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + i + 1, 1);
-                                                   const installmentMonth = installmentDate.getMonth() + 1;
-                                                   const installmentYear = installmentDate.getFullYear();
-                                                   
-                                                   // Hide installments strictly following the settlement month
-                                                   if (settlement && (installmentYear > (settlement.year || 0) || (installmentYear === (settlement.year || 0) && installmentMonth > (settlement.month || 0)))) {
-                                                     return null;
-                                                   }
+                                                    <div className="flex items-center justify-between pr-8">
+                                                      <div className="flex items-center gap-3">
+                                                        <div className={cn(
+                                                          "w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
+                                                          isPaid ? "bg-emerald-600 text-white" : 
+                                                          isPending ? "bg-amber-500 text-white" :
+                                                          isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" : 
+                                                          isFuture ? "bg-slate-200 text-slate-700" :
+                                                          "bg-rose-500 text-white"
+                                                        )}>
+                                                          {installmentNum}
+                                                        </div>
+                                                        <div>
+                                                          <p className="font-black text-slate-900 text-sm sm:text-base">
+                                                            {format(installmentDate, 'MMMM yyyy')}
+                                                          </p>
+                                                          <span className={cn(
+                                                            "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold mt-0.5 border shadow-2xs",
+                                                            isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" : 
+                                                            isPending ? "bg-amber-100 text-amber-800 border-amber-300" : 
+                                                            isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" : 
+                                                            isFuture ? "bg-slate-100 text-slate-600 border-slate-200" : 
+                                                            "bg-rose-100 text-rose-800 border-rose-300"
+                                                          )}>
+                                                            {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />}
+                                                            {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
+                                                          </span>
+                                                        </div>
+                                                      </div>
+                                                      
+                                                      <div className="text-right">
+                                                        <p className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">Amount</p>
+                                                        <p className="font-black text-slate-950 text-base sm:text-lg">₹{total.toLocaleString('en-IN')}</p>
+                                                      </div>
+                                                    </div>
 
-                                                   // Find the most relevant payment for this installment
-                                                   const payment = payments
-                                                     .filter(p => p.month === installmentMonth && p.year === installmentYear)
-                                                     .sort((a, b) => {
-                                                       const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
-                                                       const orderA = statusOrder[a.status] ?? 3;
-                                                       const orderB = statusOrder[b.status] ?? 3;
-                                                       if (orderA !== orderB) return orderA - orderB;
-                                                       return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
-                                                     })[0];
-
-                                                   const settlementPayment = l.status === 'paid' ? [...payments].sort((a,b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))[0] : null;
-                                                   const displayPayment = payment || settlementPayment;
-                                                   const isPaid = l.status === 'paid' || payment?.status === 'paid';
-                                                   const isPending = !isPaid && payment?.status === 'pending';
-                                                   
-                                                   // Calculate interest based on planned reducing balance
-                                                   const scheduledPrincipal = approvedAmount / installments;
-                                                   const plannedRemainingPrincipal = Math.max(0, approvedAmount - (i * scheduledPrincipal));
-                                                   const interest = (isPaid || isPending) ? (displayPayment?.interest || Math.round(plannedRemainingPrincipal * 0.005)) : Math.round(plannedRemainingPrincipal * 0.005);
-                                                   const principalToDisplay = (isPaid || isPending) ? (payment?.amount || (isPaid ? scheduledPrincipal : 0)) : scheduledPrincipal;
-                                                   const total = principalToDisplay + interest;
-
-                                                   const isCurrentMonth = new Date().getMonth() + 1 === installmentMonth && new Date().getFullYear() === installmentYear;
-                                                   const isFuture = installmentDate > new Date() && l.status !== 'paid';
-
-                                                   return (
-                                                     <div 
-                                                       key={`loan-schedule-${loanKey}-${i}`}
-                                                       className={cn(
-                                                         "p-4 sm:p-5 rounded-3xl border-2 transition-all flex flex-col gap-3 relative overflow-hidden shadow-2xs",
-                                                         isPaid ? "bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-emerald-50/30 border-emerald-300/80" : 
-                                                         isPending ? "bg-gradient-to-br from-amber-50/95 via-orange-50/40 to-amber-50/25 border-amber-300/90 shadow-xs" :
-                                                         isCurrentMonth ? "bg-gradient-to-br from-indigo-50 via-blue-50/70 to-indigo-50/40 border-indigo-400 ring-2 ring-indigo-200/70 shadow-md" :
-                                                         isFuture ? "bg-gradient-to-br from-slate-50/95 via-white to-slate-50/80 border-slate-200/90 opacity-80" : 
-                                                         "bg-gradient-to-br from-rose-50/90 via-orange-50/30 to-rose-50/20 border-rose-300/90"
-                                                       )}
-                                                     >
-                                                       <div className="absolute top-0 right-0 px-3 py-1 bg-indigo-100 text-[10.5px] font-black text-indigo-950 rounded-bl-xl border-b border-l border-indigo-200/90 shadow-2xs select-none tracking-wide">
-                                                         #{installmentNum}
-                                                       </div>
-
-                                                       <div className="flex items-center justify-between pr-8">
-                                                         <div className="flex items-center gap-3">
-                                                           <div className={cn(
-                                                             "w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs",
-                                                             isPaid ? "bg-emerald-600 text-white" : 
-                                                             isPending ? "bg-amber-500 text-white" :
-                                                             isCurrentMonth ? "bg-indigo-600 text-white shadow-indigo-200" : 
-                                                             isFuture ? "bg-slate-200 text-slate-700" :
-                                                             "bg-rose-500 text-white"
-                                                           )}>
-                                                             {installmentNum}
-                                                           </div>
-                                                           <div>
-                                                             <p className="font-black text-slate-900 text-sm sm:text-base">
-                                                               {format(installmentDate, 'MMMM yyyy')}
-                                                             </p>
-                                                             <span className={cn(
-                                                               "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold mt-0.5 border shadow-2xs",
-                                                               isPaid ? "bg-emerald-100 text-emerald-800 border-emerald-300" : 
-                                                               isPending ? "bg-amber-100 text-amber-800 border-amber-300" : 
-                                                               isCurrentMonth ? "bg-indigo-600 text-white border-indigo-600" : 
-                                                               isFuture ? "bg-slate-100 text-slate-600 border-slate-200" : 
-                                                               "bg-rose-100 text-rose-800 border-rose-300"
-                                                             )}>
-                                                               {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600 inline" />}
-                                                               {isPaid ? 'PAID' : isPending ? 'AWAITING APPROVAL' : isCurrentMonth ? 'DUE THIS MONTH' : isFuture ? 'UPCOMING' : 'PENDING'}
-                                                             </span>
-                                                           </div>
-                                                         </div>
-                                                         
-                                                         <div className="text-right">
-                                                           <p className="text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">Amount</p>
-                                                           <p className="font-black text-slate-950 text-base sm:text-lg">₹{total.toLocaleString('en-IN')}</p>
-                                                         </div>
-                                                       </div>
-
-                                                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-white/90 backdrop-blur-xs rounded-2xl border border-slate-200/80 text-xs shadow-2xs">
-                                                         <div>
-                                                           <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Principal</p>
-                                                           <p className="font-black text-slate-900 text-xs sm:text-sm">₹{principalToDisplay.toLocaleString('en-IN')}</p>
-                                                         </div>
-                                                         <div>
-                                                           <p className="text-[9.5px] font-extrabold text-indigo-600 uppercase">Interest (0.5%)</p>
-                                                           <p className="font-black text-indigo-700 text-xs sm:text-sm">₹{interest.toLocaleString('en-IN')}</p>
-                                                         </div>
-                                                         <div>
-                                                           <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Payment Mode</p>
-                                                           <p className={cn(
-                                                             "font-extrabold truncate text-xs sm:text-sm",
-                                                             displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
-                                                           )}>
-                                                             {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
-                                                           </p>
-                                                         </div>
-                                                         <div>
-                                                           <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Paid On</p>
-                                                           <p className="font-bold text-slate-700 text-xs sm:text-sm truncate">
-                                                             {isPaid ? (
-                                                               displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
-                                                               displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
-                                                             ) : '-'}
-                                                           </p>
-                                                         </div>
-                                                       </div>
-                                                       
-                                                       <div className="flex items-center justify-between pt-1">
-                                                         <div className="text-xs">
-                                                           {isPaid ? (
-                                                             <span className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-emerald-300">
-                                                               <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Installment Cleared
-                                                             </span>
-                                                           ) : isPending ? (
-                                                             <span className="flex items-center gap-1.5 text-amber-800 bg-amber-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-amber-300">
-                                                               <Clock className="w-4 h-4 text-amber-600" /> Verification in progress
-                                                             </span>
-                                                           ) : isCurrentMonth ? (
-                                                             <span className="flex items-center gap-1.5 text-indigo-800 bg-indigo-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-indigo-300">
-                                                               Due this month
-                                                             </span>
-                                                           ) : null}
-                                                         </div>
-                                                         <div className="flex items-center gap-3 ml-auto sm:ml-0">
-                                                           <span className="hidden sm:inline font-black text-slate-900 w-24 text-right text-base">₹{total.toLocaleString('en-IN')}</span>
-                                                           {!isPaid && !isPending && (
-                                                             <button 
-                                                               onClick={() => {
-                                                                 setSelectedLoan(l);
-                                                                 setIsPayingLoan(true);
-                                                                 setLoanRepaymentMethod('online');
-                                                                 setCustomPrincipal((l.approvedAmount || 0) / (l.installments || 10));
-                                                               }}
-                                                               disabled={!isCurrentMonth}
-                                                               className={cn(
-                                                                 "px-3.5 py-2 rounded-xl font-black text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95",
-                                                                 isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200 cursor-pointer" : "bg-slate-100 text-slate-300 cursor-not-allowed"
-                                                               )}
-                                                             >
-                                                               <Plus className="w-3.5 h-3.5" />
-                                                               <span>Pay Installment</span>
-                                                             </button>
-                                                           )}
-                                                           {isPending && (
-                                                             <span className="text-[10px] font-black tracking-wider text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 uppercase">AWAITING</span>
-                                                           )}
-                                                           {isPaid && (
-                                                             <div className="p-1 bg-emerald-100 rounded-full border border-emerald-300">
-                                                               <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
-                                                             </div>
-                                                           )}
-                                                         </div>
-                                                       </div>
-                                                     </div>
-                                                   );
-                                                 });
-                                               })()}
+                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-white/90 backdrop-blur-xs rounded-2xl border border-slate-200/80 text-xs shadow-2xs">
+                                                      <div>
+                                                        <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Principal</p>
+                                                        <p className="font-black text-slate-900 text-xs sm:text-sm">₹{principalToDisplay.toLocaleString('en-IN')}</p>
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-[9.5px] font-extrabold text-indigo-600 uppercase">Interest (0.5%)</p>
+                                                        <p className="font-black text-indigo-700 text-xs sm:text-sm">₹{interest.toLocaleString('en-IN')}</p>
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Payment Mode</p>
+                                                        <p className={cn(
+                                                          "font-extrabold truncate text-xs sm:text-sm",
+                                                          displayPayment?.paymentMode === 'Online' ? "text-indigo-600" : displayPayment?.paymentMode === 'Cash' ? "text-amber-600" : "text-slate-400 italic"
+                                                        )}>
+                                                          {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
+                                                        </p>
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Paid On</p>
+                                                        <p className="font-bold text-slate-700 text-xs sm:text-sm truncate">
+                                                          {isPaid ? (
+                                                            displayPayment?.timestamp?.toDate ? format(displayPayment.timestamp.toDate(), 'dd MMM yyyy') :
+                                                            displayPayment?.approvedAt?.toDate ? format(displayPayment.approvedAt.toDate(), 'dd MMM yyyy') : '-'
+                                                          ) : '-'}
+                                                        </p>
+                                                      </div>
+                                                    </div>
+                                                    
+                                                    <div className="flex items-center justify-between pt-1">
+                                                      <div className="text-xs">
+                                                        {isPaid ? (
+                                                          <span className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-emerald-300">
+                                                            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Installment Cleared
+                                                          </span>
+                                                        ) : isPending ? (
+                                                          <span className="flex items-center gap-1.5 text-amber-800 bg-amber-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-amber-300">
+                                                            <Clock className="w-4 h-4 text-amber-600" /> Verification in progress
+                                                          </span>
+                                                        ) : isCurrentMonth ? (
+                                                          <span className="flex items-center gap-1.5 text-indigo-800 bg-indigo-100/80 px-2.5 py-1 rounded-xl text-xs font-bold border border-indigo-300">
+                                                            Due this month
+                                                          </span>
+                                                        ) : null}
+                                                      </div>
+                                                      <div className="flex items-center gap-3 ml-auto sm:ml-0">
+                                                        <span className="hidden sm:inline font-black text-slate-900 w-24 text-right text-base">₹{total.toLocaleString('en-IN')}</span>
+                                                        {!isPaid && !isPending && (
+                                                          <button 
+                                                            onClick={() => {
+                                                              setSelectedLoan(l);
+                                                              setIsPayingLoan(true);
+                                                              setLoanRepaymentMethod('online');
+                                                              setCustomPrincipal(principalToDisplay);
+                                                            }}
+                                                            disabled={!isCurrentMonth}
+                                                            className={cn(
+                                                              "px-3.5 py-2 rounded-xl font-black text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95",
+                                                              isCurrentMonth ? "bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200 cursor-pointer" : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                                                            )}
+                                                          >
+                                                            <Plus className="w-3.5 h-3.5" />
+                                                            <span>Pay Installment</span>
+                                                          </button>
+                                                        )}
+                                                        {isPending && (
+                                                          <span className="text-[10px] font-black tracking-wider text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 uppercase">AWAITING</span>
+                                                        )}
+                                                        {isPaid && (
+                                                          <div className="p-1 bg-emerald-100 rounded-full border border-emerald-300">
+                                                            <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
                                             </div>
                                           </div>
                                         </motion.div>

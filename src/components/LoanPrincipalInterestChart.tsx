@@ -156,7 +156,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
     if (remainingPrincipal <= 0) return null;
 
-    const scheduledPrincipalPerMonth = Math.max(1, Math.round(loanPrincipal / installments));
+    const scheduledPrincipalPerMonth = 5000;
 
     // Scan installments starting from the month after disbursement
     for (let i = 0; i < installments; i++) {

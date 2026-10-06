@@ -62,15 +62,15 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
       const approvedAmount = loan.approvedAmount || loan.amount || 0;
       const remainingPrincipal = Math.max(0, approvedAmount - totalPrincipalPaid);
       const installments = loan.installments || 10;
-      const standardPrincipal = installments > 0 ? (approvedAmount / installments) : (approvedAmount / 10);
+      const standardPrincipal = 5000;
 
-      // Calculate remaining total (Principal + 0.5% interest on declining balance)
+      // Calculate remaining total (Principal + 0.5% interest on declining balance with base 5000)
       let remainingTotal = 0;
       if (remainingPrincipal > 0 && standardPrincipal > 0) {
         const remainingInstallments = Math.ceil(remainingPrincipal / standardPrincipal);
         for (let i = 0; i < remainingInstallments; i++) {
           const currentBalance = remainingPrincipal - (i * standardPrincipal);
-          const interest = Math.max(0, currentBalance * 0.005);
+          const interest = Math.round(Math.max(0, currentBalance * 0.005));
           const principalForThisMonth = i === remainingInstallments - 1 
             ? (remainingPrincipal % standardPrincipal || standardPrincipal) 
             : standardPrincipal;
@@ -79,8 +79,8 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
       }
 
       // Next installment due calculation (Principal installment + current interest)
-      const currentMonthInterest = remainingPrincipal * 0.005;
-      const currentMonthDue = remainingPrincipal > 0 ? (standardPrincipal + currentMonthInterest) : 0;
+      const currentMonthInterest = Math.round(remainingPrincipal * 0.005);
+      const currentMonthDue = remainingPrincipal > 0 ? (Math.min(5000, remainingPrincipal) + currentMonthInterest) : 0;
 
       // Match member profile
       const targetUser = allUsers.find(u =>

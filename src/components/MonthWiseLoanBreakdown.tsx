@@ -230,7 +230,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
 
       if (!isFullySettled) {
         const totalInstallments = loan.installments || 10;
-        const standardMonthlyPrincipal = Math.round(amount / totalInstallments);
+        const standardMonthlyPrincipal = 5000;
         nextPrincipal = Math.min(remainingPrincipal, standardMonthlyPrincipal);
         nextInterest = Math.round(remainingPrincipal * 0.005);
         nextTotalAmount = nextPrincipal + nextInterest;
