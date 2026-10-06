@@ -46,6 +46,7 @@ import {
   isExemptAdministrator,
   launchWhatsApp,
 } from './lib/pushNotificationService';
+import { generateLoanListPdfDoc, quickPrintLoanPdf } from './lib/loanPdfExport';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
@@ -66,6 +67,7 @@ import {
   ArrowRight,
   History as HistoryIcon,
   FileText,
+  Printer,
   IndianRupee,
   Bell,
   Megaphone,
@@ -5973,6 +5975,44 @@ export default function App() {
     }
   };
 
+  const [isExportingLoanPdf, setIsExportingLoanPdf] = useState(false);
+
+  const exportLoanListPdf = async (filter: 'all' | 'active' | 'settled' = 'active', printDirectly: boolean = false) => {
+    try {
+      setIsExportingLoanPdf(true);
+      const { doc, fileName } = generateLoanListPdfDoc({
+        loans,
+        loanPayments,
+        allUsers,
+        filter
+      });
+
+      if (printDirectly) {
+        quickPrintLoanPdf(doc);
+        notify('info', 'Opening print preview for Loan Portfolio...');
+      } else {
+        if (isMobileApp) {
+          const base64Data = doc.output('datauristring').split(',')[1];
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `Loan Portfolio PDF saved: ${fileName}`);
+          } else {
+            doc.save(fileName);
+            notify('success', `Loan Portfolio PDF downloaded: ${fileName}`);
+          }
+        } else {
+          doc.save(fileName);
+          notify('success', `Loan Portfolio PDF downloaded: ${fileName}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to export Loan List PDF:', err);
+      notify('error', `Failed to export Loan List PDF: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingLoanPdf(false);
+    }
+  };
+
   const calculateDividends = () => {
     const totalInterestEarned = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.interest, 0);
     const totalMembers = allUsers.length;
@@ -6407,6 +6447,121 @@ export default function App() {
     }
   };
 
+  // Helper to calculate real-time collection counts for any given month and year
+  const getCollectionCountsForMonth = useCallback((targetMonth: number, targetYear: number) => {
+    // 1. Contribution real-time Paid and Due member counts for targetMonth/targetYear
+    const eligibleSocietyMembers = allUsers.filter(u => {
+      const email = (u.email || '').toLowerCase().trim();
+      const name = (u.displayName || '').toLowerCase().trim();
+      if (email === SYSTEM_ADMIN_EMAIL.toLowerCase() || email.includes('unnati.finance2026') || name === 'unnati') {
+        return false;
+      }
+      return true;
+    });
+
+    const contribPaidCount = eligibleSocietyMembers.filter(u => {
+      const email = (u.email || '').toLowerCase().trim();
+      return contributions.some(c => 
+        ((u.uid && c.userId === u.uid) || (email && c.userEmail?.toLowerCase().trim() === email)) &&
+        c.month === targetMonth &&
+        c.year === targetYear &&
+        (c.status === 'paid' || !c.status)
+      );
+    }).length;
+    const contribDueCount = Math.max(0, eligibleSocietyMembers.length - contribPaidCount);
+
+    // 2. Loan real-time Paid and Due member counts for targetMonth/targetYear
+    const now = new Date();
+    const currentCalMonth = now.getMonth() + 1;
+    const currentCalYear = now.getFullYear();
+    const isPastMonth = targetYear < currentCalYear || (targetYear === currentCalYear && targetMonth < currentCalMonth);
+
+    const isPaymentBelongingToLoan = (p: LoanPayment, loan: Loan): boolean => {
+      if (p.loanId) return p.loanId === loan.id;
+      const isMatchUser = (loan.userId && p.userId === loan.userId) ||
+        (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
+      if (isMatchUser) return true;
+      const pEmail = (p.userEmail || '').toLowerCase().trim();
+      const lEmail = (loan.userEmail || '').toLowerCase().trim();
+      const isPraneshP = pEmail.includes('pranesh') || p.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
+      const isPraneshL = lEmail.includes('pranesh') || loan.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
+      return Boolean(isPraneshP && isPraneshL);
+    };
+
+    let loanPaidCount = 0;
+    let loanDueCount = 0;
+
+    if (isPastMonth) {
+      const monthlyPaidLoanPayments = loanPayments.filter(p => 
+        p.month === targetMonth && 
+        p.year === targetYear && 
+        (p.status === 'paid' || (p as any).amountPaid || p.amount)
+      );
+      loanPaidCount = monthlyPaidLoanPayments.length;
+      loanDueCount = 0;
+    } else {
+      const activeLoansForCollection = loans.filter(loan => {
+        const hasPaymentThisMonth = loanPayments.some(p => 
+          isPaymentBelongingToLoan(p, loan) &&
+          p.month === targetMonth &&
+          p.year === targetYear &&
+          p.status === 'paid'
+        );
+        if (hasPaymentThisMonth) return true;
+
+        if (loan.status === 'declined') return false;
+        const principalAmount = loan.approvedAmount || loan.amount || 0;
+        if (principalAmount <= 0) return false;
+
+        // Loan must have been sanctioned on or before target month
+        const sanctionDate = loan.approvedAt?.toDate ? loan.approvedAt.toDate() : (loan.createdAt?.toDate ? loan.createdAt.toDate() : new Date());
+        const targetMonthEnd = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
+        if (sanctionDate > targetMonthEnd) return false;
+
+        // Principal repayments made strictly BEFORE target month
+        const priorPayments = loanPayments.filter(p => {
+          if (!isPaymentBelongingToLoan(p, loan) || p.status !== 'paid') return false;
+          if (p.year && p.month) {
+            return p.year < targetYear || (p.year === targetYear && p.month < targetMonth);
+          }
+          return false;
+        });
+        const priorPaidPrincipal = priorPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const remainingAtMonthStart = principalAmount - priorPaidPrincipal;
+
+        return remainingAtMonthStart > 0;
+      });
+
+      loanPaidCount = activeLoansForCollection.filter(loan => {
+        return loanPayments.some(p => 
+          isPaymentBelongingToLoan(p, loan) &&
+          p.month === targetMonth &&
+          p.year === targetYear &&
+          p.status === 'paid'
+        );
+      }).length;
+      loanDueCount = Math.max(0, activeLoansForCollection.length - loanPaidCount);
+    }
+
+    return {
+      contribPaidCount,
+      contribDueCount,
+      loanPaidCount,
+      loanDueCount
+    };
+  }, [allUsers, contributions, loanPayments, loans]);
+
+  // Current calendar month counts (strictly for Financial Insights - never changes when admin navigates months in collection)
+  const currentMonthCollectionCounts = useMemo(() => {
+    const now = new Date();
+    return getCollectionCountsForMonth(now.getMonth() + 1, now.getFullYear());
+  }, [getCollectionCountsForMonth]);
+
+  // Selected month counts (for Monthly Collection tab when admin traverses months/years)
+  const selectedMonthCollectionCounts = useMemo(() => {
+    return getCollectionCountsForMonth(collectionMonth, collectionYear);
+  }, [getCollectionCountsForMonth, collectionMonth, collectionYear]);
+
   return (
     <>
       <AnimatePresence mode="wait">
@@ -6733,13 +6888,44 @@ export default function App() {
                   <Zap className="w-4 h-4" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-base font-black text-slate-900 tracking-tight">Financial Insights</h2>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
                       5 Cards
                     </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                      As on {format(new Date(), 'MMM yyyy')}
+                    </span>
                   </div>
-                  <p className="text-xs text-slate-500 font-medium">Group funds, collections, outstanding loans & liquid balance overview</p>
+                  <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-[11px] sm:text-xs font-medium mt-1">
+                    {/* Contributions counts */}
+                    <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                      <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Contributions -</span>
+                      <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
+                        Paid: {currentMonthCollectionCounts.contribPaidCount}
+                      </span>
+                      <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                        Due: {currentMonthCollectionCounts.contribDueCount}
+                      </span>
+                    </div>
+
+                    <span className="text-slate-300 hidden sm:inline select-none">•</span>
+
+                    {/* Loan counts */}
+                    <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                      <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Loan -</span>
+                      <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
+                        Paid: {currentMonthCollectionCounts.loanPaidCount}
+                      </span>
+                      <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                        Due: {currentMonthCollectionCounts.loanDueCount}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -9782,6 +9968,41 @@ export default function App() {
 
                       return (
                         <div className="space-y-8">
+                          {/* Quick Print & PDF Export Bar */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-50/70 via-slate-50 to-white p-3.5 sm:p-4 rounded-2xl border-2 border-blue-200/80 shadow-2xs">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                <Printer className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <h4 className="font-bold text-xs sm:text-sm text-slate-900">Loan List Statement (PDF)</h4>
+                                <p className="text-[11px] text-slate-500 font-medium">Export print-ready audit statement with pending amounts &amp; live statuses</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 self-end sm:self-center">
+                              <button
+                                type="button"
+                                onClick={() => exportLoanListPdf('active', true)}
+                                disabled={isExportingLoanPdf}
+                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                title="Quick print active loans list"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>Quick Print</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => exportLoanListPdf('active', false)}
+                                disabled={isExportingLoanPdf}
+                                className="px-3 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                title="Download active loans PDF"
+                              >
+                                <FileDown className="w-3.5 h-3.5" />
+                                <span>Download PDF</span>
+                              </button>
+                            </div>
+                          </div>
+
                           {/* Active Loans Section */}
                           <div>
                             <button
@@ -10481,100 +10702,8 @@ export default function App() {
               const grandTotalCashReceived = monthlyContribCashReceived + monthlyLoanCashReceived;
               const grandTotalOnlineReceived = monthlyContribOnlineReceived + monthlyLoanOnlineReceived;
 
-              // 1. Contribution real-time Paid and Due member counts for this month
-              const eligibleSocietyMembers = allUsers.filter(u => {
-                const email = (u.email || '').toLowerCase().trim();
-                const name = (u.displayName || '').toLowerCase().trim();
-                if (email === SYSTEM_ADMIN_EMAIL.toLowerCase() || email.includes('unnati.finance2026') || name === 'unnati') {
-                  return false;
-                }
-                return true;
-              });
-
-              const contribPaidCount = eligibleSocietyMembers.filter(u => {
-                const email = (u.email || '').toLowerCase().trim();
-                return contributions.some(c => 
-                  ((u.uid && c.userId === u.uid) || (email && c.userEmail?.toLowerCase().trim() === email)) &&
-                  c.month === collectionMonth &&
-                  c.year === collectionYear &&
-                  (c.status === 'paid' || !c.status)
-                );
-              }).length;
-              const contribDueCount = Math.max(0, eligibleSocietyMembers.length - contribPaidCount);
-
-              // 2. Loan real-time Paid and Due member counts for this month
-              const now = new Date();
-              const currentCalMonth = now.getMonth() + 1;
-              const currentCalYear = now.getFullYear();
-              const isPastMonth = collectionYear < currentCalYear || (collectionYear === currentCalYear && collectionMonth < currentCalMonth);
-
-              const isPaymentBelongingToLoan = (p: LoanPayment, loan: Loan): boolean => {
-                if (p.loanId) return p.loanId === loan.id;
-                const isMatchUser = (loan.userId && p.userId === loan.userId) ||
-                  (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
-                if (isMatchUser) return true;
-                const pEmail = (p.userEmail || '').toLowerCase().trim();
-                const lEmail = (loan.userEmail || '').toLowerCase().trim();
-                const isPraneshP = pEmail.includes('pranesh') || p.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
-                const isPraneshL = lEmail.includes('pranesh') || loan.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
-                return Boolean(isPraneshP && isPraneshL);
-              };
-
-              let loanPaidCount = 0;
-              let loanDueCount = 0;
-
-              if (isPastMonth) {
-                // When a month is closed / in the past (like Sep 2026), all collections are completed and reconciled.
-                // There are NEVER any pending/due loans in a closed month.
-                loanPaidCount = monthlyPaidLoanPayments.length;
-                loanDueCount = 0;
-              } else {
-                // Current or future month:
-                // Active loans for this month:
-                // 1. Any loan that has a paid repayment for this month (e.g. 6 paid loans in Oct 2026)
-                // 2. OR any running loan that was sanctioned on/before this month and had outstanding balance at start of this month (the 6 due loans)
-                const activeLoansForCollection = loans.filter(loan => {
-                  const hasPaymentThisMonth = loanPayments.some(p => 
-                    isPaymentBelongingToLoan(p, loan) &&
-                    p.month === collectionMonth &&
-                    p.year === collectionYear &&
-                    p.status === 'paid'
-                  );
-                  if (hasPaymentThisMonth) return true;
-
-                  if (loan.status === 'declined') return false;
-                  const principalAmount = loan.approvedAmount || loan.amount || 0;
-                  if (principalAmount <= 0) return false;
-
-                  // Loan must have been sanctioned on or before this month
-                  const sanctionDate = loan.approvedAt?.toDate ? loan.approvedAt.toDate() : (loan.createdAt?.toDate ? loan.createdAt.toDate() : new Date());
-                  const targetMonthEnd = new Date(collectionYear, collectionMonth, 0, 23, 59, 59, 999);
-                  if (sanctionDate > targetMonthEnd) return false;
-
-                  // Principal repayments made strictly BEFORE this month
-                  const priorPayments = loanPayments.filter(p => {
-                    if (!isPaymentBelongingToLoan(p, loan) || p.status !== 'paid') return false;
-                    if (p.year && p.month) {
-                      return p.year < collectionYear || (p.year === collectionYear && p.month < collectionMonth);
-                    }
-                    return false;
-                  });
-                  const priorPaidPrincipal = priorPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-                  const remainingAtMonthStart = principalAmount - priorPaidPrincipal;
-
-                  return remainingAtMonthStart > 0;
-                });
-
-                loanPaidCount = activeLoansForCollection.filter(loan => {
-                  return loanPayments.some(p => 
-                    isPaymentBelongingToLoan(p, loan) &&
-                    p.month === collectionMonth &&
-                    p.year === collectionYear &&
-                    p.status === 'paid'
-                  );
-                }).length;
-                loanDueCount = Math.max(0, activeLoansForCollection.length - loanPaidCount);
-              }
+              // 1 & 2. Contribution and Loan real-time Paid and Due member counts for this month
+              const { contribPaidCount, contribDueCount, loanPaidCount, loanDueCount } = selectedMonthCollectionCounts;
 
               // Member lookup and mapping for contributions
               const mappedContribs = monthlyPaidContributions.map((c, idx) => {
@@ -11459,6 +11588,8 @@ export default function App() {
             exportAllMemberStatementsZip={exportAllMemberStatementsZip}
             isExportingAllStatements={isExportingAllStatements}
             exportProgress={exportProgress}
+            exportLoanListPdf={exportLoanListPdf}
+            isExportingLoanPdf={isExportingLoanPdf}
           />
         ) : (
           <div className="space-y-6">

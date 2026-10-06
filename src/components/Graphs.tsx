@@ -517,7 +517,14 @@ const Graphs: React.FC<GraphsProps> = ({
       return Boolean(isPraneshP && isPraneshL);
     };
 
-    const eligibleMembers = allUsers.filter(u => u.email?.toLowerCase() !== 'unnati.finance2026@gmail.com');
+    const eligibleMembers = allUsers.filter(u => {
+      const email = (u.email || '').toLowerCase().trim();
+      const name = (u.displayName || '').toLowerCase().trim();
+      if (email === 'unnati.finance2026@gmail.com' || email.includes('unnati.finance2026') || name === 'unnati') {
+        return false;
+      }
+      return true;
+    });
 
     const result = [];
 
@@ -622,14 +629,15 @@ const Graphs: React.FC<GraphsProps> = ({
     <div className={cn("space-y-8 pb-12", isAndroid && "space-y-4 pb-8 px-1")}>
       <div className={cn("grid grid-cols-1 lg:grid-cols-2 gap-8", isAndroid && "gap-4")}>
         
-        {/* Graph Card #1: Month-wise Paid Collections: Subscriptions & Loans */}
-        <div 
-          id="graph-card-monthly-paid-counts"
-          className={cn(
-            "bg-gradient-to-b from-emerald-50/40 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-emerald-200/90 shadow-sm hover:shadow-md hover:border-emerald-300/90 lg:col-span-2 relative overflow-hidden transition-all",
-            isAndroid && "p-4 overflow-hidden"
-          )}
-        >
+        {/* Graph Card #1: Month-wise Paid Collections: Subscriptions & Loans (Admin Only) */}
+        {isAdmin && (
+          <div 
+            id="graph-card-monthly-paid-counts"
+            className={cn(
+              "bg-gradient-to-b from-emerald-50/40 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-emerald-200/90 shadow-sm hover:shadow-md hover:border-emerald-300/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
           {/* Top-Right Index Badge */}
           <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-emerald-600 text-xs font-black text-white rounded-bl-2xl shadow-xs z-10 select-none">
             #1
@@ -881,6 +889,7 @@ const Graphs: React.FC<GraphsProps> = ({
             </div>
           )}
         </div>
+        )}
 
         {/* Month-wise Sanctioned Loans & Repayments Chart (Admin Only) */}
         {isAdmin && (
@@ -1422,7 +1431,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-cyan-50/90 text-xs font-black text-cyan-800 rounded-bl-2xl border-b border-l border-cyan-200/80 shadow-2xs z-10 select-none">
-              {isAdmin ? '#4' : '#2'}
+              {isAdmin ? '#4' : '#1'}
             </div>
 
             <div
@@ -1623,7 +1632,7 @@ const Graphs: React.FC<GraphsProps> = ({
           >
             {/* Top-Right Index Badge */}
             <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-indigo-50/90 text-xs font-black text-indigo-800 rounded-bl-2xl border-b border-l border-indigo-200/80 shadow-2xs z-10 select-none">
-              {isAdmin ? '#5' : '#3'}
+              {isAdmin ? '#5' : '#2'}
             </div>
 
             <div

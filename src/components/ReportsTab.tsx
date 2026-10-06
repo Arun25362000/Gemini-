@@ -8,9 +8,11 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
-  Archive
+  Archive,
+  Printer,
+  FileText
 } from 'lucide-react';
-import { getAppAvailableYears } from '../lib/utils';
+import { getAppAvailableYears, cn } from '../lib/utils';
 import { motion } from 'motion/react';
 
 interface ReportsTabProps {
@@ -30,6 +32,8 @@ interface ReportsTabProps {
   exportAllMemberStatementsZip?: () => void | Promise<void>;
   isExportingAllStatements?: boolean;
   exportProgress?: { current: number; total: number };
+  exportLoanListPdf?: (filter: 'all' | 'active' | 'settled', printDirectly?: boolean) => void | Promise<void>;
+  isExportingLoanPdf?: boolean;
 }
 
 const MONTHS = [
@@ -63,6 +67,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   exportAllMemberStatementsZip,
   isExportingAllStatements = false,
   exportProgress,
+  exportLoanListPdf,
+  isExportingLoanPdf = false,
 }) => {
   const availableYears = getAppAvailableYears ? getAppAvailableYears() : [2024, 2025, 2026, 2027, 2028];
 
@@ -71,8 +77,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     'balance-sheet': false,
     'monthly': false,
     'member-statements': false,
+    'loan-list': false,
     'backup': false,
   });
+
+  const [loanReportFilter, setLoanReportFilter] = React.useState<'active' | 'all' | 'settled'>('active');
+  const [isPrinting, setIsPrinting] = React.useState(false);
+  const [isDownloading, setIsDownloading] = React.useState(false);
 
   const toggleReport = (id: string) => {
     setCollapsedReports(prev => ({
@@ -438,7 +449,182 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           )}
         </motion.div>
 
-        {/* Card 5: Send Backup */}
+        {/* Card 5: Loan Portfolio & Balances Report (PDF) */}
+        <motion.div 
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, delay: 0.15 }}
+          className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-blue-200/80 shadow-sm hover:shadow-md hover:border-blue-300 transition-all flex flex-col justify-between"
+          id="report-card-loan-list"
+        >
+          <div>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-700 border border-blue-200/70 flex items-center justify-center font-bold shadow-xs shrink-0">
+                <Printer className="w-6 h-6" />
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800 border border-blue-200">
+                <FileText className="w-3.5 h-3.5" />
+                PDF &amp; Quick Print
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => toggleReport('loan-list')}
+              className="w-full flex items-center justify-between gap-2 cursor-pointer select-none group text-left mb-2 focus:outline-none"
+              aria-expanded={!collapsedReports['loan-list']}
+              title={collapsedReports['loan-list'] ? "Click to expand Loan List Report" : "Click to collapse Loan List Report"}
+            >
+              <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors flex items-center gap-2">
+                <span>Loan Portfolio &amp; Balances Report</span>
+                <span className="text-slate-400 group-hover:text-blue-600 transition-colors">
+                  {collapsedReports['loan-list'] ? (
+                    <ChevronDown className="w-5 h-5" />
+                  ) : (
+                    <ChevronUp className="w-5 h-5" />
+                  )}
+                </span>
+              </h3>
+              <span className="text-[11px] font-semibold text-slate-400 group-hover:text-blue-600 transition-colors">
+                {collapsedReports['loan-list'] ? 'Click to expand' : 'Click to collapse'}
+              </span>
+            </button>
+
+            {!collapsedReports['loan-list'] && (
+              <>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-4">
+                  Generates an A4 landscape print-ready PDF audit statement of all member loans, showing sanctioned amounts, installments paid, pending principal, interest received from members, monthly dues, and real-time statuses.
+                </p>
+
+                {/* Filter Selector Pills */}
+                <div className="mb-4">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                    Portfolio View Filter:
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 bg-slate-100/90 p-1 rounded-xl border border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setLoanReportFilter('active')}
+                      className={cn(
+                        "py-1.5 px-2 text-xs font-bold rounded-lg transition-all text-center cursor-pointer",
+                        loanReportFilter === 'active' 
+                          ? "bg-white text-blue-700 shadow-2xs border border-blue-200/60" 
+                          : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      Active Loans
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLoanReportFilter('all')}
+                      className={cn(
+                        "py-1.5 px-2 text-xs font-bold rounded-lg transition-all text-center cursor-pointer",
+                        loanReportFilter === 'all' 
+                          ? "bg-white text-blue-700 shadow-2xs border border-blue-200/60" 
+                          : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      All Loans
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLoanReportFilter('settled')}
+                      className={cn(
+                        "py-1.5 px-2 text-xs font-bold rounded-lg transition-all text-center cursor-pointer",
+                        loanReportFilter === 'settled' 
+                          ? "bg-white text-blue-700 shadow-2xs border border-blue-200/60" 
+                          : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      Closed / Settled
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 mb-6 bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100 text-xs text-slate-700">
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                    <span>Member name, phone, sanction date, and tenure progress</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                    <span>Accurate pending principal &amp; interest received from members</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                    <span>1-click quick print dialog with summary KPI metrics</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {!collapsedReports['loan-list'] && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              <button
+                type="button"
+                id="btn-quick-print-loan-list"
+                onClick={async () => {
+                  if (exportLoanListPdf) {
+                    setIsPrinting(true);
+                    try {
+                      await exportLoanListPdf(loanReportFilter, true);
+                    } finally {
+                      setIsPrinting(false);
+                    }
+                  }
+                }}
+                disabled={isPrinting || isDownloading || isExportingLoanPdf}
+                className="py-3 px-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white rounded-xl font-bold text-xs sm:text-sm transition-all shadow-xs flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                title="Open print preview for 1-click quick printing"
+              >
+                {isPrinting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Preparing Print...</span>
+                  </>
+                ) : (
+                  <>
+                    <Printer className="w-4 h-4 shrink-0" />
+                    <span>Quick Print</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                id="btn-download-loan-list-pdf"
+                onClick={async () => {
+                  if (exportLoanListPdf) {
+                    setIsDownloading(true);
+                    try {
+                      await exportLoanListPdf(loanReportFilter, false);
+                    } finally {
+                      setIsDownloading(false);
+                    }
+                  }
+                }}
+                disabled={isPrinting || isDownloading || isExportingLoanPdf}
+                className="py-3 px-3 bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-800 border border-slate-300 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-2xs flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                title="Download Loan List as PDF"
+              >
+                {isDownloading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-slate-400 border-t-slate-800 rounded-full animate-spin" />
+                    <span>Generating PDF...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileDown className="w-4 h-4 shrink-0" />
+                    <span>Download PDF</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </motion.div>
+
+        {/* Card 6: Send Backup */}
         <motion.div 
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
