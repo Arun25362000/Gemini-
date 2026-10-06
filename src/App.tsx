@@ -521,7 +521,7 @@ export default function App() {
   const [graphsYear, setGraphsYear] = useState<number>(Math.max(2026, new Date().getFullYear()));
   const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number | 'all' } | null>({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
-  const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
+  const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | 'activeLoan' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'mode' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [isContribListExpanded, setIsContribListExpanded] = useState<boolean>(true);
@@ -894,10 +894,12 @@ export default function App() {
     }));
   };
 
-  const handleSortMembers = (field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status') => {
+  const handleSortMembers = (field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | 'activeLoan') => {
     setMemberSortConfig(prev => ({
       field,
-      direction: prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc'
+      direction: field === 'activeLoan'
+        ? (prev.field === 'activeLoan' && prev.direction === 'desc' ? 'asc' : 'desc')
+        : (prev.field === field && prev.direction === 'asc' ? 'desc' : 'asc')
     }));
   };
 
@@ -1405,13 +1407,31 @@ export default function App() {
             const paidA = aContribs.some(c => c.month === currentMonth && c.year === currentYear);
             const paidB = bContribs.some(c => c.month === currentMonth && c.year === currentYear);
             return memberSortConfig.direction === 'asc' ? (paidA === paidB ? 0 : paidA ? -1 : 1) : (paidA === paidB ? 0 : paidA ? 1 : -1);
+          case 'activeLoan': {
+            const hasLoanA = (a.uid && activeLoanUserIdentifiers.has(a.uid)) || (a.email && activeLoanUserIdentifiers.has(a.email.toLowerCase().trim())) ? 1 : 0;
+            const hasLoanB = (b.uid && activeLoanUserIdentifiers.has(b.uid)) || (b.email && activeLoanUserIdentifiers.has(b.email.toLowerCase().trim())) ? 1 : 0;
+            if (hasLoanA !== hasLoanB) {
+              return memberSortConfig.direction === 'asc' ? hasLoanA - hasLoanB : hasLoanB - hasLoanA;
+            }
+            const nameA = a.displayName || '';
+            const nameB = b.displayName || '';
+            return nameA.localeCompare(nameB);
+          }
           default:
             return 0;
         }
       });
     }
     return items;
-  }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery]);
+  }, [allUsers, contributions, memberSortConfig, currentMonth, currentYear, isAdmin, searchQuery, activeLoanUserIdentifiers]);
+
+  const activeLoanMembersCount = useMemo(() => {
+    return allUsers.filter(u => 
+      u.email !== SYSTEM_ADMIN_EMAIL &&
+      ((u.uid && activeLoanUserIdentifiers.has(u.uid)) ||
+       (u.email && activeLoanUserIdentifiers.has(u.email.toLowerCase().trim())))
+    ).length;
+  }, [allUsers, activeLoanUserIdentifiers]);
 
   // Unpaid members for current month batch reminders (includes all 48 members including Arun J; only excludes system unnati account)
   const unpaidMembersForBatch = useMemo(() => {
@@ -8141,6 +8161,37 @@ export default function App() {
                         )}
                         <span>{isTriggeringReminders ? 'Sending...' : 'Email Reminders'}</span>
                       </button>
+
+                      {/* Clickable Active Loans Label */}
+                      <button 
+                        type="button"
+                        onClick={() => handleSortMembers('activeLoan')}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap border select-none",
+                          memberSortConfig.field === 'activeLoan'
+                            ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-amber-200 ring-2 ring-amber-300"
+                            : "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300"
+                        )}
+                        title="Sort member details table so that all members with loans appear at the top"
+                        aria-label="Aative Loans"
+                      >
+                        <Banknote className={cn("w-3.5 h-3.5", memberSortConfig.field === 'activeLoan' ? "text-white" : "text-amber-600")} />
+                        <span className="sr-only">Aative Loans</span>
+                        <span>Active Loans</span>
+                        <span className={cn(
+                          "ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black border",
+                          memberSortConfig.field === 'activeLoan'
+                            ? "bg-amber-600 text-white border-amber-400"
+                            : "bg-amber-200/80 text-amber-900 border-amber-300"
+                        )}>
+                          {activeLoanMembersCount}
+                        </span>
+                        {memberSortConfig.field === 'activeLoan' && (
+                          memberSortConfig.direction === 'desc' 
+                            ? <ArrowDown className="w-3 h-3 text-white" /> 
+                            : <ArrowUp className="w-3 h-3 text-white" />
+                        )}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -8630,7 +8681,8 @@ export default function App() {
                   { key: 'contact', label: 'Contact' },
                   { key: 'joinDate', label: 'Join Date' },
                   { key: 'totalPaid', label: 'Total Paid' },
-                  { key: 'status', label: 'Status' }
+                  { key: 'status', label: 'Status' },
+                  { key: 'activeLoan', label: 'Active Loans' }
                 ]}
                 activeField={memberSortConfig.field}
                 direction={memberSortConfig.direction}
