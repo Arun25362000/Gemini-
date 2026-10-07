@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { Loan, LoanPayment, UserProfile } from '../types';
+import { getSafeMemberDisplayName } from './utils';
 
 export interface LoanListPdfOptions {
   loans: Loan[];
@@ -87,8 +88,9 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
         (loan.userId && u.uid === loan.userId) ||
         (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
       );
-      const memberName = targetUser?.displayName || (loan.userEmail ? loan.userEmail.split('@')[0] : 'Member');
       const memberPhone = targetUser?.phoneNumber || (targetUser as any)?.phone || '-';
+      const rawName = targetUser?.displayName || (loan.userEmail ? loan.userEmail.split('@')[0] : 'Member');
+      const memberName = getSafeMemberDisplayName(rawName, memberPhone, loan.userEmail || targetUser?.email);
 
       // Date parsing
       let sanctionDateStr = '-';
@@ -251,7 +253,7 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
   const tableRows = filteredLoans.map((item, idx) => {
     return [
       String(idx + 1),
-      `${item.memberName}\n${item.memberPhone}`,
+      item.memberName,
       item.sanctionDateStr,
       `Rs. ${item.approvedAmount.toLocaleString('en-IN')}`,
       `${item.paidInstallmentsCount} / ${item.totalInstallments} Paid`,
@@ -287,7 +289,7 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
     startY: 48,
     head: [[
       '#',
-      'Member Details',
+      'Member Name',
       'Sanction Date',
       'Sanctioned (Rs.)',
       'Progress',
@@ -300,6 +302,8 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
     body: tableRows,
     foot: tableFoot,
     theme: 'striped',
+    showHead: 'everyPage',
+    showFoot: 'lastPage',
     styles: {
       font: 'helvetica',
       fontSize: 8,

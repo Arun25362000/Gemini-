@@ -47,6 +47,9 @@ import {
   launchWhatsApp,
 } from './lib/pushNotificationService';
 import { generateLoanListPdfDoc, quickPrintLoanPdf } from './lib/loanPdfExport';
+import { generateMonthlyCollectionPdfDoc } from './lib/monthlyCollectionPdfExport';
+import { generateMemberDetailsPdfDoc } from './lib/memberDetailsPdfExport';
+import { generateLoanProjectionPdfDoc } from './lib/loanProjectionPdfExport';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
@@ -117,7 +120,16 @@ import { ReportsTab } from './components/ReportsTab';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
 import { format } from 'date-fns';
-import { cn, getAppAvailableYears } from './lib/utils';
+import { 
+  cn, 
+  getAppAvailableYears, 
+  isGururajMember, 
+  getSafeMemberDisplayName, 
+  sanitizeUserProfile, 
+  GURURAJ_PHONE, 
+  GURURAJ_EMAIL, 
+  GURURAJ_ENGLISH_NAME 
+} from './lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import XLSX from 'xlsx-js-style';
@@ -1910,6 +1922,9 @@ export default function App() {
           if (!emailsToMatch.includes('praneshrao1954@gmail.com')) emailsToMatch.push('praneshrao1954@gmail.com');
           if (!emailsToMatch.includes('jpranesh1954@gmail.com')) emailsToMatch.push('jpranesh1954@gmail.com');
         }
+        if (normEmail.includes('rajaguru') || (oldEmail && oldEmail.toLowerCase().includes('rajaguru')) || normEmail === GURURAJ_EMAIL) {
+          if (!emailsToMatch.includes(GURURAJ_EMAIL)) emailsToMatch.push(GURURAJ_EMAIL);
+        }
 
         const uidsToMatch = [uid];
         if (oldUid && oldUid !== uid) {
@@ -2131,10 +2146,12 @@ export default function App() {
                 if (dEmail === email) return true;
                 // Specific matching for Pranesh Rao transition from praneshrao1954@gmail.com to jpranesh1954@gmail.com
                 if (email === 'jpranesh1954@gmail.com' && (dEmail === 'praneshrao1954@gmail.com' || d.id === 'imp5eagibVcvtfD5qleX4ISC1Nj2')) return true;
+                // Specific matching for Gururaj JP transition from Kannada/corrupted doc to rajagurujp@gmail.com
+                if ((email === GURURAJ_EMAIL || email.includes('rajaguru')) && isGururajMember(data)) return true;
                 return false;
               });
               if (matchedDoc) {
-                existingData = matchedDoc.data() as UserProfile;
+                existingData = sanitizeUserProfile(matchedDoc.data() as UserProfile);
                 oldDocId = matchedDoc.id;
               }
             } catch (err) {
@@ -2142,13 +2159,36 @@ export default function App() {
             }
           }
 
+          // Allow rajagurujp@gmail.com to log in even if not pre-seeded in users collection
+          if ((email === GURURAJ_EMAIL || email.includes('rajaguru')) && !existingData) {
+            existingData = {
+              uid: firebaseUser.uid,
+              email: GURURAJ_EMAIL,
+              displayName: GURURAJ_ENGLISH_NAME,
+              phoneNumber: GURURAJ_PHONE,
+              role: 'user',
+              joinDate: new Date().toISOString()
+            };
+          }
+
           if (existingData) {
+            const isGururaj = (email === GURURAJ_EMAIL || email.includes('rajaguru')) || isGururajMember(existingData);
+            // For Gururaj JP, keep English name 'Gururaj JP' intact - do NOT overwrite with Google's Kannada font or corrupted name
+            const finalDisplayName = isGururaj 
+              ? GURURAJ_ENGLISH_NAME 
+              : (firebaseUser.displayName || existingData.displayName);
+
+            const finalPhone = isGururaj 
+              ? (existingData.phoneNumber && existingData.phoneNumber.replace(/\D/g, '').endsWith(GURURAJ_PHONE) ? existingData.phoneNumber : GURURAJ_PHONE) 
+              : existingData.phoneNumber;
+
             // Link UID to existing record (User was pre-registered by email or email was updated)
             const updatedProfile: UserProfile = { 
               ...existingData, 
               uid: firebaseUser.uid, 
               email: rawEmail || existingData.email,
-              displayName: firebaseUser.displayName || existingData.displayName 
+              displayName: finalDisplayName,
+              phoneNumber: finalPhone
             };
             await setDoc(userRef, updatedProfile);
             if (oldDocId && oldDocId !== firebaseUser.uid) {
@@ -2168,7 +2208,28 @@ export default function App() {
             return;
           }
         } else {
-          const profileData = userSnap.data() as UserProfile;
+          let profileData = sanitizeUserProfile(userSnap.data() as UserProfile);
+          const isGururaj = (firebaseUser.email || '').toLowerCase().trim() === GURURAJ_EMAIL || isGururajMember(profileData);
+          if (isGururaj) {
+            let needsUpdate = false;
+            const updates: Partial<UserProfile> = {};
+            if (profileData.displayName !== GURURAJ_ENGLISH_NAME) {
+              updates.displayName = GURURAJ_ENGLISH_NAME;
+              needsUpdate = true;
+            }
+            if (!profileData.phoneNumber || !profileData.phoneNumber.replace(/\D/g, '').endsWith(GURURAJ_PHONE)) {
+              updates.phoneNumber = GURURAJ_PHONE;
+              needsUpdate = true;
+            }
+            if (!profileData.email) {
+              updates.email = GURURAJ_EMAIL;
+              needsUpdate = true;
+            }
+            if (needsUpdate) {
+              await updateDoc(userRef, updates).catch(err => console.warn("Error updating Gururaj profile:", err));
+              profileData = { ...profileData, ...updates };
+            }
+          }
           
           // Auto-promote to admin if email is in ADMIN_EMAILS but role is 'user'
           if (firebaseUser.email && ADMIN_EMAILS.includes(firebaseUser.email) && profileData.role !== 'admin') {
@@ -2216,17 +2277,31 @@ export default function App() {
     });
 
     const unsubscribeUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as UserProfile)).filter(u => u && u.email);
+      const data = snapshot.docs.map(doc => {
+        const raw = { ...doc.data(), id: doc.id } as UserProfile;
+        return sanitizeUserProfile(raw);
+      }).filter(u => u && (u.email || isGururajMember(u)));
       // Ensure uniqueness by email to prevent double counting if a user has both UID and Email docs
       // Prioritize entries that have a UID
       const uniqueUsersMap = new Map<string, UserProfile>();
       data.forEach(u => {
-        const email = u.email.trim().toLowerCase();
+        const email = (u.email || (isGururajMember(u) ? GURURAJ_EMAIL : '')).trim().toLowerCase();
+        if (!email) return;
         const existing = uniqueUsersMap.get(email);
         if (!existing || (!existing.uid && u.uid)) {
           uniqueUsersMap.set(email, u);
         }
       });
+      // Ensure Gururaj JP is cleanly mapped with phone 9686763186 and name "Gururaj JP"
+      const gururajDoc = data.find(u => isGururajMember(u));
+      if (gururajDoc && !uniqueUsersMap.has(GURURAJ_EMAIL)) {
+        uniqueUsersMap.set(GURURAJ_EMAIL, {
+          ...gururajDoc,
+          displayName: GURURAJ_ENGLISH_NAME,
+          phoneNumber: GURURAJ_PHONE,
+          email: GURURAJ_EMAIL
+        });
+      }
       setAllUsers(Array.from(uniqueUsersMap.values()));
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, 'users');
@@ -3030,7 +3105,11 @@ export default function App() {
     const cleanAddress = (newMember.address || '').trim();
     const cleanJoinDate = (newMember.joinDate || '').trim() || format(new Date(), 'yyyy-MM-dd');
 
-    if (!cleanName) {
+    const isGururaj = isGururajMember(null, cleanPhone, cleanEmail, cleanName);
+    const resolvedName = isGururaj ? GURURAJ_ENGLISH_NAME : cleanName;
+    const resolvedPhone = isGururaj && !cleanPhone.replace(/\D/g, '').endsWith(GURURAJ_PHONE) ? GURURAJ_PHONE : cleanPhone;
+
+    if (!resolvedName) {
       notify('error', "Please enter the member's full name.");
       return;
     }
@@ -3059,8 +3138,8 @@ export default function App() {
       await setDoc(doc(db, 'users', cleanEmail), {
         uid: null,
         email: cleanEmail,
-        displayName: cleanName,
-        phoneNumber: cleanPhone,
+        displayName: resolvedName,
+        phoneNumber: resolvedPhone,
         address: cleanAddress,
         role: 'user',
         joinDate: cleanJoinDate
@@ -3068,7 +3147,7 @@ export default function App() {
 
       setIsAddingMember(false);
       setNewMember({ name: '', email: '', phoneNumber: '', address: '', joinDate: format(new Date(), 'yyyy-MM-dd') });
-      notify('success', `Member "${cleanName}" added successfully!`);
+      notify('success', `Member "${resolvedName}" added successfully!`);
       
       // Send Welcome Email in background
       try {
@@ -3366,12 +3445,17 @@ export default function App() {
     const cleanAddress = (editingUser.address || '').trim();
     const cleanJoinDate = (editingUser.joinDate || '').trim();
 
-    if (!cleanName) {
+    const isGururaj = isGururajMember(editingUser, cleanPhone, cleanEmail, cleanName);
+    const resolvedName = isGururaj ? GURURAJ_ENGLISH_NAME : cleanName;
+    const resolvedPhone = isGururaj && !cleanPhone.replace(/\D/g, '').endsWith(GURURAJ_PHONE) ? GURURAJ_PHONE : cleanPhone;
+    const resolvedEmail = isGururaj && !cleanEmail ? GURURAJ_EMAIL : cleanEmail;
+
+    if (!resolvedName) {
       notify('error', "Please enter the member's full name.");
       return;
     }
 
-    if (!cleanEmail) {
+    if (!resolvedEmail) {
       notify('error', "Please enter the member's email address.");
       return;
     }
@@ -3381,14 +3465,14 @@ export default function App() {
       const userRef = doc(db, 'users', docId);
       
       // If the user hasn't logged in yet (ID is email) and the email is being changed
-      if (!editingUser.uid && cleanEmail !== originalEditingEmail.toLowerCase()) {
+      if (!editingUser.uid && resolvedEmail !== originalEditingEmail.toLowerCase()) {
         // Create new doc with new email as ID
-        const newRef = doc(db, 'users', cleanEmail);
+        const newRef = doc(db, 'users', resolvedEmail);
         await setDoc(newRef, {
           ...editingUser,
-          displayName: cleanName,
-          email: cleanEmail,
-          phoneNumber: cleanPhone,
+          displayName: resolvedName,
+          email: resolvedEmail,
+          phoneNumber: resolvedPhone,
           address: cleanAddress,
           joinDate: cleanJoinDate
         });
@@ -3397,9 +3481,9 @@ export default function App() {
       } else {
         // Just update existing doc
         await updateDoc(userRef, {
-          displayName: cleanName,
-          phoneNumber: cleanPhone,
-          email: cleanEmail,
+          displayName: resolvedName,
+          phoneNumber: resolvedPhone,
+          email: resolvedEmail,
           address: cleanAddress,
           joinDate: cleanJoinDate
         });
@@ -6244,6 +6328,121 @@ export default function App() {
     }
   };
 
+  const [isExportingMonthlyPdf, setIsExportingMonthlyPdf] = useState(false);
+
+  const exportMonthlyCollectionPdf = async (printDirectly: boolean = false) => {
+    try {
+      setIsExportingMonthlyPdf(true);
+      const { doc, fileName, meta } = generateMonthlyCollectionPdfDoc({
+        month: collectionMonth,
+        year: collectionYear,
+        contributions,
+        loans,
+        loanPayments,
+        allUsers
+      });
+
+      if (printDirectly) {
+        quickPrintLoanPdf(doc);
+        notify('info', `Opening print preview for ${meta.monthLabel} Collection Statement...`);
+      } else {
+        if (isMobileApp) {
+          const base64Data = doc.output('datauristring').split(',')[1];
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `Monthly Collection PDF saved: ${fileName}`);
+          } else {
+            doc.save(fileName);
+            notify('success', `Monthly Collection PDF downloaded: ${fileName}`);
+          }
+        } else {
+          doc.save(fileName);
+          notify('success', `Monthly Collection PDF downloaded: ${fileName}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to export Monthly Collection PDF:', err);
+      notify('error', `Failed to export Monthly Collection PDF: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingMonthlyPdf(false);
+    }
+  };
+
+  const [isExportingMemberPdf, setIsExportingMemberPdf] = useState(false);
+
+  const exportMemberDetailsPdf = async (printDirectly: boolean = false) => {
+    try {
+      setIsExportingMemberPdf(true);
+      const membersToExport = sortedMembers.length > 0 
+        ? sortedMembers 
+        : allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL);
+
+      const { doc, fileName } = generateMemberDetailsPdfDoc({
+        members: membersToExport,
+        activeLoanUserIdentifiers
+      });
+
+      if (printDirectly) {
+        quickPrintLoanPdf(doc);
+        notify('info', 'Opening print preview for Member Details...');
+      } else {
+        if (isMobileApp) {
+          const base64Data = doc.output('datauristring').split(',')[1];
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `Member Details PDF saved: ${fileName}`);
+          } else {
+            doc.save(fileName);
+            notify('success', `Member Details PDF downloaded: ${fileName}`);
+          }
+        } else {
+          doc.save(fileName);
+          notify('success', `Member Details PDF downloaded: ${fileName}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to export Member Details PDF:', err);
+      notify('error', `Failed to export Member Details PDF: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingMemberPdf(false);
+    }
+  };
+
+  const [isExportingProjectionPdf, setIsExportingProjectionPdf] = useState(false);
+
+  const exportLoanProjectionPdf = async (printDirectly: boolean = false) => {
+    try {
+      setIsExportingProjectionPdf(true);
+      const { doc, fileName } = generateLoanProjectionPdfDoc({
+        projection: loanProjection
+      });
+
+      if (printDirectly) {
+        quickPrintLoanPdf(doc);
+        notify('info', `Opening print preview for Loan Projection (₹${loanProjection.principal.toLocaleString('en-IN')})...`);
+      } else {
+        if (isMobileApp) {
+          const base64Data = doc.output('datauristring').split(',')[1];
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `Loan Projection PDF saved: ${fileName}`);
+          } else {
+            doc.save(fileName);
+            notify('success', `Loan Projection PDF downloaded: ${fileName}`);
+          }
+        } else {
+          doc.save(fileName);
+          notify('success', `Loan Projection PDF downloaded: ${fileName}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to export Loan Projection PDF:', err);
+      notify('error', `Failed to export Loan Projection PDF: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingProjectionPdf(false);
+    }
+  };
+
   const calculateDividends = () => {
     const totalInterestEarned = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.interest, 0);
     const totalMembers = allUsers.length;
@@ -8197,6 +8396,41 @@ export default function App() {
                 )}
               </div>
             )}
+
+            {/* Quick Print & PDF Export Bar (Export Member Details) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-50/70 via-slate-50 to-white p-3.5 sm:p-4 rounded-2xl border-2 border-blue-200/80 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Printer className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs sm:text-sm text-slate-900">Export Member Details</h4>
+                  <p className="text-[11px] text-slate-500 font-medium">Export print-ready A4 member directory with phone numbers, addresses, emails &amp; joining dates</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => exportMemberDetailsPdf(true)}
+                  disabled={isExportingMemberPdf}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Quick print member details list"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Quick Print</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportMemberDetailsPdf(false)}
+                  disabled={isExportingMemberPdf}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Download member details PDF"
+                >
+                  <FileDown className="w-3.5 h-3.5" />
+                  <span>Download PDF</span>
+                </button>
+              </div>
+            </div>
 
             {/* Section 2: Member Details */}
             <div className="space-y-4">
@@ -10348,12 +10582,9 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => {
-                              const targetUser = allUsers.find(u => u.uid === projectionSelectedUserId);
-                              const memberName = targetUser?.displayName || 'Member';
                               const text = 
 `*UNNATI TRUST (R) - LOAN EMI PROJECTION*
 ----------------------------------------
-*Applicant:* ${memberName}
 *Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
 *Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
 *Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
@@ -10383,12 +10614,9 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
                           <button
                             type="button"
                             onClick={() => {
-                              const targetUser = allUsers.find(u => u.uid === projectionSelectedUserId);
-                              const memberName = targetUser?.displayName || 'Member';
                               const text = encodeURIComponent(
 `*UNNATI TRUST (R) - LOAN EMI PROJECTION*
 ----------------------------------------
-*Applicant:* ${memberName}
 *Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
 *Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
 *Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
@@ -10405,6 +10633,7 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
 
 *Note:* Installments are payable between 1st and 10th of every month.`
                               );
+                              const targetUser = allUsers.find(u => u.uid === projectionSelectedUserId);
                               const phone = targetUser?.phoneNumber?.replace(/[^0-9]/g, '') || '';
                               const url = phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${text}` : `https://api.whatsapp.com/send?text=${text}`;
                               window.open(url, '_blank');
@@ -10586,17 +10815,42 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
 
                         {/* Month-by-Month Projected Schedule */}
                         <div>
-                          <button
-                            type="button"
-                            onClick={() => setAdminProjectionScheduleExpanded(!adminProjectionScheduleExpanded)}
-                            className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-slate-50 border border-indigo-200/80 rounded-xl text-xs font-bold text-indigo-700 transition-colors shadow-2xs cursor-pointer"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Table className="w-3.5 h-3.5 text-indigo-500" />
-                              <span>{adminProjectionScheduleExpanded ? 'Hide' : 'View'} Month-by-Month Projected Schedule ({loanProjection.tenure} Months)</span>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setAdminProjectionScheduleExpanded(!adminProjectionScheduleExpanded)}
+                              className="flex-1 flex items-center justify-between px-3 py-2 bg-white hover:bg-slate-50 border border-indigo-200/80 rounded-xl text-xs font-bold text-indigo-700 transition-colors shadow-2xs cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Table className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>{adminProjectionScheduleExpanded ? 'Hide' : 'View'} Month-by-Month Projected Schedule ({loanProjection.tenure} Months)</span>
+                              </div>
+                              <ChevronDown className={cn("w-4 h-4 text-indigo-500 transition-transform duration-200", adminProjectionScheduleExpanded && "rotate-180")} />
+                            </button>
+
+                            <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => exportLoanProjectionPdf(true)}
+                                disabled={isExportingProjectionPdf || loanProjection.principal <= 0}
+                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                title="Quick print schedule"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>Quick Print</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => exportLoanProjectionPdf(false)}
+                                disabled={isExportingProjectionPdf || loanProjection.principal <= 0}
+                                className="px-3 py-2 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                title="Download PDF schedule"
+                              >
+                                <FileDown className="w-3.5 h-3.5" />
+                                <span>Download PDF</span>
+                              </button>
                             </div>
-                            <ChevronDown className={cn("w-4 h-4 text-indigo-500 transition-transform duration-200", adminProjectionScheduleExpanded && "rotate-180")} />
-                          </button>
+                          </div>
 
                           {adminProjectionScheduleExpanded && (
                             <div className="mt-2.5 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
@@ -11668,6 +11922,41 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* Quick Print & PDF Export Bar (Monthly Collection Statement) */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-50/70 via-slate-50 to-white p-3.5 sm:p-4 rounded-2xl border-2 border-blue-200/80 shadow-2xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Printer className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-xs sm:text-sm text-slate-900">Monthly Collection Statement (PDF)</h4>
+                        <p className="text-[11px] text-slate-500 font-medium">Export print-ready audit statement with summary, member collections &amp; loan repayments</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => exportMonthlyCollectionPdf(true)}
+                        disabled={isExportingMonthlyPdf}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title="Quick print monthly collection statement"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Quick Print</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => exportMonthlyCollectionPdf(false)}
+                        disabled={isExportingMonthlyPdf}
+                        className="px-3 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        title="Download monthly collection statement PDF"
+                      >
+                        <FileDown className="w-3.5 h-3.5" />
+                        <span>Download PDF</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Detailed Sections: Member Contributions and Loan Repayments */}
