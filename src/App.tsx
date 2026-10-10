@@ -6504,6 +6504,16 @@ export default function App() {
     const rawPhone = selectedProjectionRawPhone;
     const formattedPhone = selectedProjectionFormattedPhone;
 
+    // Concise, high-impact schedule summary to keep URL length well under mobile WhatsApp limits (< 1000 chars)
+    // Full schedule with 20+ lines produces 4000+ chars which causes "Webpage not available" / ERR_URI_TOO_LONG on mobile.
+    const scheduleHighlights = loanProjection.schedule.length <= 6
+      ? loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')}`).join('\n')
+      : [
+          ...loanProjection.schedule.slice(0, 3).map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')}`),
+          `• ... [Months 4 to ${loanProjection.schedule.length - 1} reducing balance installments]`,
+          `• Month ${loanProjection.schedule.length} (Final): Principal ₹${loanProjection.schedule[loanProjection.schedule.length - 1].principalPayment.toLocaleString('en-IN')} + Int ₹${loanProjection.schedule[loanProjection.schedule.length - 1].interestPayment.toLocaleString('en-IN')} = Due ₹${loanProjection.schedule[loanProjection.schedule.length - 1].totalPayment.toLocaleString('en-IN')}`
+        ].join('\n');
+
     const message = 
 `*UNNATI TRUST (R) - LOAN EMI PROJECTION*
 ----------------------------------------
@@ -6518,30 +6528,31 @@ ${memberName ? `*Member Name:* ${memberName}\n` : ''}${rawPhone ? `*Mobile:* ${r
 • Total Interest: ₹${loanProjection.totalInterest.toLocaleString('en-IN')}
 • Total Repayable: ₹${loanProjection.totalRepayable.toLocaleString('en-IN')}
 
-*MONTH-WISE REPAYMENT SCHEDULE:*
-${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')} (Balance ₹${s.closingBalance.toLocaleString('en-IN')})`).join('\n')}
+*REPAYMENT SCHEDULE HIGHLIGHTS:*
+${scheduleHighlights}
 
-*Note:* Installments are payable between 1st and 10th of every month.`;
+*Note:* Installments are payable between 1st and 10th of every month. Complete itemized statement available in Unnati portal.`;
+
+    // Ensure WhatsApp modal dialog does NOT open or remain stayed on Unnati app
+    setPendingWhatsAppModal(null);
 
     const waRes = launchWhatsApp(formattedPhone, message);
 
-    setPendingWhatsAppModal({
-      isOpen: true,
-      recipientName: memberName || 'General / Prospective Member',
-      phone: formattedPhone,
-      waUrl: waRes.url,
-      message,
-      type: 'approved',
-      title: memberName ? `Loan EMI Projection for ${memberName}` : 'Loan EMI Projection Share',
-      actionLabel: 'Projection Ready',
-    });
-
     if (formattedPhone) {
-      notify('success', `Opening WhatsApp for ${memberName} (${rawPhone})...`);
+      notify('success', `Opening WhatsApp for ${memberName || 'member'} (${rawPhone})...`, {
+        label: 'Open WhatsApp',
+        url: waRes.url
+      });
     } else if (memberName) {
-      notify('info', `Opening WhatsApp for ${memberName}. Please select chat...`);
+      notify('info', `Opening WhatsApp for ${memberName}. Please select chat...`, {
+        label: 'Open WhatsApp',
+        url: waRes.url
+      });
     } else {
-      notify('info', 'Opening WhatsApp. Select contact to share projection...');
+      notify('info', 'Opening WhatsApp. Select contact to share projection...', {
+        label: 'Open WhatsApp',
+        url: waRes.url
+      });
     }
   };
 
@@ -6707,17 +6718,15 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
         { disbursalMode: selectedDisbursalMode, installments: Math.ceil(loan.amount / 5000) }
       );
       if (waResult.success) {
-        setPendingWhatsAppModal({
-          isOpen: true,
-          recipientName: waResult.recipientName,
-          phone: waResult.phone,
-          waUrl: waResult.waUrl,
-          message: waResult.message,
-          type: 'approved'
+        setPendingWhatsAppModal(null);
+        notify('success', `Loan approved & WhatsApp opened for ${waResult.recipientName}!`, {
+          label: 'Open WhatsApp',
+          url: waResult.waUrl
         });
+      } else {
+        setPendingWhatsAppModal(null);
+        notify('success', "Loan approved successfully.");
       }
-
-      notify('success', "Loan approved & WhatsApp notification triggered.");
       setApprovingLoanForPaymentMode(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `loans/${loan.id}`);
@@ -6748,14 +6757,14 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
           { declineReason: reason }
         );
         if (waResult.success) {
-          setPendingWhatsAppModal({
-            isOpen: true,
-            recipientName: waResult.recipientName,
-            phone: waResult.phone,
-            waUrl: waResult.waUrl,
-            message: waResult.message,
-            type: 'declined'
+          setPendingWhatsAppModal(null);
+          notify('info', `Loan declined & WhatsApp opened for ${waResult.recipientName}!`, {
+            label: 'Open WhatsApp',
+            url: waResult.waUrl
           });
+        } else {
+          setPendingWhatsAppModal(null);
+          notify('info', "Loan application declined.");
         }
       }
       

@@ -104,17 +104,16 @@ export const launchWhatsApp = (
   url: string;
 } => {
   const formattedPhone = phone ? formatWhatsAppNumber(phone) : '';
-  const encodedMessage = encodeURIComponent(message);
-  // Official WhatsApp Universal Link / API URL
-  // Supported across all platforms (Android, iOS, iPadOS, Desktop Web, Mac, Windows).
-  // If phone is provided, directs straight to the recipient's chat.
-  // If phone is empty, opens WhatsApp contact/chat picker so user can choose recipient.
-  // Official WhatsApp Universal Link: https://wa.me/<phone>?text=<message>
-  // wa.me is the gold standard universal link registered with Apple App Site Association (AASA)
-  // for iOS and Android App Links. It opens native WhatsApp app flawlessly on iOS/Android,
-  // or falls back to WhatsApp Web without any "Page not found" errors.
+  // Limit message length to prevent net::ERR_URI_TOO_LONG / HTTP 414 on mobile devices
+  const safeMessage = message.length > 1500 ? message.slice(0, 1500) + '...' : message;
+  const encodedMessage = encodeURIComponent(safeMessage);
+
+  // Official WhatsApp Universal Web API endpoint (https://api.whatsapp.com/send)
+  // Supported seamlessly across all mobile platforms (Android, iOS, iPadOS) and Desktop Web.
+  // Using https://api.whatsapp.com avoids mobile Chrome 302 ERR_UNKNOWN_URL_SCHEME errors
+  // that occur with wa.me when redirecting to whatsapp:// inside new tabs.
   const apiUrl = formattedPhone
-    ? `https://wa.me/${formattedPhone}?text=${encodedMessage}`
+    ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMessage}`
     : `https://api.whatsapp.com/send?text=${encodedMessage}`;
 
   if (typeof window !== 'undefined') {
