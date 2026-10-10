@@ -27,6 +27,8 @@ export interface Loan {
   id?: string;
   userId: string;
   userEmail: string;
+  userName?: string;
+  phoneNumber?: string;
   amount: number;
   details?: string;
   status: 'pending' | 'approved' | 'declined' | 'paid';

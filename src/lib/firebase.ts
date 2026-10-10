@@ -1,34 +1,50 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth, setPersistence, indexedDBLocalPersistence, browserLocalPersistence } from 'firebase/auth';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth, setPersistence, indexedDBLocalPersistence, browserLocalPersistence, inMemoryPersistence } from 'firebase/auth';
 import { 
   doc, 
   getDocFromServer,
   initializeFirestore,
+  getFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager
+  persistentMultipleTabManager,
+  memoryLocalCache
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 const isBrowser = typeof window !== 'undefined';
 
-// Initialize Firestore with robust connection settings for iframe and webview environments
-// Using experimentalForceLongPolling eliminates the 10-second WebChannel streaming timeout behind proxies
-export const db = initializeFirestore(app, {
-  ...(isBrowser ? { experimentalForceLongPolling: true } : {}),
-  localCache: isBrowser
-    ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-    : undefined,
-}, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore with robust connection settings and graceful fallback
+// for iOS Safari, WebKit in-app browsers, and Safari Private Browsing mode
+let dbInstance: ReturnType<typeof initializeFirestore>;
+try {
+  dbInstance = initializeFirestore(app, {
+    ...(isBrowser ? { experimentalForceLongPolling: true } : {}),
+    localCache: isBrowser
+      ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+      : undefined,
+  }, firebaseConfig.firestoreDatabaseId);
+} catch (cacheError) {
+  console.warn("Firestore persistent local cache fallback triggered (common in iOS Safari private mode or restricted WebKit):", cacheError);
+  try {
+    dbInstance = initializeFirestore(app, {
+      ...(isBrowser ? { experimentalForceLongPolling: true } : {}),
+      localCache: memoryLocalCache(),
+    }, firebaseConfig.firestoreDatabaseId);
+  } catch {
+    dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
 
+export const db = dbInstance;
 export const auth = getAuth(app);
 
-// Initialize persistence as early as possible
+// Initialize persistence as early as possible with graceful fallback for iOS Safari / WebKit
 if (isBrowser) {
-  // Use indexedDBLocalPersistence as primary - reliable at preserving auth state
   setPersistence(auth, indexedDBLocalPersistence)
     .catch(() => setPersistence(auth, browserLocalPersistence))
+    .catch(() => setPersistence(auth, inMemoryPersistence))
     .catch(err => console.warn("Could not set auth persistence:", err));
 }
 

@@ -1247,10 +1247,27 @@ async function startServer() {
     }
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== 'production') {
+  // Vite middleware for development or static serving for production
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDist = existsSync(path.join(distPath, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production' || 
+                       Boolean(process.env.K_SERVICE?.includes('ais-pre')) ||
+                       Boolean(hasDist && !process.env.VITE_DEV && process.env.NODE_ENV !== 'development');
+
+  if (isProduction && hasDist) {
+    console.log('[Server] Serving production static bundle from dist...');
+    app.use(express.static(distPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    // In hybrid or development mode, ensure any built assets are also reachable statically
+    if (hasDist) {
+      app.use('/assets', express.static(path.join(distPath, 'assets')));
+    }
     try {
-      console.log('Initializing Vite middleware...');
+      console.log('Initializing Vite middleware for development...');
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',
@@ -1259,13 +1276,15 @@ async function startServer() {
       console.log('Vite middleware initialized.');
     } catch (viteError) {
       console.error('Failed to initialize Vite middleware:', viteError);
+      if (hasDist) {
+        console.log('Fallback: Serving production static bundle from dist...');
+        app.use(express.static(distPath));
+        app.get('*', (req, res, next) => {
+          if (req.path.startsWith('/api/')) return next();
+          res.sendFile(path.join(distPath, 'index.html'));
+        });
+      }
     }
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

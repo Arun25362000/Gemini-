@@ -50,17 +50,37 @@ export function isGururajMember(
  * email rajagurujp@gmail.com, or Kannada/corrupted characters map to "Gururaj JP".
  */
 export function getSafeMemberDisplayName(
-  displayName?: string | null,
+  displayNameOrUser?: string | { displayName?: string; phoneNumber?: string; phone?: string; email?: string } | null,
   phoneNumber?: string | null,
   email?: string | null
 ): string {
+  if (!displayNameOrUser) {
+    if (phoneNumber || email) {
+      if (isGururajMember(null, phoneNumber, email, null)) {
+        return GURURAJ_ENGLISH_NAME;
+      }
+    }
+    return '';
+  }
+  if (typeof displayNameOrUser === 'object') {
+    const user = displayNameOrUser as any;
+    if (isGururajMember(user)) {
+      return GURURAJ_ENGLISH_NAME;
+    }
+    const name = user.displayName || user.email || '';
+    if (typeof name === 'string' && name.includes('†') && name.includes('°')) {
+      return GURURAJ_ENGLISH_NAME;
+    }
+    return name;
+  }
+  const displayName = String(displayNameOrUser);
   if (isGururajMember(null, phoneNumber, email, displayName)) {
     return GURURAJ_ENGLISH_NAME;
   }
-  if (displayName && displayName.includes('†') && displayName.includes('°')) {
+  if (displayName.includes('†') && displayName.includes('°')) {
     return GURURAJ_ENGLISH_NAME;
   }
-  return displayName || '';
+  return displayName;
 }
 
 /**
@@ -87,4 +107,28 @@ export function getAppAvailableYears(): number[] {
     years.push(y);
   }
   return years;
+}
+
+/**
+ * Normalizes phone numbers to standard 10-digit format for accurate unique counts.
+ */
+export function normalizePhoneNumber(phone?: string | null): string {
+  if (!phone) return '';
+  const digits = String(phone).replace(/\D/g, '');
+  if (digits.length >= 10) {
+    return digits.slice(-10);
+  }
+  return digits;
+}
+
+/**
+ * Normalizes email address for deduplication and consistent matching.
+ */
+export function normalizeEmailAddress(email?: string | null): string {
+  if (!email) return '';
+  const trimmed = String(email).trim().toLowerCase();
+  if (!trimmed || trimmed === '-' || trimmed === 'n/a' || trimmed === 'nil' || trimmed === 'none' || trimmed === 'no-email') {
+    return '';
+  }
+  return trimmed;
 }

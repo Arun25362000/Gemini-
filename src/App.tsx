@@ -50,6 +50,7 @@ import { generateLoanListPdfDoc, quickPrintLoanPdf } from './lib/loanPdfExport';
 import { generateMonthlyCollectionPdfDoc } from './lib/monthlyCollectionPdfExport';
 import { generateMemberDetailsPdfDoc } from './lib/memberDetailsPdfExport';
 import { generateLoanProjectionPdfDoc } from './lib/loanProjectionPdfExport';
+import { generateLoanApplicationsPdfDoc } from './lib/loanApplicationsPdfExport';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
@@ -112,7 +113,9 @@ import {
   MapPin,
   Send,
   CheckSquare,
-  Square
+  Square,
+  Share2,
+  Smartphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -385,13 +388,29 @@ const LOGO_SRC = "/brand-unnati-official.png?v=5000";
 
 export default function App() {
   const isMobileApp = useMemo(() => {
-    return Capacitor.isNativePlatform() || 
-           ((window.location.hostname === 'localhost' || 
-             window.location.protocol === 'file:' || 
-             window.location.protocol === 'capacitor:' ||
-             /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) &&
-            !window.location.hostname.includes('asia-southeast1.run.app'));
+    return Capacitor.isNativePlatform();
   }, []);
+
+  const isIOS = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return /iPhone|iPad|iPod/i.test(navigator.userAgent) || 
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }, []);
+
+  const isStandalone = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return (window.navigator as any).standalone === true || 
+      (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  }, []);
+
+  const isInAppBrowser = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    return /FBAN|FBAV|Instagram|WhatsApp|Line|Twitter|MicroMessenger|GSA|Snapchat/i.test(ua) ||
+      (isIOS && !ua.includes('Safari/') && ua.includes('Mobile/'));
+  }, [isIOS]);
+
+  const [showIOSInstallModal, setShowIOSInstallModal] = useState(false);
 
   const [isMobileScreen, setIsMobileScreen] = useState(false);
   useEffect(() => {
@@ -987,7 +1006,15 @@ export default function App() {
   const [decliningLoanId, setDecliningLoanId] = useState<string | null>(null);
   const [loanActionComment, setLoanActionComment] = useState('');
   const [showReminderConfirm, setShowReminderConfirm] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [notification, setNotification] = useState<{ 
+    type: 'success' | 'error' | 'info'; 
+    message: string;
+    action?: {
+      label: string;
+      url?: string;
+      onClick?: () => void;
+    };
+  } | null>(null);
 
   const [pushPermission, setPushPermission] = useState<NotificationPermission>(getPushPermissionState());
   const [pendingWhatsAppModal, setPendingWhatsAppModal] = useState<{
@@ -1162,9 +1189,17 @@ export default function App() {
     });
   }, [user, loading, isUserAdminExempt, profile?.role, contributions.length, loans.length, loanPayments.length]);
 
-  const notify = (type: 'success' | 'error' | 'info', message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 5000);
+  const notify = (
+    type: 'success' | 'error' | 'info', 
+    message: string,
+    action?: {
+      label: string;
+      url?: string;
+      onClick?: () => void;
+    }
+  ) => {
+    setNotification({ type, message, action });
+    setTimeout(() => setNotification(null), action ? 8000 : 5000);
   };
 
   // Safety timeout for loading state
@@ -2885,9 +2920,17 @@ export default function App() {
     loanId?: string;
   }) => {
     if (!params.targetUser) return;
-    const rawPhone = params.targetUser.phoneNumber || (params.targetUser as any)?.phone;
+    const rawPhone = 
+      params.targetUser.phoneNumber || 
+      (params.targetUser as any)?.phone || 
+      (params.targetUser as any)?.mobile ||
+      (params.loanId ? (loans.find(l => l.id === params.loanId)?.phoneNumber || (loans.find(l => l.id === params.loanId) as any)?.phone) : '');
     const formattedPhone = rawPhone ? formatWhatsAppNumber(rawPhone) : '';
-    const memberName = params.targetUser.displayName || 'Member';
+    const memberName = getSafeMemberDisplayName(
+      params.targetUser.displayName,
+      rawPhone,
+      params.targetUser.email
+    ) || 'Member';
     const monthName = format(new Date(params.year, params.month - 1, 1), 'MMMM');
     const dateStr = params.paymentDate
       ? (typeof params.paymentDate === 'string' ? params.paymentDate : format(params.paymentDate, 'dd MMM yyyy'))
@@ -2979,25 +3022,18 @@ export default function App() {
       message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
     }
 
-    if (formattedPhone) {
-      // Launch WhatsApp (uses native app scheme whatsapp:// on mobile to avoid 'whatsapp web not found')
-      launchWhatsApp(formattedPhone, message);
+    // Do not show or leave WhatsApp dialog modal on screen when recording payment
+    setPendingWhatsAppModal(null);
 
-      // Explicitly ensure modal dialog does NOT show or stay in the application,
-      // as WhatsApp opens directly and admin already navigates to WhatsApp to send the update.
-      setPendingWhatsAppModal(null);
-    } else {
-      // Only display modal if member has NO phone number configured
-      setPendingWhatsAppModal({
-        isOpen: true,
-        recipientName: memberName,
-        phone: formattedPhone,
-        waUrl: '',
-        message,
-        type: 'approved',
-        title: modalTitle,
-        actionLabel: actionBadge
+    const waRes = formattedPhone ? launchWhatsApp(formattedPhone, message) : null;
+
+    if (formattedPhone && waRes) {
+      notify('success', `Payment recorded for ${memberName}!`, {
+        label: 'Open WhatsApp',
+        url: waRes.url
       });
+    } else {
+      notify('success', `Payment recorded successfully!`);
     }
   };
 
@@ -6443,6 +6479,110 @@ export default function App() {
     }
   };
 
+  // Safe resolution of member selected in Loan Projection Calculator
+  const selectedProjectionUser = useMemo(() => {
+    if (!projectionSelectedUserId) return null;
+    return allUsers.find(u => 
+      (u.uid && u.uid === projectionSelectedUserId) || 
+      ((u as any).id && (u as any).id === projectionSelectedUserId) || 
+      (u.email && u.email.toLowerCase().trim() === projectionSelectedUserId.toLowerCase().trim())
+    ) || null;
+  }, [allUsers, projectionSelectedUserId]);
+
+  const selectedProjectionMemberName = selectedProjectionUser 
+    ? (getSafeMemberDisplayName(selectedProjectionUser) || selectedProjectionUser.displayName || selectedProjectionUser.email || 'Member')
+    : '';
+  const selectedProjectionRawPhone = selectedProjectionUser 
+    ? (selectedProjectionUser.phoneNumber || (selectedProjectionUser as any)?.phone || (selectedProjectionUser as any)?.mobile || '')
+    : '';
+  const selectedProjectionFormattedPhone = selectedProjectionRawPhone 
+    ? formatWhatsAppNumber(selectedProjectionRawPhone) 
+    : '';
+
+  const handleSendLoanProjectionWhatsApp = () => {
+    const memberName = selectedProjectionMemberName;
+    const rawPhone = selectedProjectionRawPhone;
+    const formattedPhone = selectedProjectionFormattedPhone;
+
+    const message = 
+`*UNNATI TRUST (R) - LOAN EMI PROJECTION*
+----------------------------------------
+${memberName ? `*Member Name:* ${memberName}\n` : ''}${rawPhone ? `*Mobile:* ${rawPhone}\n` : ''}*Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
+*Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
+*Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
+*Interest Rate:* 0.5% monthly (reducing balance)
+
+*PAYMENT SUMMARY:*
+• 1st Month EMI (Peak): ₹${loanProjection.firstMonthPayment.toLocaleString('en-IN')}
+• Last Month EMI: ₹${loanProjection.lastMonthPayment.toLocaleString('en-IN')}
+• Total Interest: ₹${loanProjection.totalInterest.toLocaleString('en-IN')}
+• Total Repayable: ₹${loanProjection.totalRepayable.toLocaleString('en-IN')}
+
+*MONTH-WISE REPAYMENT SCHEDULE:*
+${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')} (Balance ₹${s.closingBalance.toLocaleString('en-IN')})`).join('\n')}
+
+*Note:* Installments are payable between 1st and 10th of every month.`;
+
+    const waRes = launchWhatsApp(formattedPhone, message);
+
+    setPendingWhatsAppModal({
+      isOpen: true,
+      recipientName: memberName || 'General / Prospective Member',
+      phone: formattedPhone,
+      waUrl: waRes.url,
+      message,
+      type: 'approved',
+      title: memberName ? `Loan EMI Projection for ${memberName}` : 'Loan EMI Projection Share',
+      actionLabel: 'Projection Ready',
+    });
+
+    if (formattedPhone) {
+      notify('success', `Opening WhatsApp for ${memberName} (${rawPhone})...`);
+    } else if (memberName) {
+      notify('info', `Opening WhatsApp for ${memberName}. Please select chat...`);
+    } else {
+      notify('info', 'Opening WhatsApp. Select contact to share projection...');
+    }
+  };
+
+  const [isExportingLoanApplicationsPdf, setIsExportingLoanApplicationsPdf] = useState(false);
+
+  const exportLoanApplicationsPdf = async (printDirectly: boolean = false, filter: 'all' | 'active' | 'closed' = 'all') => {
+    try {
+      setIsExportingLoanApplicationsPdf(true);
+      const loansToExport = sortedLoans.length > 0 ? sortedLoans : loans;
+      const { doc, fileName } = generateLoanApplicationsPdfDoc({
+        loans: loansToExport,
+        allUsers,
+        filter
+      });
+
+      if (printDirectly) {
+        quickPrintLoanPdf(doc);
+        notify('info', 'Opening print preview for Loan Applications Statement...');
+      } else {
+        if (isMobileApp) {
+          const base64Data = doc.output('datauristring').split(',')[1];
+          const res = await downloadFileMobile(fileName, base64Data);
+          if (res.success) {
+            notify('success', `Loan Applications PDF saved: ${fileName}`);
+          } else {
+            doc.save(fileName);
+            notify('success', `Loan Applications PDF downloaded: ${fileName}`);
+          }
+        } else {
+          doc.save(fileName);
+          notify('success', `Loan Applications PDF downloaded: ${fileName}`);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to export Loan Applications PDF:', err);
+      notify('error', `Failed to export Loan Applications PDF: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingLoanApplicationsPdf(false);
+    }
+  };
+
   const calculateDividends = () => {
     const totalInterestEarned = loanPayments.filter(p => p.status === 'paid').reduce((acc, p) => acc + p.interest, 0);
     const totalMembers = allUsers.length;
@@ -6888,9 +7028,16 @@ export default function App() {
 
       // Trigger WhatsApp acknowledgment for the member
       const targetUser = allUsers.find(u => 
-        (loan.userId && u.uid === loan.userId) || 
-        (loan.userEmail && u.email.toLowerCase() === loan.userEmail.toLowerCase())
-      );
+        (loan.userId && (u.uid === loan.userId || (u as any).id === loan.userId)) || 
+        (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
+        (loan.phoneNumber && u.phoneNumber && u.phoneNumber.replace(/\D/g, '') === loan.phoneNumber.replace(/\D/g, ''))
+      ) || (loan ? {
+        uid: loan.userId || '',
+        displayName: (loan as any).userName || 'Member',
+        email: loan.userEmail || '',
+        phoneNumber: loan.phoneNumber || (loan as any).phone,
+        role: 'member'
+      } as any : null);
       if (targetUser) {
         triggerPaymentWhatsAppAcknowledgment({
           targetUser,
@@ -7122,6 +7269,18 @@ export default function App() {
               <h1 className={cn("text-4xl font-black text-gray-900 mb-2 tracking-tighter", isMobileVisual && "text-3xl")}>UNNATI</h1>
               <p className="text-slate-500 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
               
+              {isInAppBrowser && isIOS && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-left text-xs text-amber-900 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Viewing inside WhatsApp or In-App Browser</span>
+                  </div>
+                  <p className="text-amber-700 leading-relaxed">
+                    Opening from WhatsApp or Mail on iPhone? Tap <strong>•••</strong> or Share and choose <strong>"Open in Safari"</strong> for Google Sign-In, or sign in below with your Username and Password.
+                  </p>
+                </div>
+              )}
+
               <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
                 <button 
                   onClick={() => setLoginMethod('google')}
@@ -7152,16 +7311,46 @@ export default function App() {
                         <span>Pop-up was blocked by your browser</span>
                       </div>
                       <p className="text-amber-700">
-                        Google Sign-In requires opening an authorization window. If you are inside an embedded preview or have strict pop-up blocking enabled, open the app directly in a new tab:
+                        Google Sign-In requires opening an authorization window. If you are inside an embedded preview or have strict pop-up blocking enabled on your device:
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => window.open(window.location.href, '_blank')}
-                        className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm text-xs"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        Open App in New Tab to Sign In
-                      </button>
+                      {typeof window !== 'undefined' && window.self !== window.top ? (
+                        <button
+                          type="button"
+                          onClick={() => window.open(window.location.href, '_blank')}
+                          className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm text-xs cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open App in New Tab to Sign In
+                        </button>
+                      ) : (
+                        <div className="space-y-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                setIsGoogleLoggingIn(true);
+                                const provider = new GoogleAuthProvider();
+                                provider.addScope('https://www.googleapis.com/auth/userinfo.email');
+                                await signInWithRedirect(auth, provider);
+                              } catch (err: any) {
+                                notify('error', err.message || 'Redirect failed');
+                              } finally {
+                                setIsGoogleLoggingIn(false);
+                              }
+                            }}
+                            className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm text-xs cursor-pointer"
+                          >
+                            <span>Continue with Full Page Redirect</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setLoginMethod('password')}
+                            className="w-full py-1 text-center font-bold text-amber-800 hover:text-amber-900 text-xs underline cursor-pointer"
+                          >
+                            Or sign in with Username and Password
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -7258,6 +7447,17 @@ export default function App() {
               <div className="mt-8 pt-8 border-t border-gray-100 text-sm text-gray-400">
                 Monthly contribution: ₹1,000 before 10th
               </div>
+
+              {isIOS && !isStandalone && (
+                <button
+                  type="button"
+                  onClick={() => setShowIOSInstallModal(true)}
+                  className="w-full mt-4 py-2.5 px-3 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-200 transition-all cursor-pointer shadow-xs"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>How to Add Unnati to iPhone Home Screen</span>
+                </button>
+              )}
             </motion.div>
           </motion.div>
         ) : (
@@ -7268,7 +7468,7 @@ export default function App() {
             className="min-h-screen bg-slate-50 text-slate-900 font-sans overflow-x-hidden"
           >
             <div className="flex flex-col min-h-screen">
-              <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+              <header className="bg-white border-b border-slate-200 sticky top-0 z-50 pt-[env(safe-area-inset-top,0px)]">
         <div className={cn("max-w-6xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between", isMobileVisual && "px-2.5")}>
           <div className="flex items-center gap-3">
             <div className="w-16 h-16 flex items-center justify-center overflow-hidden">
@@ -7315,6 +7515,16 @@ export default function App() {
                   className="flex items-center gap-2 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] sm:text-xs font-bold hover:bg-indigo-100 transition-all border border-indigo-100"
                 >
                   <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden xs:inline">Install</span>
+                </button>
+              )}
+              {isIOS && !isStandalone && (
+                <button 
+                  type="button"
+                  onClick={() => setShowIOSInstallModal(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 text-indigo-700 rounded-xl text-[10px] sm:text-xs font-bold hover:bg-indigo-100 transition-all border border-indigo-200/80 cursor-pointer shadow-xs"
+                  title="Add to iPhone Home Screen"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-indigo-600" /> <span className="hidden xs:inline">Add to iPhone</span>
                 </button>
               )}
               <button 
@@ -9171,6 +9381,41 @@ export default function App() {
               <>
                 {loanSubTab === 'applications' ? (
                   <div className="space-y-8">
+                    {/* Quick Print & PDF Export Bar (Loan Applications Statement) */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-50/70 via-slate-50 to-white p-3.5 sm:p-4 rounded-2xl border-2 border-blue-200/80 shadow-2xs">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                          <Printer className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-xs sm:text-sm text-slate-900">Loan Applications Statement</h4>
+                          <p className="text-[11px] text-slate-500 font-medium">Export print-ready statement of member loan applications (active and closed) with member details</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 self-end sm:self-center">
+                        <button
+                          type="button"
+                          onClick={() => exportLoanApplicationsPdf(true)}
+                          disabled={isExportingLoanApplicationsPdf}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          title="Quick print loan applications list"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>Quick Print</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => exportLoanApplicationsPdf(false)}
+                          disabled={isExportingLoanApplicationsPdf}
+                          className="px-3.5 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          title="Download PDF statement"
+                        >
+                          <FileDown className="w-3.5 h-3.5" />
+                          <span>Download PDF</span>
+                        </button>
+                      </div>
+                    </div>
+
                     {(() => {
                       const activeLoans = sortedLoans.filter(l => l.status !== 'paid');
                       const completedLoans = sortedLoans.filter(l => l.status === 'paid');
@@ -10462,7 +10707,7 @@ export default function App() {
                                 <Printer className="w-4 h-4" />
                               </div>
                               <div>
-                                <h4 className="font-bold text-xs sm:text-sm text-slate-900">Loan List Statement (PDF)</h4>
+                                <h4 className="font-bold text-xs sm:text-sm text-slate-900">Active Loan Statement</h4>
                                 <p className="text-[11px] text-slate-500 font-medium">Export print-ready audit statement with pending amounts &amp; live statuses</p>
                               </div>
                             </div>
@@ -10613,64 +10858,60 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
 
                           <button
                             type="button"
-                            onClick={() => {
-                              const text = encodeURIComponent(
-`*UNNATI TRUST (R) - LOAN EMI PROJECTION*
-----------------------------------------
-*Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
-*Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
-*Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
-*Interest Rate:* 0.5% monthly (reducing balance)
-
-*PAYMENT SUMMARY:*
-• 1st Month EMI (Peak): ₹${loanProjection.firstMonthPayment.toLocaleString('en-IN')}
-• Last Month EMI: ₹${loanProjection.lastMonthPayment.toLocaleString('en-IN')}
-• Total Interest: ₹${loanProjection.totalInterest.toLocaleString('en-IN')}
-• Total Repayable: ₹${loanProjection.totalRepayable.toLocaleString('en-IN')}
-
-*MONTH-WISE REPAYMENT SCHEDULE:*
-${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')}`).join('\n')}
-
-*Note:* Installments are payable between 1st and 10th of every month.`
-                              );
-                              const targetUser = allUsers.find(u => u.uid === projectionSelectedUserId);
-                              const phone = targetUser?.phoneNumber?.replace(/[^0-9]/g, '') || '';
-                              const url = phone ? `https://api.whatsapp.com/send?phone=${phone}&text=${text}` : `https://api.whatsapp.com/send?text=${text}`;
-                              window.open(url, '_blank');
-                            }}
+                            onClick={handleSendLoanProjectionWhatsApp}
                             className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
-                            title="Share on WhatsApp with member"
+                            title={selectedProjectionMemberName ? `Send loan projection to ${selectedProjectionMemberName} via WhatsApp` : "Share loan projection on WhatsApp"}
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
-                            <span>Share WhatsApp</span>
+                            <span>{selectedProjectionMemberName ? `Send to ${selectedProjectionMemberName}` : 'Share WhatsApp'}</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Optional Member Selection */}
+                      {/* Member Selection for Projection */}
                       <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <Users className="w-4 h-4 text-indigo-600 shrink-0" />
                           <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                            Select Member (Optional):
+                            Select Member:
                           </label>
                         </div>
-                        <select
-                          value={projectionSelectedUserId}
-                          onChange={(e) => setProjectionSelectedUserId(e.target.value)}
-                          className="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 cursor-pointer min-w-[200px]"
-                        >
-                          <option value="">General / Prospective Member</option>
-                          {allUsers
-                            .slice()
-                            .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''))
-                            .map(u => (
-                              <option key={`projection-user-${u.uid || u.email}`} value={u.uid || u.email}>
-                                {u.displayName || u.email} {u.phoneNumber ? `(${u.phoneNumber})` : ''}
-                              </option>
-                            ))
-                          }
-                        </select>
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                          <select
+                            value={projectionSelectedUserId}
+                            onChange={(e) => setProjectionSelectedUserId(e.target.value)}
+                            className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 cursor-pointer min-w-[220px]"
+                          >
+                            <option value="">General / Prospective Member</option>
+                            {allUsers
+                              .slice()
+                              .sort((a, b) => (getSafeMemberDisplayName(a) || a.displayName || a.email || '').localeCompare(getSafeMemberDisplayName(b) || b.displayName || b.email || ''))
+                              .map(u => {
+                                const id = u.uid || (u as any).id || u.email;
+                                const name = getSafeMemberDisplayName(u) || u.displayName || u.email;
+                                const phone = u.phoneNumber || (u as any).phone || (u as any).mobile;
+                                return (
+                                  <option key={`projection-user-${id}`} value={id}>
+                                    {name} {phone ? `(${phone})` : ''}
+                                  </option>
+                                );
+                              })
+                            }
+                          </select>
+                          <button
+                            type="button"
+                            onClick={handleSendLoanProjectionWhatsApp}
+                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                            title="Send loan projection to selected member via WhatsApp"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>
+                              {selectedProjectionMemberName 
+                                ? `Send to ${selectedProjectionMemberName} via WhatsApp` 
+                                : 'Send via WhatsApp'}
+                            </span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Loan Amount Input & Presets */}
@@ -11931,7 +12172,7 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
                         <Printer className="w-4 h-4" />
                       </div>
                       <div>
-                        <h4 className="font-bold text-xs sm:text-sm text-slate-900">Monthly Collection Statement (PDF)</h4>
+                        <h4 className="font-bold text-xs sm:text-sm text-slate-900">Monthly Collection Statement</h4>
                         <p className="text-[11px] text-slate-500 font-medium">Export print-ready audit statement with summary, member collections &amp; loan repayments</p>
                       </div>
                     </div>
@@ -14054,24 +14295,31 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
                   Close
                 </button>
                 {pendingWhatsAppModal.phone ? (
-                  <button
-                    type="button"
+                  <a
+                    href={`https://api.whatsapp.com/send?phone=${pendingWhatsAppModal.phone}&text=${encodeURIComponent(pendingWhatsAppModal.message)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     onClick={() => {
-                      launchWhatsApp(pendingWhatsAppModal.phone, pendingWhatsAppModal.message);
-                      setPendingWhatsAppModal(null);
+                      setTimeout(() => setPendingWhatsAppModal(null), 300);
                     }}
-                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5 cursor-pointer no-underline"
                   >
                     <MessageSquare className="w-4 h-4" />
                     <span>Open in WhatsApp</span>
-                  </button>
+                  </a>
                 ) : (
-                  <button
-                    disabled
-                    className="flex-1 py-3 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold"
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pendingWhatsAppModal.message)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      setTimeout(() => setPendingWhatsAppModal(null), 300);
+                    }}
+                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5 cursor-pointer no-underline"
                   >
-                    No Phone Available
-                  </button>
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Share in WhatsApp</span>
+                  </a>
                 )}
               </div>
             </motion.div>
@@ -14091,24 +14339,50 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
   )}
 
   {notification && (
-          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] w-full max-w-sm px-4">
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] w-full max-w-md px-4">
             <motion.div 
               initial={{ opacity: 0, y: 50, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 50, scale: 0.9 }}
               className={cn(
-                "p-4 rounded-2xl shadow-2xl flex items-center gap-3 border backdrop-blur-md",
-                notification.type === 'success' ? "bg-emerald-50/90 border-emerald-100 text-emerald-800" : 
-                notification.type === 'error' ? "bg-red-50/90 border-red-100 text-red-800" : 
-                "bg-indigo-50/90 border-indigo-100 text-indigo-800"
+                "p-3.5 sm:p-4 rounded-2xl shadow-2xl flex items-center gap-2.5 sm:gap-3 border backdrop-blur-md",
+                notification.type === 'success' ? "bg-emerald-50/95 border-emerald-200 text-emerald-900" : 
+                notification.type === 'error' ? "bg-red-50/95 border-red-200 text-red-900" : 
+                "bg-indigo-50/95 border-indigo-200 text-indigo-900"
               )}
             >
-              {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : 
-               notification.type === 'error' ? <AlertCircle className="w-5 h-5" /> : 
-               <Mail className="w-5 h-5" />}
-              <p className="text-sm font-bold flex-1">{notification.message}</p>
-              <button onClick={() => setNotification(null)} className="p-1 hover:bg-black/5 rounded-lg">
-                <Plus className="w-4 h-4 rotate-45" />
+              {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" /> : 
+               notification.type === 'error' ? <AlertCircle className="w-5 h-5 text-red-600 shrink-0" /> : 
+               <Mail className="w-5 h-5 text-indigo-600 shrink-0" />}
+              <p className="text-xs sm:text-sm font-bold flex-1 leading-snug">{notification.message}</p>
+              {notification.action && (
+                notification.action.url ? (
+                  <a
+                    href={notification.action.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setTimeout(() => setNotification(null), 400)}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1 shrink-0 no-underline cursor-pointer"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>{notification.action.label}</span>
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      notification.action?.onClick?.();
+                      setNotification(null);
+                    }}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>{notification.action.label}</span>
+                  </button>
+                )
+              )}
+              <button onClick={() => setNotification(null)} className="p-1 hover:bg-black/5 rounded-lg shrink-0 cursor-pointer">
+                <Plus className="w-4 h-4 rotate-45 text-slate-500" />
               </button>
             </motion.div>
           </div>
@@ -14142,6 +14416,110 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
               >
                 Got it!
               </button>
+            </motion.div>
+          </div>
+        )}
+
+        {/* iOS / iPhone Add to Home Screen Modal */}
+        {showIOSInstallModal && (
+          <div className="fixed inset-0 z-[350] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowIOSInstallModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 sm:p-7 text-left overflow-hidden border border-slate-100 z-10"
+            >
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 p-1.5 flex items-center justify-center shrink-0">
+                    <img src={LOGO_SRC} alt="Unnati" className="w-full h-full object-contain" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-black text-slate-900">Install Unnati on iPhone</h3>
+                    <p className="text-xs text-slate-500 font-medium">Add to Home Screen via Safari</p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowIOSInstallModal(false)}
+                  className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-xl transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="py-4 space-y-3 text-xs sm:text-sm text-slate-700">
+                <div className="p-3 bg-indigo-50/80 rounded-2xl border border-indigo-100 flex items-start gap-2.5">
+                  <Smartphone className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                  <p className="text-indigo-950 font-medium leading-relaxed">
+                    Adding Unnati to your iPhone Home Screen gives you full-screen view without Safari address bars, instant app loading, and offline access.
+                  </p>
+                </div>
+
+                {isInAppBrowser && (
+                  <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-amber-900 font-medium leading-relaxed text-xs">
+                      <strong>In-App Viewer:</strong> If viewing inside WhatsApp or Mail, tap <strong>•••</strong> or Share and choose <strong>"Open in Safari"</strong> first.
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-2.5 pt-1">
+                  <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                      1
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">Tap the Share icon in Safari</p>
+                      <p className="text-slate-500 text-xs mt-0.5">
+                        In Safari's bottom toolbar, tap the Share icon (<Share2 className="w-3.5 h-3.5 inline text-indigo-600 -mt-0.5" /> box with an arrow pointing up).
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                      2
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">Select "Add to Home Screen"</p>
+                      <p className="text-slate-500 text-xs mt-0.5">
+                        Scroll down through the share actions and tap <strong>Add to Home Screen</strong> (<PlusCircle className="w-3.5 h-3.5 inline text-indigo-600 -mt-0.5" />).
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-black text-xs flex items-center justify-center shrink-0">
+                      3
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">Tap "Add" in the top-right</p>
+                      <p className="text-slate-500 text-xs mt-0.5">
+                        Confirm by tapping <strong>Add</strong>. Unnati will now appear on your iPhone screen just like a native app!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowIOSInstallModal(false)}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs sm:text-sm transition-all shadow-lg shadow-indigo-100 active:scale-95 cursor-pointer"
+                >
+                  Got It
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

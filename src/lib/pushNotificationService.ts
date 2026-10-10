@@ -92,8 +92,9 @@ export const isMobileDevice = (): boolean => {
 };
 
 /**
- * Universal WhatsApp launcher supporting both mobile native app (whatsapp://send)
- * and desktop browser (wa.me), preventing "whatsapp web not found" on mobile devices.
+ * Universal WhatsApp launcher supporting mobile devices and desktop browsers.
+ * Uses official WhatsApp Universal API endpoints (https://api.whatsapp.com/send) in a new browsing context (target="_blank"),
+ * preventing "page not found" (net::ERR_UNKNOWN_URL_SCHEME) errors and never navigating away from the active web app session.
  */
 export const launchWhatsApp = (
   phone?: string | null,
@@ -102,60 +103,47 @@ export const launchWhatsApp = (
   success: boolean;
   url: string;
 } => {
-  const formattedPhone = formatWhatsAppNumber(phone);
-  if (!formattedPhone) return { success: false, url: '' };
-
+  const formattedPhone = phone ? formatWhatsAppNumber(phone) : '';
   const encodedMessage = encodeURIComponent(message);
-  const isMobile = isMobileDevice();
-
-  // On mobile devices, whatsapp://send opens the native WhatsApp application directly,
-  // preventing mobile browsers from being redirected to web.whatsapp.com which throws "WhatsApp Web not found".
-  const appUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMessage}`;
-  const webUrl = `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
-  const apiUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMessage}`;
+  // Official WhatsApp Universal Link / API URL
+  // Supported across all platforms (Android, iOS, iPadOS, Desktop Web, Mac, Windows).
+  // If phone is provided, directs straight to the recipient's chat.
+  // If phone is empty, opens WhatsApp contact/chat picker so user can choose recipient.
+  // Official WhatsApp Universal Link: https://wa.me/<phone>?text=<message>
+  // wa.me is the gold standard universal link registered with Apple App Site Association (AASA)
+  // for iOS and Android App Links. It opens native WhatsApp app flawlessly on iOS/Android,
+  // or falls back to WhatsApp Web without any "Page not found" errors.
+  const apiUrl = formattedPhone
+    ? `https://wa.me/${formattedPhone}?text=${encodedMessage}`
+    : `https://api.whatsapp.com/send?text=${encodedMessage}`;
 
   if (typeof window !== 'undefined') {
-    if (isMobile) {
-      try {
-        // Direct click without target="_blank" so mobile OS intercepts the custom URL scheme
-        const link = document.createElement('a');
-        link.href = appUrl;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (e) {
-        console.warn('Failed link click with app scheme:', e);
-      }
-
-      // Fast location fallback to guarantee native app opening on Android / iOS
+    try {
+      // Create a transient anchor with target="_blank" and rel="noopener noreferrer".
+      // NEVER use window.location.href, which overwrites the active web session,
+      // drops existing login state, and causes "Page not found" when custom schemes fail!
+      const link = document.createElement('a');
+      link.href = apiUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
       setTimeout(() => {
-        try {
-          window.location.href = appUrl;
-        } catch (err) {
-          window.location.href = apiUrl;
+        if (link.parentNode) {
+          link.parentNode.removeChild(link);
         }
-      }, 50);
-
-      return { success: true, url: appUrl };
-    } else {
-      // Desktop: Open wa.me in a new browser tab
+      }, 300);
+    } catch (e) {
+      console.warn('Direct link click for WhatsApp failed, using window.open:', e);
       try {
-        const link = document.createElement('a');
-        link.href = webUrl;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (e) {
-        window.open(webUrl, '_blank');
+        window.open(apiUrl, '_blank', 'noopener,noreferrer');
+      } catch (err) {
+        console.warn('window.open fallback failed for WhatsApp:', err);
       }
-
-      return { success: true, url: webUrl };
     }
   }
 
-  return { success: true, url: isMobile ? appUrl : webUrl };
+  return { success: true, url: apiUrl };
 };
 
 /**

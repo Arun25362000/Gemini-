@@ -32,23 +32,25 @@
         });
         window.location.href = window.location.origin;
       }
-
-      // Prevent pinch zooming on mobile devices while keeping tap responsive
-      document.addEventListener('touchstart', function(event) {
-        if (event.touches.length > 1) {
-          event.preventDefault();
-        }
-      }, { passive: false });
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#013125" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Unnati" />
+    <meta name="apple-touch-fullscreen" content="yes" />
     <meta name="format-detection" content="telephone=no" />
-    <link rel="manifest" href="/manifest.json?v=5000" crossorigin="use-credentials" />
+    <meta name="description" content="A financial services platform for monthly savings groups. Users contribute 1000 INR before the 10th of every month, with admin management and user dashboards." />
+    <meta property="og:title" content="Unnati" />
+    <meta property="og:description" content="A financial services platform for monthly savings groups. Users contribute 1000 INR before the 10th of every month, with admin management and user dashboards." />
+    <meta property="og:type" content="website" />
+    <link rel="manifest" href="/manifest.json?v=5000" />
     <link rel="icon" type="image/png" href="/brand-unnati-official.png?v=5000" />
     <link rel="apple-touch-icon" href="/brand-unnati-official.png?v=5000" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/brand-unnati-official.png?v=5000" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/brand-unnati-official.png?v=5000" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/brand-unnati-official.png?v=5000" />
     <title>Unnati</title>
   </head>
   <body>
