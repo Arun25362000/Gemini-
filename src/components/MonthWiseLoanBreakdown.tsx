@@ -235,8 +235,9 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
         nextInterest = Math.round(remainingPrincipal * 0.005);
         nextTotalAmount = nextPrincipal + nextInterest;
 
-        // Due date calculation: 10th of next installment month
-        const nextDueDate = new Date(date.getFullYear(), date.getMonth() + payments.length + 1, 10);
+        // Due date calculation: 10th of next installment month, accounting for advance covered installments
+        const totalMonthsPaid = payments.reduce((acc, p) => acc + (p.isAdvance && p.coveredMonths?.length ? p.coveredMonths.length : 1), 0);
+        const nextDueDate = new Date(date.getFullYear(), date.getMonth() + totalMonthsPaid + 1, 10);
         nextPaymentDateStr = nextDueDate.toLocaleDateString('en-IN', {
           day: '2-digit',
           month: 'short',
@@ -705,48 +706,34 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                               <span className="text-xs sm:text-sm font-bold text-emerald-700">
                                                 ₹{(item.repaidPrincipal + item.repaidInterest).toLocaleString('en-IN')}
                                               </span>
-                                              <div className="flex items-center gap-1 mt-0.5 text-[10.5px] font-semibold">
-                                                <span className="text-emerald-700">₹{item.repaidPrincipal.toLocaleString('en-IN')}</span>
-                                                <span className="text-slate-400 font-normal">+</span>
-                                                <span className="text-indigo-700">₹{item.repaidInterest.toLocaleString('en-IN')} Int</span>
-                                              </div>
+                                              <span className="text-[10px] text-slate-400">
+                                                P: ₹{item.repaidPrincipal.toLocaleString('en-IN')} • I: ₹{item.repaidInterest.toLocaleString('en-IN')}
+                                              </span>
                                             </div>
                                           </td>
                                           <td className="px-2.5 sm:px-3 py-2.5 w-24 sm:w-28 border-r border-slate-200/60">
                                             <span className={cn(
-                                              "font-bold text-xs",
+                                              "text-xs sm:text-sm font-bold",
                                               item.remainingPrincipal > 0 ? "text-amber-700" : "text-slate-400"
                                             )}>
                                               ₹{item.remainingPrincipal.toLocaleString('en-IN')}
                                             </span>
                                           </td>
-                                          <td className="px-2 sm:px-2.5 py-2.5 w-24 sm:w-28 text-center border-r border-slate-200/60">
-                                            {isPaid || item.remainingPrincipal <= 0 ? (
-                                              <span className="font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 sm:px-2 py-0.5 rounded-md text-[10.5px]">
-                                                {item.closedDateStr}
-                                              </span>
+                                          <td className="px-2 sm:px-2.5 py-2.5 w-24 sm:w-28 text-center border-r border-slate-200/60 text-slate-500 text-[11px]">
+                                            {item.closedDateStr ? (
+                                              <span>{item.closedDateStr}</span>
                                             ) : (
-                                              <span className="text-slate-400 font-medium text-xs">-</span>
+                                              <span className="text-slate-400 font-normal">-</span>
                                             )}
                                           </td>
                                           <td className="px-2 sm:px-2.5 py-2.5 w-24 sm:w-26 text-center">
                                             <span className={cn(
-                                              "inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold border",
+                                              "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border",
                                               isPaid 
                                                 ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                                                : "bg-amber-50 text-amber-700 border-amber-200"
+                                                : "bg-blue-50 text-blue-700 border-blue-200"
                                             )}>
-                                              {isPaid ? (
-                                                <>
-                                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                                  Settled
-                                                </>
-                                              ) : (
-                                                <>
-                                                  <Clock className="w-3 h-3 text-amber-600" />
-                                                  Active
-                                                </>
-                                              )}
+                                              {isPaid ? 'Settled' : 'Active'}
                                             </span>
                                           </td>
                                         </tr>
@@ -756,129 +743,71 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                 </table>
                               </div>
 
-                              {/* Mobile / Tablet Card View - lg:hidden to match Loan Repayment tab */}
-                              <div className="block lg:hidden p-3 sm:p-4">
-                                <MobileQuickSort
-                                  options={[
-                                    { key: 'member', label: 'Member' },
-                                    { key: 'amount', label: 'Amount' },
-                                    { key: 'totalPaid', label: 'Total Paid' },
-                                    { key: 'balance', label: 'Balance' },
-                                    { key: 'closedDate', label: 'Closed Date' },
-                                    { key: 'status', label: 'Status' }
-                                  ]}
-                                  activeField={sortConfig.field}
-                                  direction={sortConfig.direction}
-                                  onSort={handleSort}
-                                  className="mb-2"
-                                />
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-3.5">
-                                  {getSortedMonthLoans(monthGroup.loans).map((item, lIdx) => {
-                                    const isPaid = item.status === 'paid';
-                                    const isSettled = isPaid || item.remainingPrincipal <= 0;
-                                    const isSelectedLoan = !isSettled && item.loan.id === selectedLoanId;
+                              {/* Mobile Card View */}
+                              <div className="block lg:hidden divide-y divide-slate-100">
+                                {getSortedMonthLoans(monthGroup.loans).map((item, lIdx) => {
+                                  const isPaid = item.status === 'paid';
+                                  const isSettled = isPaid || item.remainingPrincipal <= 0;
+                                  const isSelectedLoan = !isSettled && item.loan.id === selectedLoanId;
 
-                                    return (
-                                      <div 
-                                        key={item.loan.id || lIdx}
-                                        className={cn(
-                                          "bg-white rounded-2xl sm:rounded-3xl shadow-xs border border-slate-200/80 p-3.5 sm:p-4 space-y-3 relative overflow-hidden transition-all flex flex-col justify-between",
-                                          isSelectedLoan && "ring-2 ring-purple-500 bg-purple-50/20"
-                                        )}
-                                      >
-                                        <div className="absolute top-0 right-0 px-2.5 py-0.5 bg-slate-900 text-[10px] font-black text-white rounded-bl-xl border-b border-l border-slate-950 shadow-xs select-none tracking-wide z-10">
-                                          #{lIdx + 1}
+                                  return (
+                                    <div 
+                                      key={item.loan.id || lIdx}
+                                      onClick={() => {
+                                        if (!isSettled) {
+                                          handleSelectLoanForChart(item.loan.id!);
+                                        }
+                                      }}
+                                      className={cn(
+                                        "p-3.5 transition-colors cursor-pointer",
+                                        isSelectedLoan ? "bg-purple-50/80" : "hover:bg-slate-50/80",
+                                        isSettled && "opacity-90"
+                                      )}
+                                    >
+                                      <div className="flex items-center justify-between gap-2 mb-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <div className={cn(
+                                            "w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border",
+                                            isSelectedLoan 
+                                              ? "bg-purple-600 text-white border-purple-700 shadow-xs" 
+                                              : "bg-indigo-50 border-indigo-100 text-indigo-600"
+                                          )}>
+                                            {item.memberName.charAt(0).toUpperCase()}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="font-bold text-slate-900 text-xs truncate">{item.memberName}</p>
+                                            <p className="text-[10px] text-slate-400 truncate">{item.memberPhone || item.memberEmail}</p>
+                                          </div>
+                                        </div>
+                                        <span className={cn(
+                                          "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border shrink-0",
+                                          isPaid 
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                                            : "bg-blue-50 text-blue-700 border-blue-200"
+                                        )}>
+                                          {isPaid ? 'Settled' : 'Active'}
+                                        </span>
+                                      </div>
+
+                                      <div className="grid grid-cols-3 gap-2 bg-slate-50/60 p-2.5 rounded-xl border border-slate-100 text-[11px]">
+                                        <div>
+                                          <div className="text-[10px] text-slate-400 font-medium">Loan Amount</div>
+                                          <div className="font-bold text-slate-900">₹{item.amount.toLocaleString('en-IN')}</div>
                                         </div>
                                         <div>
-                                          <div className="flex items-start justify-between gap-2 pr-8 mb-2.5">
-                                            <div className="flex items-center gap-2.5 min-w-0">
-                                              <div className={cn(
-                                                "w-8.5 h-8.5 rounded-xl flex items-center justify-center font-bold text-sm shrink-0",
-                                                isSelectedLoan ? "bg-purple-600 text-white shadow-xs" : "bg-indigo-100 text-indigo-600"
-                                              )}>
-                                                {item.memberName.charAt(0).toUpperCase()}
-                                              </div>
-                                              <div className="min-w-0">
-                                                <h4 className="font-bold text-sm text-slate-900 truncate">{item.memberName}</h4>
-                                                <p className="text-[11px] text-slate-500 truncate">{item.memberPhone || item.memberEmail || '-'}</p>
-                                              </div>
-                                            </div>
-                                            <span className={cn(
-                                              "px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0",
-                                              isPaid 
-                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                                                : "bg-amber-50 text-amber-700 border-amber-200"
-                                            )}>
-                                              {isPaid ? 'Settled' : 'Active'}
-                                            </span>
-                                          </div>
-
-                                          <div className="grid grid-cols-2 gap-2 p-2.5 bg-slate-50/80 rounded-xl sm:rounded-2xl border border-slate-100 text-xs">
-                                            <div>
-                                              <p className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Loan Amount</p>
-                                              <p className="font-black text-slate-900 text-sm mt-0.5">₹{item.amount.toLocaleString('en-IN')}</p>
-                                            </div>
-                                            <div>
-                                              <p className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Loan Balance</p>
-                                              <p className={cn(
-                                                "font-bold text-sm mt-0.5",
-                                                item.remainingPrincipal > 0 ? "text-amber-700" : "text-slate-400"
-                                              )}>
-                                                ₹{item.remainingPrincipal.toLocaleString('en-IN')}
-                                              </p>
-                                            </div>
-                                            <div>
-                                              <p className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Total Paid</p>
-                                              <p className="font-bold text-emerald-700 text-sm mt-0.5">₹{(item.repaidPrincipal + item.repaidInterest).toLocaleString('en-IN')}</p>
-                                              <div className="flex items-center gap-1 mt-0.5 text-[9.5px] font-semibold text-slate-500">
-                                                <span className="text-emerald-700 font-bold">₹{item.repaidPrincipal.toLocaleString('en-IN')}</span>
-                                                <span>+</span>
-                                                <span className="text-indigo-700 font-bold">₹{item.repaidInterest.toLocaleString('en-IN')}</span>
-                                              </div>
-                                            </div>
-                                            <div>
-                                              <p className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">
-                                                {isPaid || item.remainingPrincipal <= 0 ? 'Closed Date' : 'Tenure'}
-                                              </p>
-                                              <p className="font-bold text-slate-800 text-xs sm:text-sm mt-0.5">
-                                                {isPaid || item.remainingPrincipal <= 0 ? (
-                                                  <span className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200">
-                                                    {item.closedDateStr}
-                                                  </span>
-                                                ) : (
-                                                  <span>{item.loan.installments || 10} Mos</span>
-                                                )}
-                                              </p>
-                                            </div>
-                                          </div>
+                                          <div className="text-[10px] text-slate-400 font-medium">Total Paid</div>
+                                          <div className="font-bold text-emerald-700">₹{(item.repaidPrincipal + item.repaidInterest).toLocaleString('en-IN')}</div>
                                         </div>
-
-                                        <div className="pt-1">
-                                          {isSettled ? (
-                                            <div className="w-full py-1.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 bg-slate-100 text-slate-500 border border-slate-200 select-none">
-                                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                              <span>Loan Settled & Closed</span>
-                                            </div>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleSelectLoanForChart(item.loan.id!)}
-                                              className={cn(
-                                                "w-full py-1.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
-                                                isSelectedLoan
-                                                  ? "bg-purple-600 text-white border-purple-600 shadow-2xs"
-                                                  : "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200"
-                                              )}
-                                            >
-                                              <BarChart2 className="w-3.5 h-3.5" />
-                                              <span>{isSelectedLoan ? 'Active in Breakdown' : 'View in Breakdown'}</span>
-                                            </button>
-                                          )}
+                                        <div>
+                                          <div className="text-[10px] text-slate-400 font-medium">Balance</div>
+                                          <div className={cn("font-bold", item.remainingPrincipal > 0 ? "text-amber-700" : "text-slate-400")}>
+                                            ₹{item.remainingPrincipal.toLocaleString('en-IN')}
+                                          </div>
                                         </div>
                                       </div>
-                                    );
-                                  })}
-                                </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
@@ -892,14 +821,12 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
           })}
         </div>
       ) : (
-        <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
-          <Layers className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <h3 className="text-base font-bold text-slate-800">No Disbursed Loans Found</h3>
-          <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-            {searchTerm ? `No loans match your search "${searchTerm}".` : 'Once loans are approved and disbursed to members, year and month breakdowns will be displayed here.'}
-          </p>
+        <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+          No loan disbursement data found for the selected filter.
         </div>
       )}
     </div>
   );
 };
+
+export default MonthWiseLoanBreakdown;

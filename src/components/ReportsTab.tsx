@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   FileSpreadsheet, 
   Scale, 
@@ -10,10 +10,24 @@ import {
   ChevronUp,
   Archive,
   Printer,
-  FileText
+  FileText,
+  TrendingUp,
+  Search,
+  CheckCircle2,
+  Users,
+  Percent,
+  X,
+  Coins
 } from 'lucide-react';
 import { getAppAvailableYears, cn } from '../lib/utils';
 import { motion } from 'motion/react';
+import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
+import { 
+  calculateDividendPayout, 
+  exportDividendPayExcel, 
+  generateDividendPayPdfDoc, 
+  quickPrintDividendPdf 
+} from '../lib/dividendPayExport';
 
 interface ReportsTabProps {
   exportAllDataToExcel: () => void | Promise<void>;
@@ -34,6 +48,13 @@ interface ReportsTabProps {
   exportProgress?: { current: number; total: number };
   exportLoanListPdf?: (filter: 'all' | 'active' | 'settled', printDirectly?: boolean) => void | Promise<void>;
   isExportingLoanPdf?: boolean;
+  allUsers?: UserProfile[];
+  loans?: Loan[];
+  loanPayments?: LoanPayment[];
+  contributions?: Contribution[];
+  notify?: (type: 'success' | 'error' | 'info', message: string) => void;
+  downloadFileMobile?: (fileName: string, base64Data: string) => Promise<{ success: boolean; uri?: string; error?: string }>;
+  isMobileApp?: boolean;
 }
 
 const MONTHS = [
@@ -69,10 +90,19 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   exportProgress,
   exportLoanListPdf,
   isExportingLoanPdf = false,
+  allUsers = [],
+  loans = [],
+  loanPayments = [],
+  contributions = [],
+  notify,
+  downloadFileMobile,
+  isMobileApp = false,
 }) => {
   const availableYears = getAppAvailableYears ? getAppAvailableYears() : [2024, 2025, 2026, 2027, 2028];
+  const currentSystemYear = new Date().getFullYear();
 
   const [collapsedReports, setCollapsedReports] = React.useState<Record<string, boolean>>({
+    'dividend-pay': false,
     'master': false,
     'balance-sheet': false,
     'monthly': false,
@@ -80,6 +110,51 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     'loan-list': false,
     'backup': false,
   });
+
+  const [dividendYear, setDividendYear] = useState<number | 'all'>(collectionYear || currentSystemYear);
+  const [isExportingDividendExcel, setIsExportingDividendExcel] = useState(false);
+  const [isPrintingDividend, setIsPrintingDividend] = useState(false);
+
+  const dividendCalculation = useMemo(() => {
+    return calculateDividendPayout({
+      allUsers,
+      contributions,
+      loans,
+      loanPayments,
+      targetYear: dividendYear
+    });
+  }, [allUsers, contributions, loans, loanPayments, dividendYear]);
+
+  const handleExportDividendExcel = async () => {
+    try {
+      setIsExportingDividendExcel(true);
+      const res = await exportDividendPayExcel(dividendCalculation, {
+        isMobileApp,
+        downloadFileMobile
+      });
+      if (res.success) {
+        notify?.('success', `Dividend pay report exported successfully: ${res.fileName}`);
+      }
+    } catch (err: any) {
+      console.error('Failed to export dividend Excel:', err);
+      notify?.('error', `Failed to export Dividend pay report: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingDividendExcel(false);
+    }
+  };
+
+  const handlePrintDividendPdf = async () => {
+    try {
+      setIsPrintingDividend(true);
+      const { doc } = generateDividendPayPdfDoc(dividendCalculation);
+      quickPrintDividendPdf(doc);
+    } catch (err: any) {
+      console.error('Failed to print dividend PDF:', err);
+      notify?.('error', `Failed to print Dividend pay report: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsPrintingDividend(false);
+    }
+  };
 
   const [loanReportFilter, setLoanReportFilter] = React.useState<'active' | 'all' | 'settled'>('active');
   const [isPrinting, setIsPrinting] = React.useState(false);
@@ -96,6 +171,116 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     <div className="space-y-6" id="reports-tab-container">
       {/* Grid of Report Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {/* Card: Dividend pay */}
+        <motion.div 
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-amber-200/80 shadow-sm hover:shadow-md hover:border-amber-300 transition-all flex flex-col justify-between"
+          id="report-card-dividend-pay"
+        >
+          <div>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200/70 flex items-center justify-center font-bold shadow-xs shrink-0">
+                <Coins className="w-6 h-6" />
+              </div>
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200/80">
+                Spreadsheet (.xlsx)
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => toggleReport('dividend-pay')}
+              className="w-full flex items-center justify-between gap-2 cursor-pointer select-none group text-left mb-2 focus:outline-none"
+              aria-expanded={!collapsedReports['dividend-pay']}
+              title={collapsedReports['dividend-pay'] ? "Click to expand Dividend pay report" : "Click to collapse Dividend pay report"}
+            >
+              <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-amber-600 transition-colors flex items-center gap-2">
+                <span>Dividend pay</span>
+                <span className="text-slate-400 group-hover:text-amber-600 transition-colors">
+                  {collapsedReports['dividend-pay'] ? (
+                    <ChevronDown className="w-5 h-5" />
+                  ) : (
+                    <ChevronUp className="w-5 h-5" />
+                  )}
+                </span>
+              </h3>
+              <span className="text-[11px] font-semibold text-slate-400 group-hover:text-amber-600 transition-colors">
+                {collapsedReports['dividend-pay'] ? 'Click to expand' : 'Click to collapse'}
+              </span>
+            </button>
+
+            {!collapsedReports['dividend-pay'] && (
+              <>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-5">
+                  Annual member dividend payout rounded off to nearest ₹10.
+                </p>
+
+                <div className="space-y-2 mb-6 bg-amber-50/40 p-3.5 rounded-2xl border border-amber-100 text-xs text-slate-700">
+                  <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-amber-200/50">
+                    <span className="font-semibold text-slate-600">Target Year:</span>
+                    <select
+                      id="dividend-year-select"
+                      value={dividendYear}
+                      onChange={(e) => setDividendYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                      className="px-2 py-0.5 bg-white text-slate-900 rounded-lg border border-amber-200 text-xs font-bold focus:outline-none cursor-pointer"
+                    >
+                      {availableYears.map((y) => (
+                        <option key={`dividend-year-${y}`} value={y}>
+                          Year {y} {y === currentSystemYear ? '(Current)' : ''}
+                        </option>
+                      ))}
+                      <option value="all">All Years (Lifetime)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                    <span>Total Interest Earned = <strong className="text-amber-900 font-mono">₹{dividendCalculation.totalInterestEarned.toLocaleString('en-IN')}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                    <span>Total members = <strong className="text-slate-900">{dividendCalculation.totalRegisteredMembers}</strong></span>
+                  </div>
+                  <div className="flex items-center gap-2 font-medium">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-600 shrink-0" />
+                    <span>Current Payout: <strong className="text-emerald-700 font-mono">₹{dividendCalculation.dividendPerMember.toLocaleString('en-IN')}</strong> / member</span>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {!collapsedReports['dividend-pay'] && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              <button
+                type="button"
+                id="btn-export-dividend-excel"
+                onClick={handleExportDividendExcel}
+                disabled={isExportingDividendExcel || dividendCalculation.totalRegisteredMembers === 0}
+                className="w-full py-3 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl font-bold text-xs sm:text-sm transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                title="Download Dividend Payout Excel report with cash denominations"
+              >
+                <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                <span>{isExportingDividendExcel ? 'Exporting...' : 'Download Excel'}</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-print-dividend-pdf"
+                onClick={handlePrintDividendPdf}
+                disabled={isPrintingDividend || dividendCalculation.totalRegisteredMembers === 0}
+                className="w-full py-3 px-3 bg-slate-800 hover:bg-slate-900 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl font-bold text-xs sm:text-sm transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                title="Quick Print Dividend Report"
+              >
+                <Printer className="w-4 h-4 shrink-0" />
+                <span>{isPrintingDividend ? 'Printing...' : 'Quick Print'}</span>
+              </button>
+            </div>
+          )}
+        </motion.div>
+
         {/* Card 1: Master Report */}
         <motion.div 
           initial={{ opacity: 0, y: 15 }}

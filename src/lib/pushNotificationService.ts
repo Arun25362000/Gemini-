@@ -1,6 +1,9 @@
 import { format } from 'date-fns';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, Firestore } from 'firebase/firestore';
-import { Loan, LoanPayment, UserProfile, AppNotification } from '../types';
+import { Capacitor } from '@capacitor/core';
+import { AppLauncher } from '@capacitor/app-launcher';
+import { Browser } from '@capacitor/browser';
+import { Loan, LoanPayment, UserProfile, AppNotification, Contribution } from '../types';
 
 export const isPushSupported = (): boolean => {
   return typeof window !== 'undefined' && 'Notification' in window;
@@ -92,9 +95,25 @@ export const isMobileDevice = (): boolean => {
 };
 
 /**
- * Universal WhatsApp launcher supporting mobile devices and desktop browsers.
- * Uses official WhatsApp Universal API endpoints (https://api.whatsapp.com/send) in a new browsing context (target="_blank"),
- * preventing "page not found" (net::ERR_UNKNOWN_URL_SCHEME) errors and never navigating away from the active web app session.
+ * Detects if the current environment is running inside a native mobile app (Capacitor Android APK / iOS)
+ */
+export const isNativeApp = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (Capacitor.isNativePlatform()) return true;
+    if ((window as any).Capacitor?.isNativePlatform?.()) return true;
+    if (window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:') return true;
+    if (window.location.hostname === 'localhost' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return true;
+  } catch {
+    return false;
+  }
+  return false;
+};
+
+/**
+ * Universal WhatsApp launcher supporting native Android APK, iOS, mobile web, and desktop browsers.
+ * In native APK (Capacitor Android), uses AppLauncher to open native WhatsApp directly or external browser,
+ * preventing "Webpage not available" (net::ERR_UNKNOWN_URL_SCHEME) errors and never navigating away from the app.
  */
 export const launchWhatsApp = (
   phone?: string | null,
@@ -104,23 +123,46 @@ export const launchWhatsApp = (
   url: string;
 } => {
   const formattedPhone = phone ? formatWhatsAppNumber(phone) : '';
-  // Limit message length to prevent net::ERR_URI_TOO_LONG / HTTP 414 on mobile devices
-  const safeMessage = message.length > 1500 ? message.slice(0, 1500) + '...' : message;
+  // Limit message length to keep encoded URLs well within mobile and Android intent limits (< 1200 chars)
+  const safeMessage = message.length > 1200 ? message.slice(0, 1200) + '...' : message;
   const encodedMessage = encodeURIComponent(safeMessage);
 
-  // Official WhatsApp Universal Web API endpoint (https://api.whatsapp.com/send)
-  // Supported seamlessly across all mobile platforms (Android, iOS, iPadOS) and Desktop Web.
-  // Using https://api.whatsapp.com avoids mobile Chrome 302 ERR_UNKNOWN_URL_SCHEME errors
-  // that occur with wa.me when redirecting to whatsapp:// inside new tabs.
+  // Official WhatsApp Universal Web API endpoint
   const apiUrl = formattedPhone
     ? `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMessage}`
     : `https://api.whatsapp.com/send?text=${encodedMessage}`;
 
+  // Direct native scheme for WhatsApp app on mobile devices
+  const nativeWaUrl = formattedPhone
+    ? `whatsapp://send?phone=${formattedPhone}&text=${encodedMessage}`
+    : `whatsapp://send?text=${encodedMessage}`;
+
   if (typeof window !== 'undefined') {
+    if (isNativeApp()) {
+      // In native Capacitor APK (Android) or native iOS app:
+      // Launch native WhatsApp app directly using Android Intent / AppLauncher
+      AppLauncher.openUrl({ url: nativeWaUrl })
+        .then((res) => {
+          if (!res || !res.completed) {
+            // Fallback to opening system browser (external, NEVER in-app WebView)
+            Browser.open({ url: apiUrl, windowName: '_system' }).catch(err => {
+              console.warn('Browser.open fallback failed:', err);
+            });
+          }
+        })
+        .catch(() => {
+          // Fallback to opening system browser
+          Browser.open({ url: apiUrl, windowName: '_system' }).catch(err => {
+            console.warn('Browser.open fallback failed:', err);
+          });
+        });
+
+      return { success: true, url: nativeWaUrl };
+    }
+
+    // Standard web browser environment (Desktop or Mobile Web)
     try {
       // Create a transient anchor with target="_blank" and rel="noopener noreferrer".
-      // NEVER use window.location.href, which overwrites the active web session,
-      // drops existing login state, and causes "Page not found" when custom schemes fail!
       const link = document.createElement('a');
       link.href = apiUrl;
       link.target = '_blank';
@@ -131,7 +173,7 @@ export const launchWhatsApp = (
         if (link.parentNode) {
           link.parentNode.removeChild(link);
         }
-      }, 300);
+      }, 500);
     } catch (e) {
       console.warn('Direct link click for WhatsApp failed, using window.open:', e);
       try {
@@ -249,7 +291,7 @@ export const isExemptAdministrator = (
  */
 export const checkAndTriggerMonthlyContributionPushReminder = async (
   currentUser: { uid: string; email?: string | null; displayName?: string | null; role?: string },
-  contributions: Array<{ userId?: string; userEmail?: string; month: number; year: number; status?: string; amount?: number }>,
+  contributions: Contribution[],
   db: Firestore,
   createInAppNotification: (userId: string, title: string, message: string, type: AppNotification['type'], link?: string) => Promise<void>
 ): Promise<{ triggered: boolean; reason?: string }> => {
@@ -272,11 +314,14 @@ export const checkAndTriggerMonthlyContributionPushReminder = async (
   const userEmail = (currentUser.email || '').toLowerCase().trim();
   const userId = currentUser.uid;
 
-  // Check if contribution of ₹1,000 already recorded for current month & year
+  // Check if contribution of ₹1,000 already recorded for current month & year (direct or via advance)
   const hasContribution = contributions.some(c => {
     const matchId = c.userId === userId;
     const matchEmail = !!c.userEmail && c.userEmail.toLowerCase().trim() === userEmail;
-    return (matchId || matchEmail) && c.month === currentMonth && c.year === currentYear && c.status === 'paid';
+    if (!(matchId || matchEmail) || c.status !== 'paid') return false;
+    if (c.month === currentMonth && c.year === currentYear) return true;
+    if (c.isAdvance && c.coveredMonths?.some(cm => cm.month === currentMonth && cm.year === currentYear)) return true;
+    return false;
   });
 
   if (hasContribution) {
@@ -345,21 +390,71 @@ export const checkAndTriggerLoanRepaymentDuePushReminder = async (
   const userEmail = (currentUser.email || '').toLowerCase().trim();
   const userId = currentUser.uid;
 
-  // Filter active loans for this user
+  // Filter active loans for this user whose repayment has started (loans recorded in current/future month start next month)
   const activeLoans = loans.filter(l => {
     const isOwner = l.userId === userId || (!!l.userEmail && l.userEmail.toLowerCase().trim() === userEmail);
-    return isOwner && l.status === 'approved';
+    if (!isOwner || l.status !== 'approved') return false;
+
+    // Check sanction date: when a loan is recorded in a month, repayment starts next month
+    const parseLoanDate = (val: any): Date | null => {
+      if (!val) return null;
+      if (typeof val.toDate === 'function') {
+        try {
+          const d = val.toDate();
+          if (d instanceof Date && !isNaN(d.getTime())) return d;
+        } catch {}
+      }
+      if (typeof val.seconds === 'number') return new Date(val.seconds * 1000);
+      if (typeof val._seconds === 'number') return new Date(val._seconds * 1000);
+      if (val instanceof Date && !isNaN(val.getTime())) return val;
+      if (typeof val === 'string') {
+        const parts = val.split(/[-/]/);
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            const d2 = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+            if (!isNaN(d2.getTime())) return d2;
+          } else if (parts[2].length === 4) {
+            const d2 = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]), 12, 0, 0);
+            if (!isNaN(d2.getTime())) return d2;
+          }
+        }
+        const d = new Date(val);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    const dates = [
+      parseLoanDate(l.approvedAt),
+      parseLoanDate(l.createdAt),
+      parseLoanDate((l as any).loanDate),
+      parseLoanDate((l as any).date),
+      parseLoanDate((l as any).disbursementDate)
+    ].filter(Boolean) as Date[];
+
+    if (dates.length > 0) {
+      const sDate = new Date(Math.max(...dates.map(d => d.getTime())));
+      const sMonth = sDate.getMonth() + 1;
+      const sYear = sDate.getFullYear();
+      if (sYear > currentYear || (sYear === currentYear && sMonth >= currentMonth)) {
+        return false;
+      }
+    }
+    return true;
   });
 
   if (activeLoans.length === 0) {
     return { triggered: false, reason: 'No active loans for user' };
   }
 
-  // Check if user has recorded loan payment for current month
+  // Check if user has recorded loan payment for current month (direct or via advance)
   const hasPaidForCurrentMonth = loanPayments.some(p => {
     const isUserPayment = p.userId === userId || (!!p.userEmail && p.userEmail.toLowerCase().trim() === userEmail);
     const matchesLoan = activeLoans.some(l => l.id === p.loanId);
-    return (isUserPayment || matchesLoan) && p.month === currentMonth && p.year === currentYear && p.status === 'paid';
+    if (!(isUserPayment || matchesLoan) || p.status !== 'paid') return false;
+    if (p.month === currentMonth && p.year === currentYear) return true;
+    if (p.isAdvance && p.coveredMonths?.some(cm => cm.month === currentMonth && cm.year === currentYear)) return true;
+    return false;
   });
 
   if (hasPaidForCurrentMonth) {

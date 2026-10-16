@@ -21,6 +21,9 @@ export interface Contribution {
   status: 'paid' | 'pending';
   paymentMethod?: 'cash' | 'online';
   timestamp: any; // Firestore Timestamp
+  isAdvance?: boolean;
+  coveredMonths?: Array<{ month: number; year: number; amount: number }>;
+  advanceSpanText?: string;
 }
 
 export interface Loan {
@@ -55,6 +58,9 @@ export interface LoanPayment {
   paymentMethod?: 'Cash' | 'Online';
   userEmail?: string;
   paymentMode?: 'Cash' | 'Online';
+  isAdvance?: boolean;
+  coveredMonths?: Array<{ month: number; year: number; principal: number; interest: number }>;
+  advanceSpanText?: string;
 }
 
 export interface Notice {
@@ -73,6 +79,6 @@ export interface AppNotification {
   message: string;
   type: 'loan' | 'payment' | 'notice' | 'system';
   read: boolean;
-  createdAt: any;
   link?: string;
+  createdAt: any;
 }

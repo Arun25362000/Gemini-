@@ -2,12 +2,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { UserProfile } from '../types';
-import { getSafeMemberDisplayName } from './utils';
+import { normalizePhoneNumber, normalizeEmailAddress, getSafeMemberDisplayName } from './utils';
 
 export interface MemberDetailsPdfOptions {
   members: UserProfile[];
   title?: string;
-  activeLoanUserIdentifiers?: Set<string>;
+  activeLoanUserIdentifiers?: Set<string> | string[];
 }
 
 export interface MemberDetailsPdfResult {
@@ -23,40 +23,6 @@ export interface MemberDetailsPdfResult {
   };
 }
 
-/**
- * Normalizes phone number to standard 10-digit format (or non-digit trimmed)
- * to ensure shared numbers (e.g. 9535173734) match regardless of formatting or +91 prefix.
- */
-export const normalizePhoneNumber = (raw?: string | null): string => {
-  if (!raw) return '';
-  const trimmed = String(raw).trim();
-  if (!trimmed || trimmed === '-' || trimmed.toLowerCase() === 'n/a' || trimmed.toLowerCase() === 'nil') {
-    return '';
-  }
-  const digits = trimmed.replace(/\D/g, '');
-  if (!digits) return '';
-  if (digits.length >= 10) {
-    return digits.slice(-10);
-  }
-  return digits;
-};
-
-/**
- * Normalizes email address to lowercase trimmed string.
- */
-export const normalizeEmailAddress = (raw?: string | null): string => {
-  if (!raw) return '';
-  const trimmed = String(raw).trim().toLowerCase();
-  if (!trimmed || trimmed === '-' || trimmed === 'n/a' || trimmed === 'nil' || trimmed === 'none' || trimmed === 'no-email') {
-    return '';
-  }
-  return trimmed;
-};
-
-/**
- * Builds a pristine, A4 print-ready PDF document containing full Member Details.
- * Columns: SlNo, Name, PhNum, Address, EmailId, JoiningDate.
- */
 export function generateMemberDetailsPdfDoc(options: MemberDetailsPdfOptions): MemberDetailsPdfResult {
   const { members, title = 'Member Directory & Details Statement' } = options;
   const now = new Date();
@@ -322,3 +288,4 @@ export function generateMemberDetailsPdfDoc(options: MemberDetailsPdfOptions): M
     }
   };
 }
+

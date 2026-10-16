@@ -1,11 +1,10 @@
-import {StrictMode} from 'react';
-import {createRoot} from 'react-dom/client';
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
 console.log("Main entry point loading...");
 
-// Service Worker registration for PWA (production only)
 if ('serviceWorker' in navigator) {
   if (import.meta.env.PROD) {
     window.addEventListener('load', () => {
@@ -31,7 +30,6 @@ if ('serviceWorker' in navigator) {
         .catch(error => console.log('SW registration failed:', error));
     });
   } else {
-    // In development mode, unregister any stale service workers and clear caches
     navigator.serviceWorker.getRegistrations().then(registrations => {
       for (const registration of registrations) {
         registration.unregister();
@@ -50,5 +48,5 @@ if ('serviceWorker' in navigator) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
-  </StrictMode>,
+  </StrictMode>
 );

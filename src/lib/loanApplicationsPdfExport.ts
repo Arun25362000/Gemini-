@@ -7,8 +7,8 @@ import { getSafeMemberDisplayName, normalizePhoneNumber } from './utils';
 export interface LoanApplicationsPdfOptions {
   loans: Loan[];
   allUsers: UserProfile[];
-  title?: string;
   filter?: 'all' | 'active' | 'closed';
+  title?: string;
 }
 
 export interface LoanApplicationsPdfResult {
@@ -27,29 +27,6 @@ export interface LoanApplicationsPdfResult {
   };
 }
 
-/**
- * Helper to infer payment mode if not explicitly saved on the loan record.
- */
-function inferLoanPaymentMode(loan: Loan, allUsers: UserProfile[]): 'Online' | 'Cash' | null {
-  if (loan.paymentMode) return loan.paymentMode;
-  const targetUser = allUsers.find(
-    u => (loan.userId && u.uid === loan.userId) ||
-         (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
-  );
-  const name = (targetUser?.displayName || loan.userEmail || '').toLowerCase().replace(/\s/g, '');
-  if (name.includes('shreenidhi') || name.includes('prasad')) {
-    return 'Online';
-  }
-  return null;
-}
-
-/**
- * Builds a pristine, A4 print-ready PDF document containing Loan Applications.
- * Excludes payment and collection details, focusing exclusively on member loan applications
- * (active and closed ones).
- *
- * Columns: SlNo, Member Name, PhNum, Date, Loan Amount, Tenure, Details, Payment Mode, Status.
- */
 export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptions): LoanApplicationsPdfResult {
   const { loans, allUsers, title = 'Loan Applications Statement', filter = 'all' } = options;
   const now = new Date();
@@ -233,7 +210,7 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
     const loanAmt = l.approvedAmount || l.amount || 0;
     const installments = l.installments || 10;
     const details = l.details && l.details.trim() ? l.details.trim() : 'General Purpose';
-    const mode = l.paymentMode || inferLoanPaymentMode(l, allUsers) || '-';
+    const mode = l.paymentMode || (l as any).paymentMethod || (l as any).disbursalMode || '-';
 
     let statusText = 'ACTIVE';
     if (l.status === 'paid') {
@@ -381,3 +358,4 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
     }
   };
 }
+

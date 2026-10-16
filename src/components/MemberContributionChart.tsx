@@ -578,38 +578,19 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
                 )}>
                   {hasActiveBorrowings
                     ? `₹${loanStats.outstandingPrincipal.toLocaleString('en-IN')}`
-                    : loanStats.hasLoans 
-                      ? 'Settled (₹0)' 
-                      : 'No Loans'}
+                    : loanStats.hasLoans ? 'Settled' : '₹0'}
                 </div>
-                <div className={cn(
-                  "w-full h-1.5 rounded-full mt-2 overflow-hidden",
-                  hasActiveBorrowings ? "bg-rose-200/60" : "bg-cyan-200/60"
-                )}>
+                <div className="w-full bg-slate-200/60 h-1.5 rounded-full mt-2 overflow-hidden">
                   <div 
-                    className={cn("h-full rounded-full transition-all duration-300", hasActiveBorrowings ? "bg-rose-600" : "bg-cyan-600")}
-                    style={{ 
-                      width: hasActiveBorrowings && loanStats.totalSanctioned > 0
-                        ? `${Math.min(100, Math.round((loanStats.totalPrincipalRepaid / loanStats.totalSanctioned) * 100))}%`
-                        : '100%' 
-                    }}
+                    className={cn("h-full rounded-full transition-all duration-300", hasActiveBorrowings ? "bg-rose-500" : "bg-cyan-500")}
+                    style={{ width: hasActiveBorrowings ? '100%' : '0%' }}
                   />
                 </div>
               </div>
-              <div className={cn(
-                "mt-2.5 pt-2 border-t flex items-center justify-between text-[10.5px]",
-                hasActiveBorrowings ? "border-rose-100/90" : "border-cyan-100/90"
-              )}>
-                <span className="font-semibold text-slate-500">
-                  {hasActiveBorrowings ? 'Balance:' : 'Borrowings:'}
-                </span>
-                <span className={cn(
-                  "font-bold truncate max-w-[130px]",
-                  hasActiveBorrowings ? "text-rose-700" : "text-cyan-700"
-                )}>
-                  {hasActiveBorrowings 
-                    ? 'Principal Due' 
-                    : loanStats.hasLoans ? 'Fully Cleared' : 'None Active'}
+              <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10.5px]">
+                <span className="font-semibold text-slate-500">Repayment:</span>
+                <span className={cn("font-bold", hasActiveBorrowings ? "text-rose-700" : "text-cyan-700")}>
+                  {hasActiveBorrowings ? `₹${(loanStats.totalPrincipalRepaid + loanStats.totalInterestPaid).toLocaleString('en-IN')} Paid` : 'No Dues'}
                 </span>
               </div>
             </div>
@@ -619,3 +600,6 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
     </div>
   );
 };
+
+export default MemberContributionChart;
+

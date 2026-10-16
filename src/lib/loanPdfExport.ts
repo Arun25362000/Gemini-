@@ -56,6 +56,17 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
   const processedLoans = loans
     .filter(l => l.status !== 'declined') // Exclude declined loans from portfolio
     .map(loan => {
+      const targetUser = allUsers.find(u => 
+        (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) || 
+        (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
+      );
+      const memberName = getSafeMemberDisplayName(
+        targetUser?.displayName || (loan as any).userName,
+        targetUser?.phoneNumber || (targetUser as any)?.phone,
+        loan.userEmail
+      ) || 'Member';
+      const memberPhone = targetUser?.phoneNumber || (targetUser as any)?.phone || (loan as any).userPhone || '-';
+
       const payments = loanPayments.filter(p => isPaymentBelongingToLoan(p, loan));
       const paidPayments = payments.filter(p => p.status === 'paid');
       const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
@@ -79,44 +90,58 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
         }
       }
 
-      // Next installment due calculation (Principal installment + current interest)
-      const currentMonthInterest = Math.round(remainingPrincipal * 0.005);
-      const currentMonthDue = remainingPrincipal > 0 ? (Math.min(5000, remainingPrincipal) + currentMonthInterest) : 0;
-
-      // Match member profile
-      const targetUser = allUsers.find(u =>
-        (loan.userId && u.uid === loan.userId) ||
-        (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
-      );
-      const memberPhone = targetUser?.phoneNumber || (targetUser as any)?.phone || '-';
-      const rawName = targetUser?.displayName || (loan.userEmail ? loan.userEmail.split('@')[0] : 'Member');
-      const memberName = getSafeMemberDisplayName(rawName, memberPhone, loan.userEmail || targetUser?.email);
-
       // Date parsing
       let sanctionDateStr = '-';
       let sanctionDateObj: Date | null = null;
-      if (loan.approvedAt?.toDate) {
-        sanctionDateObj = loan.approvedAt.toDate();
-      } else if (loan.createdAt?.toDate) {
-        sanctionDateObj = loan.createdAt.toDate();
-      } else if (loan.approvedAt) {
-        sanctionDateObj = new Date(loan.approvedAt);
-      } else if (loan.createdAt) {
-        sanctionDateObj = new Date(loan.createdAt);
+      const parseDate = (val: any): Date | null => {
+        if (!val) return null;
+        if (typeof val.toDate === 'function') {
+          try {
+            const d = val.toDate();
+            if (d instanceof Date && !isNaN(d.getTime())) return d;
+          } catch {}
+        }
+        if (typeof val.seconds === 'number') return new Date(val.seconds * 1000);
+        if (typeof val._seconds === 'number') return new Date(val._seconds * 1000);
+        if (val instanceof Date && !isNaN(val.getTime())) return val;
+        if (typeof val === 'string') {
+          const d = new Date(val);
+          if (!isNaN(d.getTime())) return d;
+        }
+        return null;
+      };
+
+      const dates = [
+        parseDate(loan.approvedAt),
+        parseDate(loan.createdAt),
+        parseDate((loan as any).loanDate),
+        parseDate((loan as any).date)
+      ].filter(Boolean) as Date[];
+
+      if (dates.length > 0) {
+        sanctionDateObj = new Date(Math.max(...dates.map(d => d.getTime())));
       }
 
       if (sanctionDateObj && !isNaN(sanctionDateObj.getTime())) {
         sanctionDateStr = format(sanctionDateObj, 'dd-MMM-yyyy');
       }
 
+      // When a loan is recorded in a month, its repayment cannot be due in the same month (starts next month)
+      const loanStartsFuture = Boolean(sanctionDateObj && (
+        sanctionDateObj.getFullYear() > currentYear ||
+        (sanctionDateObj.getFullYear() === currentYear && (sanctionDateObj.getMonth() + 1) >= currentMonth)
+      ));
+
+      // Next installment due calculation (Principal installment + current interest)
+      // If loan starts next month, current month due is 0
+      const currentMonthInterest = Math.round(remainingPrincipal * 0.005);
+      const currentMonthDue = (remainingPrincipal > 0 && !loanStartsFuture) ? (Math.min(5000, remainingPrincipal) + currentMonthInterest) : 0;
+
       // Monthly payment check for current month
       const isPaidThisMonth = payments.some(p => p.month === currentMonth && p.year === currentYear && p.status === 'paid');
       const isPendingThisMonth = payments.some(p => p.month === currentMonth && p.year === currentYear && p.status === 'pending');
       const isFullyPaid = loan.status === 'paid' || remainingPrincipal <= 0;
-      const loanApprovedThisMonth = sanctionDateObj &&
-        sanctionDateObj.getMonth() === (currentMonth - 1) &&
-        sanctionDateObj.getFullYear() === currentYear;
-      const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && now.getDate() > 10 && !loanApprovedThisMonth;
+      const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && now.getDate() > 10 && !loanStartsFuture;
 
       let statusLabel = 'ACTIVE';
       if (isFullyPaid) {
@@ -125,10 +150,10 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
         statusLabel = 'PAID (THIS MONTH)';
       } else if (isPendingThisMonth) {
         statusLabel = 'AWAITING APPROVAL';
+      } else if (loanStartsFuture) {
+        statusLabel = 'STARTS NEXT MONTH';
       } else if (isLate) {
         statusLabel = 'OVERDUE';
-      } else if (loanApprovedThisMonth) {
-        statusLabel = 'STARTS NEXT MONTH';
       } else {
         statusLabel = 'PENDING (DUE)';
       }

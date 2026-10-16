@@ -115,7 +115,8 @@ import {
   CheckSquare,
   Square,
   Share2,
-  Smartphone
+  Smartphone,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -363,6 +364,82 @@ function getTimestampFromDateString(dateStr: string): Timestamp {
     return serverTimestamp() as Timestamp;
   }
 }
+
+/**
+ * Resolves the sanction / disbursement / creation date of a loan accurately across Firestore Timestamps, Dates, and strings.
+ * Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month.
+ * Its repayment starts strictly from the following month.
+ */
+export const getLoanSanctionDate = (l: Loan): Date => {
+  const parseAnyDate = (val: any): Date | null => {
+    if (!val) return null;
+    if (typeof val.toDate === 'function') {
+      try {
+        const d = val.toDate();
+        if (d instanceof Date && !isNaN(d.getTime())) return d;
+      } catch {}
+    }
+    if (typeof val.seconds === 'number') {
+      const d = new Date(val.seconds * 1000);
+      if (!isNaN(d.getTime())) return d;
+    }
+    if (typeof val._seconds === 'number') {
+      const d = new Date(val._seconds * 1000);
+      if (!isNaN(d.getTime())) return d;
+    }
+    if (val instanceof Date) {
+      if (!isNaN(val.getTime())) return val;
+    }
+    if (typeof val === 'string') {
+      const parts = val.split(/[-/]/);
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          // YYYY-MM-DD (e.g. 2026-10-11) - set hours to noon to prevent any negative timezone rollover
+          const d2 = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+          if (!isNaN(d2.getTime())) return d2;
+        } else if (parts[2].length === 4) {
+          // DD-MM-YYYY (e.g. 11-10-2026) - set hours to noon
+          const d2 = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]), 12, 0, 0);
+          if (!isNaN(d2.getTime())) return d2;
+        }
+      }
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+  };
+
+  const dates: Date[] = [];
+  const appDate = parseAnyDate(l.approvedAt);
+  if (appDate) dates.push(appDate);
+  const creDate = parseAnyDate(l.createdAt);
+  if (creDate) dates.push(creDate);
+  const loanDate = parseAnyDate((l as any).loanDate);
+  if (loanDate) dates.push(loanDate);
+  const docDate = parseAnyDate((l as any).date);
+  if (docDate) dates.push(docDate);
+  const disbDate = parseAnyDate((l as any).disbursementDate || (l as any).disbursedAt);
+  if (disbDate) dates.push(disbDate);
+
+  if (dates.length > 0) {
+    // When a loan has approval or creation timestamps, take the latest recording/sanction date
+    return new Date(Math.max(...dates.map(d => d.getTime())));
+  }
+  return new Date();
+};
+
+/**
+ * Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month.
+ * Its repayment starts strictly from the following month.
+ * Returns true if the loan was recorded in targetMonth/targetYear or in a future month (hence payment hasn't started yet).
+ */
+export const isLoanRepaymentStartingInFuture = (loan: Loan, targetMonth: number, targetYear: number): boolean => {
+  const sanctionDate = getLoanSanctionDate(loan);
+  const sMonth = sanctionDate.getMonth() + 1; // 1-12
+  const sYear = sanctionDate.getFullYear();
+  // If loan was recorded in this target month or in a later month/year, repayment starts next month
+  return (sYear > targetYear) || (sYear === targetYear && sMonth >= targetMonth);
+};
 
 // --- Components ---
 
@@ -941,31 +1018,85 @@ export default function App() {
     }));
   };
 
+  const getMemberIdentifier = (u: UserProfile | any): string => {
+    if (!u) return '';
+    return u.uid || u.id || (u.email ? u.email.trim().toLowerCase() : '') || '';
+  };
+
+  const findMemberByIdentifier = (idOrEmail: string | null | undefined): UserProfile | undefined => {
+    if (!idOrEmail) return undefined;
+    const clean = idOrEmail.trim().toLowerCase();
+    return allUsers.find(u => {
+      if (u.uid && u.uid === idOrEmail) return true;
+      if (u.id && u.id === idOrEmail) return true;
+      if (u.email && u.email.trim().toLowerCase() === clean) return true;
+      if (u.phoneNumber && u.phoneNumber.replace(/\D/g, '') === clean.replace(/\D/g, '')) return true;
+      return false;
+    }) || sortedMembers.find(u => {
+      if (u.uid && u.uid === idOrEmail) return true;
+      if (u.id && u.id === idOrEmail) return true;
+      if (u.email && u.email.trim().toLowerCase() === clean) return true;
+      return false;
+    });
+  };
+
+  const openAddLoanModalForUser = (targetUser?: UserProfile | null) => {
+    setMemberActionMenu(null);
+    if (targetUser) {
+      const identifier = getMemberIdentifier(targetUser);
+      setSelectedLoanUserId(identifier);
+    } else {
+      setSelectedLoanUserId('');
+    }
+    setLoanDate(format(new Date(), 'yyyy-MM-dd'));
+    setAdminLoanAmount(10000);
+    setAdminLoanDetails('');
+    setAdminLoanPaymentMode('Online');
+    setAdminLoanStatus('approved');
+    setIsAddingLoan(true);
+  };
+
   const addAdminLoan = async () => {
-    if (!isAdmin || !selectedLoanUserId) return;
+    const isUserAdmin = isAdmin || profile?.role === 'admin' || isLocalAdmin || (!!user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase()));
+    if (!isUserAdmin) {
+      notify('error', 'Only administrators can record loans.');
+      return;
+    }
+    if (!selectedLoanUserId) {
+      notify('error', 'Please select a member for the loan.');
+      return;
+    }
     
-    const targetUser = allUsers.find(u => 
-      (selectedLoanUserId && u.uid === selectedLoanUserId) || 
-      (selectedLoanUserId && u.email.toLowerCase() === selectedLoanUserId.toLowerCase())
-    );
-    if (!targetUser) return;
+    const targetUser = findMemberByIdentifier(selectedLoanUserId);
+    if (!targetUser) {
+      notify('error', 'Selected member could not be found. Please choose a member from the dropdown.');
+      return;
+    }
+
+    if (!adminLoanAmount || adminLoanAmount <= 0) {
+      notify('error', 'Please enter a valid loan amount.');
+      return;
+    }
 
     setIsSubmittingAdminLoan(true);
     try {
-      if (adminLoanAmount > financials.availableBalance) {
-        notify('error', `Low balance! Available: ₹${financials.availableBalance.toLocaleString('en-IN')}. Requested: ₹${adminLoanAmount.toLocaleString('en-IN')}`);
-        return;
+      if (adminLoanStatus === 'approved' && financials.availableBalance > 0 && adminLoanAmount > financials.availableBalance) {
+        notify('info', `Note: Loan amount (₹${adminLoanAmount.toLocaleString('en-IN')}) exceeds current available balance (₹${financials.availableBalance.toLocaleString('en-IN')}). Proceeding with sanction.`);
       }
 
+      const cleanLoanDate = loanDate || format(new Date(), 'yyyy-MM-dd');
       const timestampValue = loanDate ? getTimestampFromDateString(loanDate) : serverTimestamp();
       
       const loanData: any = {
-        userId: targetUser.uid || '',
-        userEmail: targetUser.email,
+        userId: targetUser.uid || targetUser.id || '',
+        userEmail: (targetUser.email || '').trim().toLowerCase(),
+        userName: targetUser.displayName || 'Member',
         amount: adminLoanAmount,
-        details: adminLoanDetails,
+        details: adminLoanDetails || 'Admin Sanctioned Loan',
         status: adminLoanStatus,
         createdAt: timestampValue,
+        loanDate: cleanLoanDate,
+        disbursementDate: cleanLoanDate,
         paymentMode: adminLoanPaymentMode
       };
 
@@ -973,7 +1104,7 @@ export default function App() {
         loanData.approvedAmount = adminLoanAmount;
         loanData.interestRate = 0.5;
         loanData.approvedAt = timestampValue;
-        loanData.installments = Math.ceil(adminLoanAmount / 5000);
+        loanData.installments = Math.max(1, Math.ceil(adminLoanAmount / 5000));
         loanData.paymentMode = adminLoanPaymentMode;
       }
 
@@ -988,12 +1119,50 @@ export default function App() {
         );
       }
 
+      // Send WhatsApp acknowledgment with loan amount, tenure, and First EMI amount
+      const rawPhone = 
+        targetUser.phoneNumber || 
+        (targetUser as any)?.phone || 
+        (targetUser as any)?.mobile || '';
+      const formattedPhone = rawPhone ? formatWhatsAppNumber(rawPhone) : '';
+      const memberName = getSafeMemberDisplayName(
+        targetUser.displayName,
+        rawPhone,
+        targetUser.email
+      ) || 'Member';
+
+      const tenure = Math.max(1, Math.ceil(adminLoanAmount / 5000));
+      const monthlyPrincipal = Math.min(adminLoanAmount, 5000);
+      const firstMonthInterest = Math.round(adminLoanAmount * 0.005);
+      const firstMonthEmi = monthlyPrincipal + firstMonthInterest;
+      const formattedLoanDate = cleanLoanDate 
+        ? format(new Date(cleanLoanDate + 'T12:00:00'), 'dd MMM yyyy') 
+        : format(new Date(), 'dd MMM yyyy');
+
+      const waMessage = `*Unnati Trust - Loan Acknowledgment* 📋✅\n\nDear *${memberName}*,\nYour loan has been successfully recorded.\n\n• *Loan Amount:* ₹${adminLoanAmount.toLocaleString('en-IN')}\n• *Tenure:* ${tenure} Months (${tenure} Installments)\n• *First EMI Amount:* ₹${firstMonthEmi.toLocaleString('en-IN')} (Principal: ₹${monthlyPrincipal.toLocaleString('en-IN')} + 1st Mo Interest: ₹${firstMonthInterest.toLocaleString('en-IN')})\n• *Payment Mode:* ${adminLoanPaymentMode}\n• *Date:* ${formattedLoanDate}\n\n*Note:* Repayment starts from next month. Installments of ₹5,000 principal plus 0.5% monthly reducing interest are due between the 1st and 10th of every month starting from next month.\n\nThank you!`;
+
+      // Never leave WhatsApp modal dialog on the Unnati app
+      setPendingWhatsAppModal(null);
+      const waRes = launchWhatsApp(formattedPhone, waMessage);
+
       setIsAddingLoan(false);
       setSelectedLoanUserId(null);
       setAdminLoanAmount(10000);
       setAdminLoanDetails('');
       setAdminLoanPaymentMode('Online');
-      notify('success', `Loan ${adminLoanStatus === 'approved' ? 'recorded and approved' : 'recorded as pending'} successfully!`);
+      setLoanDate(format(new Date(), 'yyyy-MM-dd'));
+
+      if (formattedPhone && waRes) {
+        notify('success', `Loan recorded successfully for ${memberName}!`, {
+          label: 'Open WhatsApp',
+          url: waRes.url
+        });
+      } else {
+        notify('success', `Loan recorded successfully for ${memberName}!`, {
+          label: 'Open WhatsApp',
+          url: waRes?.url
+        });
+      }
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'loans');
     } finally {
@@ -1267,11 +1436,9 @@ export default function App() {
 
       const activeLoans = loans.filter(l => {
         if (l.status !== 'approved') return false;
-        // Skip loans approved in the current month - repayments start from the following month
-        const approvedAt = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
-        const approvedMonth = approvedAt.getMonth() + 1;
-        const approvedYear = approvedAt.getFullYear();
-        return !(approvedYear === currentYear && approvedMonth === currentMonth);
+        // Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month (starts next month)
+        if (isLoanRepaymentStartingInFuture(l, currentMonth, currentYear)) return false;
+        return true;
       });
       const allRepaymentsPaid = activeLoans.every(l => 
         loanPayments.some(p => 
@@ -1295,16 +1462,15 @@ export default function App() {
       const nonAdminUsers = allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase());
       const anyPendingContrib = nonAdminUsers.some(u => 
         contributions.some(c => 
-          ((u.uid && c.userId === u.uid) || (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) &&
+          ((u.uid && c.userId === u.uid) || (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) && 
           c.month === currentMonth && c.year === currentYear && c.status === 'pending'
         )
       );
       const activeLoans = loans.filter(l => {
         if (l.status !== 'approved') return false;
-        const approvedAt = l.approvedAt?.toDate ? l.approvedAt.toDate() : new Date();
-        const approvedMonth = approvedAt.getMonth() + 1;
-        const approvedYear = approvedAt.getFullYear();
-        return !(approvedYear === currentYear && approvedMonth === currentMonth);
+        // Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month (starts next month)
+        if (isLoanRepaymentStartingInFuture(l, currentMonth, currentYear)) return false;
+        return true;
       });
       const anyPendingLoan = activeLoans.some(l => 
         loanPayments.some(p => 
@@ -1713,18 +1879,7 @@ export default function App() {
 
   const getAdjustedLoanSchedule = (loan: Loan, payments: LoanPayment[]) => {
     const approvedAmount = loan.approvedAmount || loan.amount || 0;
-    let approvedDate: Date;
-    if (loan.approvedAt?.toDate) {
-      approvedDate = loan.approvedAt.toDate();
-    } else if (loan.createdAt?.toDate) {
-      approvedDate = loan.createdAt.toDate();
-    } else if (loan.approvedAt) {
-      approvedDate = new Date(loan.approvedAt);
-    } else if (loan.createdAt) {
-      approvedDate = new Date(loan.createdAt);
-    } else {
-      approvedDate = new Date();
-    }
+    const approvedDate = getLoanSanctionDate(loan);
 
     const baseMonthlyPrincipal = 5000;
     const loanPaymentsList = payments.filter(p => p.loanId === loan.id || (!p.loanId && loan.userId && p.userId === loan.userId));
@@ -1913,6 +2068,10 @@ export default function App() {
       if (l.status !== 'approved') return false;
       // Exclude only system administrator unnati account loans
       if (isExemptAdministrator(l as any) || (l.userEmail && l.userEmail.toLowerCase() === SYSTEM_ADMIN_EMAIL.toLowerCase())) {
+        return false;
+      }
+      // Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month (starts next month)
+      if (isLoanRepaymentStartingInFuture(l, currentMonth, currentYear)) {
         return false;
       }
       const hasPaid = loanPayments.some(p => {
@@ -2996,6 +3155,35 @@ export default function App() {
       }
     }
 
+    // Calculate Next EMI field for loan repayment acknowledgments
+    let nextEmiField = '';
+    if (params.type === 'loan_recorded' || params.type === 'loan_approved') {
+      if (params.isLoanFullyPaid) {
+        nextEmiField = '\n• Next EMI: ₹0 (Loan Fully Paid & Closed)';
+      } else {
+        let remainingBal = params.remainingLoanPrincipal;
+        if (remainingBal === undefined) {
+          const targetLoan = (params.loanId ? loans.find(l => l.id === params.loanId) : null) || 
+            loans.find(l => 
+              (params.targetUser?.uid && l.userId === params.targetUser.uid) ||
+              (params.targetUser?.email && l.userEmail && l.userEmail.toLowerCase() === params.targetUser.email.toLowerCase())
+            );
+          if (targetLoan && targetLoan.approvedAmount) {
+            remainingBal = Math.max(0, targetLoan.approvedAmount - (totalPrincipalPaid ?? 0));
+          }
+        }
+        const remPrincipal = Math.max(0, remainingBal ?? 0);
+        if (remPrincipal > 0) {
+          const nextPrincipal = Math.min(5000, remPrincipal);
+          const nextInterest = Math.round(remPrincipal * 0.005);
+          const nextEmiAmount = nextPrincipal + nextInterest;
+          nextEmiField = `\n• Next EMI: ₹${nextEmiAmount.toLocaleString('en-IN')} (Principal: ₹${nextPrincipal.toLocaleString('en-IN')} + Interest: ₹${nextInterest.toLocaleString('en-IN')})`;
+        } else {
+          nextEmiField = '\n• Next EMI: ₹0 (Loan Fully Paid & Closed)';
+        }
+      }
+    }
+
     if (params.type === 'subscription_recorded') {
       actionBadge = 'Subscription Recorded';
       modalTitle = 'Subscription Payment Recorded';
@@ -3011,7 +3199,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
     } else if (params.type === 'loan_approved') {
       actionBadge = 'Loan Payment Approved';
       modalTitle = 'Loan Payment Approved';
@@ -3019,7 +3207,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
     }
 
     // Do not show or leave WhatsApp dialog modal on screen when recording payment
@@ -5829,15 +6017,13 @@ export default function App() {
 
               const isPaid = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
               const isPending = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
-              const loanApprovedThisMonth = loan.approvedAt?.toDate && 
-                loan.approvedAt.toDate().getMonth() === (repaymentMonth - 1) && 
-                loan.approvedAt.toDate().getFullYear() === repaymentYear;
-              const isLate = !isFullyPaid && !isPaid && !isPending && new Date().getDate() > 10 && !loanApprovedThisMonth && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
+              const loanStartsFuture = isLoanRepaymentStartingInFuture(loan, repaymentMonth, repaymentYear);
+              const isLate = !isFullyPaid && !isPaid && !isPending && new Date().getDate() > 10 && !loanStartsFuture && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
 
               if (isPaid || isFullyPaid) return 'PAID';
               if (isPending) return 'AWAITING APPROVAL';
+              if (loanStartsFuture) return 'STARTS NEXT MONTH';
               if (isLate) return 'OVERDUE';
-              if (loanApprovedThisMonth) return 'STARTS NEXT MONTH';
               return 'PENDING';
             };
             const statusA = getMonthlyStatusRank(a);
@@ -6504,23 +6690,22 @@ export default function App() {
     const rawPhone = selectedProjectionRawPhone;
     const formattedPhone = selectedProjectionFormattedPhone;
 
-    // Concise, high-impact schedule summary to keep URL length well under mobile WhatsApp limits (< 1000 chars)
+    // Concise, high-impact schedule summary to keep URL length well under mobile WhatsApp limits (< 600 chars)
     // Full schedule with 20+ lines produces 4000+ chars which causes "Webpage not available" / ERR_URI_TOO_LONG on mobile.
     const scheduleHighlights = loanProjection.schedule.length <= 6
-      ? loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')}`).join('\n')
+      ? loanProjection.schedule.map(s => `• M${s.month}: Due ₹${s.totalPayment.toLocaleString('en-IN')} (Bal ₹${s.closingBalance.toLocaleString('en-IN')})`).join('\n')
       : [
-          ...loanProjection.schedule.slice(0, 3).map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')}`),
-          `• ... [Months 4 to ${loanProjection.schedule.length - 1} reducing balance installments]`,
-          `• Month ${loanProjection.schedule.length} (Final): Principal ₹${loanProjection.schedule[loanProjection.schedule.length - 1].principalPayment.toLocaleString('en-IN')} + Int ₹${loanProjection.schedule[loanProjection.schedule.length - 1].interestPayment.toLocaleString('en-IN')} = Due ₹${loanProjection.schedule[loanProjection.schedule.length - 1].totalPayment.toLocaleString('en-IN')}`
+          ...loanProjection.schedule.slice(0, 2).map(s => `• M${s.month}: Due ₹${s.totalPayment.toLocaleString('en-IN')} (Bal ₹${s.closingBalance.toLocaleString('en-IN')})`),
+          `• ... [M3-M${loanProjection.schedule.length - 1} reducing balance installments]`,
+          `• M${loanProjection.schedule.length} (Final): Due ₹${loanProjection.schedule[loanProjection.schedule.length - 1].totalPayment.toLocaleString('en-IN')} (Bal ₹0)`
         ].join('\n');
 
     const message = 
 `*UNNATI TRUST (R) - LOAN EMI PROJECTION*
 ----------------------------------------
-${memberName ? `*Member Name:* ${memberName}\n` : ''}${rawPhone ? `*Mobile:* ${rawPhone}\n` : ''}*Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
-*Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
-*Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
-*Interest Rate:* 0.5% monthly (reducing balance)
+${memberName ? `*Member:* ${memberName}\n` : ''}${rawPhone ? `*Mobile:* ${rawPhone}\n` : ''}*Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
+*Tenure:* ${loanProjection.tenure} Months (₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')}/mo)
+*Interest Rate:* 0.5% monthly reducing balance
 
 *PAYMENT SUMMARY:*
 • 1st Month EMI (Peak): ₹${loanProjection.firstMonthPayment.toLocaleString('en-IN')}
@@ -6528,10 +6713,10 @@ ${memberName ? `*Member Name:* ${memberName}\n` : ''}${rawPhone ? `*Mobile:* ${r
 • Total Interest: ₹${loanProjection.totalInterest.toLocaleString('en-IN')}
 • Total Repayable: ₹${loanProjection.totalRepayable.toLocaleString('en-IN')}
 
-*REPAYMENT SCHEDULE HIGHLIGHTS:*
+*SCHEDULE HIGHLIGHTS:*
 ${scheduleHighlights}
 
-*Note:* Installments are payable between 1st and 10th of every month. Complete itemized statement available in Unnati portal.`;
+*Note:* Installments payable between 1st & 10th of every month. Complete statement in Unnati portal.`;
 
     // Ensure WhatsApp modal dialog does NOT open or remain stayed on Unnati app
     setPendingWhatsAppModal(null);
@@ -7136,10 +7321,11 @@ ${scheduleHighlights}
         const principalAmount = loan.approvedAmount || loan.amount || 0;
         if (principalAmount <= 0) return false;
 
-        // Loan must have been sanctioned on or before target month
-        const sanctionDate = loan.approvedAt?.toDate ? loan.approvedAt.toDate() : (loan.createdAt?.toDate ? loan.createdAt.toDate() : new Date());
-        const targetMonthEnd = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
-        if (sanctionDate > targetMonthEnd) return false;
+        // When a loan is recorded in a month, it cannot be due in the same month.
+        // Its payment starts strictly from the following month!
+        if (isLoanRepaymentStartingInFuture(loan, targetMonth, targetYear)) {
+          return false;
+        }
 
         // Principal repayments made strictly BEFORE target month
         const priorPayments = loanPayments.filter(p => {
@@ -8222,21 +8408,7 @@ ${scheduleHighlights}
           const isDay1To10 = currentDay <= 10;
 
           const getLoanDate = (l: Loan): Date | null => {
-            if (l.approvedAt?.toDate) return l.approvedAt.toDate();
-            if (l.approvedAt?.seconds) return new Date(l.approvedAt.seconds * 1000);
-            if (l.approvedAt instanceof Date) return l.approvedAt;
-            if (typeof l.approvedAt === 'string') {
-              const d = new Date(l.approvedAt);
-              if (!isNaN(d.getTime())) return d;
-            }
-            if (l.createdAt?.toDate) return l.createdAt.toDate();
-            if (l.createdAt?.seconds) return new Date(l.createdAt.seconds * 1000);
-            if (l.createdAt instanceof Date) return l.createdAt;
-            if (typeof l.createdAt === 'string') {
-              const d = new Date(l.createdAt);
-              if (!isNaN(d.getTime())) return d;
-            }
-            return null;
+            return getLoanSanctionDate(l);
           };
 
           const getPaymentDate = (p: any): Date | null => {
@@ -8949,6 +9121,8 @@ ${scheduleHighlights}
                 }}
                 className="w-60 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-1.5 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100 text-left max-h-80 overflow-y-auto overscroll-contain select-none pointer-events-auto"
                 onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
               >
                   {/* Statement Group - PDF & WhatsApp Statement */}
                   <div className="px-1.5 py-1 space-y-0.5">
@@ -9043,12 +9217,12 @@ ${scheduleHighlights}
                       </div>
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           const targetUser = memberActionMenu.member;
-                          setMemberActionMenu(null);
-                          setSelectedLoanUserId(targetUser.uid || targetUser.email);
-                          setIsAddingLoan(true);
+                          openAddLoanModalForUser(targetUser);
                         }}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 rounded-xl transition-colors cursor-pointer"
                       >
                         <div className="w-6 h-6 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0 border border-purple-200/70">
@@ -9287,20 +9461,44 @@ ${scheduleHighlights}
                             <span>Send Statement</span>
                           </button>
                         )}
+                        {(() => {
+                          const memberKey = u.uid || u.email || `mem-mob-${idx}`;
+                          const isMenuOpen = memberActionMenu?.memberKey === memberKey;
+                          return (
+                            <button
+                              type="button"
+                              data-member-action-btn={memberKey}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isMenuOpen) {
+                                  setMemberActionMenu(null);
+                                } else {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  const spaceBelow = window.innerHeight - rect.bottom;
+                                  const openUpwards = spaceBelow < 330 && rect.top > 300;
+                                  setMemberActionMenu({
+                                    memberKey,
+                                    member: u,
+                                    x: Math.max(12, window.innerWidth - rect.right),
+                                    y: openUpwards ? rect.top - 6 : rect.bottom + 6,
+                                    openUpwards,
+                                  });
+                                }
+                              }}
+                              className={cn(
+                                "flex-1 py-2 px-2.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 rounded-xl text-xs font-bold flex items-center justify-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer select-none",
+                                isMenuOpen && "bg-indigo-50/80 border-indigo-300 text-indigo-700 ring-2 ring-indigo-100"
+                              )}
+                              title="More Member Actions"
+                            >
+                              <MoreHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Actions</span>
+                              <ChevronDown className={cn("w-3 h-3 text-slate-400 transition-transform duration-200", isMenuOpen && "rotate-180")} />
+                            </button>
+                          );
+                        })()}
                         {isAdmin && (
                           <>
-                            <button 
-                              type="button"
-                              onClick={() => {
-                                setSelectedLoanUserId(u.uid || u.email);
-                                setIsAddingLoan(true);
-                              }}
-                              className="flex-1 flex items-center justify-center gap-1 py-2 px-2.5 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200/90 rounded-xl text-xs font-bold active:scale-95 transition-all shadow-2xs"
-                              title="Add Loan"
-                            >
-                              <IndianRupee className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                              <span>Loan</span>
-                            </button>
                             <button 
                               onClick={() => toggleAdminRole(u)}
                               className={cn(
@@ -10137,11 +10335,9 @@ ${scheduleHighlights}
                                     const currentTotal = principal + interest;
                                     const isPaidThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
                                     const isPendingThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
-                                    const loanApprovedThisMonth = l.approvedAt?.toDate && 
-                                      l.approvedAt.toDate().getMonth() === (repaymentMonth - 1) && 
-                                      l.approvedAt.toDate().getFullYear() === repaymentYear;
+                                    const loanStartsFuture = isLoanRepaymentStartingInFuture(l, repaymentMonth, repaymentYear);
                                     const isFullyPaid = l.status === 'paid' || remainingPrincipal <= 0 || remainingTotal <= 0;
-                                    const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanApprovedThisMonth && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
+                                    const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanStartsFuture && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
 
                                     return (
                                       <React.Fragment key={`repayment-loan-frag-${keyPrefix}-${l.id || 'repay'}-${idx}`}>
@@ -10190,10 +10386,10 @@ ${scheduleHighlights}
                                                 "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border",
                                                 (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
                                                 isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
-                                                isLate ? "bg-red-50 text-red-600 border-red-200" : 
-                                                loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
+                                                loanStartsFuture ? "bg-blue-50 text-blue-600 border-blue-200" :
+                                                isLate ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"
                                               )}>
-                                                {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                                {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? 'STARTS NEXT MONTH' : isLate ? 'OVERDUE' : 'PENDING'}
                                               </span>
                                             )}
                                           </td>
@@ -10208,20 +10404,24 @@ ${scheduleHighlights}
                                                   >
                                                     <CheckCircle2 className="w-4 h-4" />
                                                   </button>
-                                                  <button 
-                                                    onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
-                                                    className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/70 rounded-lg transition-all cursor-pointer"
-                                                    title="WhatsApp Reminder"
-                                                  >
-                                                    <MessageSquare className="w-4 h-4" />
-                                                  </button>
-                                                  <button 
-                                                    onClick={() => sendLoanEmailReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
-                                                    className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-100/70 rounded-lg transition-all cursor-pointer"
-                                                    title="Email Reminder"
-                                                  >
-                                                    <Mail className="w-4 h-4" />
-                                                  </button>
+                                                   {!loanStartsFuture && (
+                                                     <>
+                                                       <button 
+                                                         onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                                         className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/70 rounded-lg transition-all cursor-pointer"
+                                                         title="WhatsApp Reminder"
+                                                       >
+                                                         <MessageSquare className="w-4 h-4" />
+                                                       </button>
+                                                       <button 
+                                                         onClick={() => sendLoanEmailReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                                         className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-100/70 rounded-lg transition-all cursor-pointer"
+                                                         title="Email Reminder"
+                                                       >
+                                                         <Mail className="w-4 h-4" />
+                                                       </button>
+                                                     </>
+                                                   )}
                                                 </div>
                                               )}
                                               <button 
@@ -10441,11 +10641,9 @@ ${scheduleHighlights}
                               const currentTotal = principal + interest;
                               const isPaidThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
                               const isPendingThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
-                              const loanApprovedThisMonth = l.approvedAt?.toDate && 
-                                l.approvedAt.toDate().getMonth() === (repaymentMonth - 1) && 
-                                l.approvedAt.toDate().getFullYear() === repaymentYear;
+                              const loanStartsFuture = isLoanRepaymentStartingInFuture(l, repaymentMonth, repaymentYear);
                               const isFullyPaid = l.status === 'paid' || remainingPrincipal <= 0 || remainingTotal <= 0;
-                              const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanApprovedThisMonth && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
+                              const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanStartsFuture && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
 
                               return (
                                 <motion.div 
@@ -10495,10 +10693,10 @@ ${scheduleHighlights}
                                             "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
                                             (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
                                             isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
-                                            isLate ? "bg-red-50 text-red-600 border-red-200" : 
-                                            loanApprovedThisMonth ? "bg-blue-50 text-blue-600 border-blue-200" : "bg-red-50 text-red-600 border-red-200"
+                                            loanStartsFuture ? "bg-blue-50 text-blue-600 border-blue-200" :
+                                            isLate ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"
                                           )}>
-                                            {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : isLate ? 'OVERDUE' : loanApprovedThisMonth ? 'STARTS NEXT MONTH' : 'PENDING'}
+                                            {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? 'STARTS NEXT MONTH' : isLate ? 'OVERDUE' : 'PENDING'}
                                           </span>
                                         )}
                                       </div>
@@ -10514,20 +10712,24 @@ ${scheduleHighlights}
                                           >
                                             <CheckCircle2 className="w-4 h-4" />
                                           </button>
-                                          <button 
-                                            onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
-                                            className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/70 rounded-lg transition-all"
-                                            title="WhatsApp Reminder"
-                                          >
-                                            <MessageSquare className="w-4 h-4" />
-                                          </button>
-                                          <button 
-                                            onClick={() => sendLoanEmailReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
-                                            className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-100/70 rounded-lg transition-all"
-                                            title="Email Reminder"
-                                          >
-                                            <Mail className="w-4 h-4" />
-                                          </button>
+                                          {!loanStartsFuture && (
+                                            <>
+                                              <button 
+                                                onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                                className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/70 rounded-lg transition-all"
+                                                title="WhatsApp Reminder"
+                                              >
+                                                <MessageSquare className="w-4 h-4" />
+                                              </button>
+                                              <button 
+                                                onClick={() => sendLoanEmailReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                                className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-100/70 rounded-lg transition-all"
+                                                title="Email Reminder"
+                                              >
+                                                <Mail className="w-4 h-4" />
+                                              </button>
+                                            </>
+                                          )}
                                         </div>
                                       )}
                                       <button 
@@ -10820,7 +11022,7 @@ ${scheduleHighlights}
                           </div>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">LoanProjection &amp; EMI Calculator</h3>
+                              <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">Loan Projection &amp; EMI Calculator</h3>
                               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
                                 0.5% Monthly Reducing Rate
                               </span>
@@ -10829,97 +11031,6 @@ ${scheduleHighlights}
                               Calculate future EMI payments, interest and month-by-month repayment projections for members before recording loan
                             </p>
                           </div>
-                        </div>
-
-                        {/* Quick Share / Copy Actions */}
-                        <div className="flex items-center gap-2 self-start sm:self-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const text = 
-`*UNNATI TRUST (R) - LOAN EMI PROJECTION*
-----------------------------------------
-*Loan Amount:* ₹${Number(loanAmount || 0).toLocaleString('en-IN')}
-*Tenure:* ${loanProjection.tenure} Months (${loanProjection.tenure} Installments)
-*Monthly Principal:* ₹${loanProjection.monthlyPrincipal.toLocaleString('en-IN')} / month
-*Interest Rate:* 0.5% monthly (reducing balance)
-
-*PAYMENT SUMMARY:*
-• 1st Month EMI (Peak): ₹${loanProjection.firstMonthPayment.toLocaleString('en-IN')}
-• Last Month EMI: ₹${loanProjection.lastMonthPayment.toLocaleString('en-IN')}
-• Total Interest: ₹${loanProjection.totalInterest.toLocaleString('en-IN')}
-• Total Repayable: ₹${loanProjection.totalRepayable.toLocaleString('en-IN')}
-
-*MONTH-WISE REPAYMENT SCHEDULE:*
-${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.principalPayment.toLocaleString('en-IN')} + Int ₹${s.interestPayment.toLocaleString('en-IN')} = Due ₹${s.totalPayment.toLocaleString('en-IN')} (Balance ₹${s.closingBalance.toLocaleString('en-IN')})`).join('\n')}
-
-*Note:* Installments are payable between 1st and 10th of every month.`;
-
-                              navigator.clipboard.writeText(text);
-                              notify('success', 'Loan projection summary copied to clipboard!');
-                            }}
-                            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer active:scale-95"
-                            title="Copy formatted summary to clipboard"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>Copy Summary</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={handleSendLoanProjectionWhatsApp}
-                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
-                            title={selectedProjectionMemberName ? `Send loan projection to ${selectedProjectionMemberName} via WhatsApp` : "Share loan projection on WhatsApp"}
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>{selectedProjectionMemberName ? `Send to ${selectedProjectionMemberName}` : 'Share WhatsApp'}</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Member Selection for Projection */}
-                      <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-center gap-2">
-                          <Users className="w-4 h-4 text-indigo-600 shrink-0" />
-                          <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                            Select Member:
-                          </label>
-                        </div>
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-                          <select
-                            value={projectionSelectedUserId}
-                            onChange={(e) => setProjectionSelectedUserId(e.target.value)}
-                            className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-indigo-500 cursor-pointer min-w-[220px]"
-                          >
-                            <option value="">General / Prospective Member</option>
-                            {allUsers
-                              .slice()
-                              .sort((a, b) => (getSafeMemberDisplayName(a) || a.displayName || a.email || '').localeCompare(getSafeMemberDisplayName(b) || b.displayName || b.email || ''))
-                              .map(u => {
-                                const id = u.uid || (u as any).id || u.email;
-                                const name = getSafeMemberDisplayName(u) || u.displayName || u.email;
-                                const phone = u.phoneNumber || (u as any).phone || (u as any).mobile;
-                                return (
-                                  <option key={`projection-user-${id}`} value={id}>
-                                    {name} {phone ? `(${phone})` : ''}
-                                  </option>
-                                );
-                              })
-                            }
-                          </select>
-                          <button
-                            type="button"
-                            onClick={handleSendLoanProjectionWhatsApp}
-                            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-                            title="Send loan projection to selected member via WhatsApp"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>
-                              {selectedProjectionMemberName 
-                                ? `Send to ${selectedProjectionMemberName} via WhatsApp` 
-                                : 'Send via WhatsApp'}
-                            </span>
-                          </button>
                         </div>
                       </div>
 
@@ -12694,6 +12805,13 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
             exportProgress={exportProgress}
             exportLoanListPdf={exportLoanListPdf}
             isExportingLoanPdf={isExportingLoanPdf}
+            allUsers={allUsers}
+            loans={loans}
+            loanPayments={loanPayments}
+            contributions={contributions}
+            notify={notify}
+            downloadFileMobile={downloadFileMobile}
+            isMobileApp={isMobileApp}
           />
         ) : (
           <div className="space-y-6">
@@ -14218,123 +14336,6 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
           </div>
         )}
 
-        {/* Automated WhatsApp Loan Status Modal */}
-        {pendingWhatsAppModal && (
-          <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setPendingWhatsAppModal(null)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-7 border border-emerald-100"
-            >
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-                  <MessageSquare className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-black text-slate-900 text-lg">
-                      {pendingWhatsAppModal.title || 'WhatsApp Payment Acknowledgment'}
-                    </h3>
-                    <span className={cn(
-                      "px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider",
-                      pendingWhatsAppModal.type === 'approved' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                    )}>
-                      {pendingWhatsAppModal.actionLabel || (pendingWhatsAppModal.type === 'approved' ? 'Approved' : 'Declined')}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-500">Automated acknowledgment prepared for member</p>
-                </div>
-              </div>
-
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-2 mb-5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Recipient</span>
-                  <span className="font-extrabold text-slate-800">{pendingWhatsAppModal.recipientName}</span>
-                </div>
-                {pendingWhatsAppModal.phone && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Phone (WhatsApp)</span>
-                    <span className="font-mono font-bold text-emerald-600">+{pendingWhatsAppModal.phone}</span>
-                  </div>
-                )}
-                <div className="pt-2 border-t border-slate-200/60">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Message Preview</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(pendingWhatsAppModal.message);
-                        setHasCopiedWhatsApp(true);
-                        setTimeout(() => setHasCopiedWhatsApp(false), 2000);
-                      }}
-                      className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 px-2 py-0.5 rounded-md hover:bg-emerald-50 transition-colors cursor-pointer"
-                    >
-                      {hasCopiedWhatsApp ? (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Copied!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copy Message</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 font-mono whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
-                    {pendingWhatsAppModal.message}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setPendingWhatsAppModal(null)}
-                  className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-200 transition-all cursor-pointer"
-                >
-                  Close
-                </button>
-                {pendingWhatsAppModal.phone ? (
-                  <a
-                    href={`https://api.whatsapp.com/send?phone=${pendingWhatsAppModal.phone}&text=${encodeURIComponent(pendingWhatsAppModal.message)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => {
-                      setTimeout(() => setPendingWhatsAppModal(null), 300);
-                    }}
-                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5 cursor-pointer no-underline"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Open in WhatsApp</span>
-                  </a>
-                ) : (
-                  <a
-                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(pendingWhatsAppModal.message)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => {
-                      setTimeout(() => setPendingWhatsAppModal(null), 300);
-                    }}
-                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold text-center transition-all shadow-lg shadow-emerald-100 flex items-center justify-center gap-1.5 cursor-pointer no-underline"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Share in WhatsApp</span>
-                  </a>
-                )}
-              </div>
-            </motion.div>
-          </div>
-        )}
-
         <footer className="max-w-6xl mx-auto px-4 sm:px-6 py-12 text-center">
           <p className="text-sm text-slate-400">
             Rules: ₹1,000 contribution due before the 10th of every month.
@@ -14366,16 +14367,31 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
               <p className="text-xs sm:text-sm font-bold flex-1 leading-snug">{notification.message}</p>
               {notification.action && (
                 notification.action.url ? (
-                  <a
-                    href={notification.action.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => setTimeout(() => setNotification(null), 400)}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (notification.action?.url) {
+                        if (isMobileApp) {
+                          const actionUrl = notification.action.url;
+                          if (actionUrl.startsWith('whatsapp://')) {
+                            AppLauncher.openUrl({ url: actionUrl }).catch(() => {
+                              Browser.open({ url: actionUrl.replace('whatsapp://send', 'https://api.whatsapp.com/send'), windowName: '_system' }).catch(() => {});
+                            });
+                          } else {
+                            Browser.open({ url: actionUrl, windowName: '_system' }).catch(() => {});
+                          }
+                        } else {
+                          window.open(notification.action.url, '_blank', 'noopener,noreferrer');
+                        }
+                      }
+                      setNotification(null);
+                    }}
                     className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1 shrink-0 no-underline cursor-pointer"
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
                     <span>{notification.action.label}</span>
-                  </a>
+                  </button>
                 ) : (
                   <button
                     type="button"
@@ -15030,16 +15046,23 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
                     Select Member <span className="text-rose-500">*</span>
                   </label>
                   <select 
-                    value={selectedLoanUserId || ''}
+                    value={(() => {
+                      if (!selectedLoanUserId) return '';
+                      const matched = findMemberByIdentifier(selectedLoanUserId);
+                      return matched ? getMemberIdentifier(matched) : selectedLoanUserId;
+                    })()}
                     onChange={(e) => setSelectedLoanUserId(e.target.value)}
                     className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100/70 focus:bg-white rounded-xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
                   >
                     <option value="">Choose a member...</option>
-                    {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, uidx) => (
-                      <option key={`admin-loan-member-${u.id || u.uid || 'member'}-${uidx}`} value={u.uid || u.email}>
-                        {u.displayName || u.email}
-                      </option>
-                    ))}
+                    {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map((u, uidx) => {
+                      const val = getMemberIdentifier(u);
+                      return (
+                        <option key={`admin-loan-member-${val || uidx}`} value={val}>
+                          {u.displayName || u.email || 'Member'} {u.phoneNumber ? `(${u.phoneNumber})` : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -15172,6 +15195,17 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
                     >
                       <Clock className="w-3.5 h-3.5" /> Pending
                     </button>
+                  </div>
+                </div>
+
+                {/* Core Unnati Rule Note */}
+                <div className="p-3 bg-blue-50/80 rounded-2xl border border-blue-200/90 flex items-start gap-2.5">
+                  <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="text-xs text-blue-900 leading-relaxed">
+                    <p className="font-bold">Important Note:</p>
+                    <p className="text-[11.5px] text-blue-800">
+                      When a loan is recorded in a month, it cannot be due in the same month. Repayment starts strictly from next month.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -15968,8 +16002,8 @@ ${loanProjection.schedule.map(s => `• Month ${s.month}: Principal ₹${s.princ
                 let nextMonth = 1;
                 let nextYear = 2024;
                 
-                const approvedDate = selectedLoan.approvedAt?.toDate ? selectedLoan.approvedAt.toDate() : new Date();
-                // Repayment starts from the next month after approval
+                const approvedDate = getLoanSanctionDate(selectedLoan);
+                // Core Unnati Rule: Repayment starts strictly from the next month after approval
                 const startMonth = (approvedDate.getMonth() + 1) % 12 + 1;
                 const startYear = approvedDate.getFullYear() + (approvedDate.getMonth() === 11 ? 1 : 0);
 

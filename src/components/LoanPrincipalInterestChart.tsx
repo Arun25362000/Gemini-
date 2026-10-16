@@ -45,6 +45,7 @@ interface ActiveLoanItem {
   activeLabel: string; // "Active 1", "Active 2", or "Active"
   dropdownTitle: string; // "Member Name (Active 1)" or "Member Name"
   isPaidThisMonth: boolean; // Has member paid loan repayment for current month
+  isStartsNextMonth: boolean; // When loan is recorded in current month or future, repayment starts next month and is NOT due this month
   thisMonthPaymentAmount?: number;
   principalAmount: number;
   remainingPrincipal: number;
@@ -69,6 +70,7 @@ interface ActiveLoanItem {
     amount: number;
     dateStr: string;
     isPaidThisMonth: boolean;
+    isStartsNextMonth: boolean;
   }[];
 }
 
@@ -85,23 +87,75 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
   const [searchQuery, setSearchQuery] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+  // Helper to safely parse dates from multiple timestamp formats
+  const parseAnyDate = (val: any): Date | null => {
+    if (!val) return null;
+    if (typeof val.toDate === 'function') {
+      try {
+        const d = val.toDate();
+        if (d instanceof Date && !isNaN(d.getTime())) return d;
+      } catch {}
+    }
+    if (typeof val.seconds === 'number') {
+      const d = new Date(val.seconds * 1000);
+      if (!isNaN(d.getTime())) return d;
+    }
+    if (typeof val._seconds === 'number') {
+      const d = new Date(val._seconds * 1000);
+      if (!isNaN(d.getTime())) return d;
+    }
+    if (val instanceof Date) {
+      if (!isNaN(val.getTime())) return val;
+    }
+    if (typeof val === 'string') {
+      const parts = val.split(/[-/]/);
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          // YYYY-MM-DD
+          const d2 = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+          if (!isNaN(d2.getTime())) return d2;
+        } else if (parts[2].length === 4) {
+          // DD-MM-YYYY
+          const d2 = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]), 12, 0, 0);
+          if (!isNaN(d2.getTime())) return d2;
+        }
+      }
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+  };
+
   // Helper to extract loan sanction/approval date
   const getSanctionDate = (loan: Loan): Date => {
-    if (loan.approvedAt?.toDate) return loan.approvedAt.toDate();
-    if (loan.approvedAt?.seconds) return new Date(loan.approvedAt.seconds * 1000);
-    if (loan.approvedAt instanceof Date) return loan.approvedAt;
-    if (typeof loan.approvedAt === 'string') {
-      const d = new Date(loan.approvedAt);
-      if (!isNaN(d.getTime())) return d;
-    }
-    if (loan.createdAt?.toDate) return loan.createdAt.toDate();
-    if (loan.createdAt?.seconds) return new Date(loan.createdAt.seconds * 1000);
-    if (loan.createdAt instanceof Date) return loan.createdAt;
-    if (typeof loan.createdAt === 'string') {
-      const d = new Date(loan.createdAt);
-      if (!isNaN(d.getTime())) return d;
+    const dates: Date[] = [];
+    const appDate = parseAnyDate(loan.approvedAt);
+    if (appDate) dates.push(appDate);
+    const creDate = parseAnyDate(loan.createdAt);
+    if (creDate) dates.push(creDate);
+    const loanDate = parseAnyDate((loan as any).loanDate);
+    if (loanDate) dates.push(loanDate);
+    const docDate = parseAnyDate((loan as any).date);
+    if (docDate) dates.push(docDate);
+    const disbDate = parseAnyDate((loan as any).disbursementDate || (loan as any).disbursedAt);
+    if (disbDate) dates.push(disbDate);
+
+    if (dates.length > 0) {
+      return new Date(Math.max(...dates.map(d => d.getTime())));
     }
     return new Date();
+  };
+
+  /**
+   * Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month.
+   * Its repayment starts strictly from the following month.
+   * Returns true if loan was recorded in targetMonth/targetYear or a future month.
+   */
+  const isLoanRepaymentStartingInFuture = (loan: Loan, targetMonth: number, targetYear: number): boolean => {
+    const sanctionDate = getSanctionDate(loan);
+    const sMonth = sanctionDate.getMonth() + 1; // 1-12
+    const sYear = sanctionDate.getFullYear();
+    return (sYear > targetYear) || (sYear === targetYear && sMonth >= targetMonth);
   };
 
   // Helper to determine if a loan payment belongs to a specific loan
@@ -164,7 +218,10 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       const instMonth = instDate.getMonth() + 1;
       const instYear = instDate.getFullYear();
 
-      const isPaid = sortedPaidPayments.some(p => p.month === instMonth && p.year === instYear);
+      const isPaid = sortedPaidPayments.some(p => 
+        (p.month === instMonth && p.year === instYear) ||
+        (p.isAdvance && p.coveredMonths?.some(cm => cm.month === instMonth && cm.year === instYear))
+      );
       if (isPaid) continue;
 
       const pendingPayment = rawPayments.find(p => p.month === instMonth && p.year === instYear && p.status === 'pending');
@@ -248,10 +305,10 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       const totalInterestPaid = payments.reduce((sum, p) => sum + (p.interest || 0), 0);
       const remainingPrincipal = Math.max(0, principalAmount - totalPrincipalPaid);
 
-      // Check if loan has payment in current month
+      // Check if loan has payment in current month (direct or via advance)
       const hasPaymentThisMonth = payments.some(p => 
-        p.month === currentMonth &&
-        p.year === currentYear
+        (p.month === currentMonth && p.year === currentYear) ||
+        (p.isAdvance && p.coveredMonths?.some(cm => cm.month === currentMonth && cm.year === currentYear))
       );
 
       // A loan is included in the active breakdown if:
@@ -335,16 +392,18 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       const siblingActiveLoans = memberLoans.map((ml, idx) => {
         const isPaidThisMonth = loanPayments.some(p => 
           (p.loanId === ml.loan.id! || isPaymentBelongingToLoan(p, ml.loan)) &&
-          p.month === currentMonth &&
-          p.year === currentYear &&
-          p.status === 'paid'
+          p.status === 'paid' &&
+          ((p.month === currentMonth && p.year === currentYear) ||
+           (p.isAdvance && p.coveredMonths?.some(cm => cm.month === currentMonth && cm.year === currentYear)))
         );
+        const isStartsNextMonth = !isPaidThisMonth && isLoanRepaymentStartingInFuture(ml.loan, currentMonth, currentYear);
         return {
           loanId: ml.loan.id!,
           label: memberActiveCount > 1 ? `Active ${idx + 1}` : 'Active Loan',
           amount: ml.principalAmount,
           dateStr: format(ml.sanctionDate, 'dd MMM yyyy'),
-          isPaidThisMonth
+          isPaidThisMonth,
+          isStartsNextMonth
         };
       });
 
@@ -365,12 +424,20 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
         // Check if member has paid their loan repayment for the current month
         const currentMonthPayment = loanPayments.find(p => 
           (p.loanId === item.loan.id || isPaymentBelongingToLoan(p, item.loan)) &&
-          p.month === currentMonth &&
-          p.year === currentYear &&
-          p.status === 'paid'
+          p.status === 'paid' &&
+          ((p.month === currentMonth && p.year === currentYear) ||
+           (p.isAdvance && p.coveredMonths?.some(cm => cm.month === currentMonth && cm.year === currentYear)))
         );
         const isPaidThisMonth = Boolean(currentMonthPayment);
-        const thisMonthPaymentAmount = currentMonthPayment ? (currentMonthPayment.amount + (currentMonthPayment.interest || 0)) : undefined;
+        const thisMonthPaymentAmount = currentMonthPayment ? (
+          currentMonthPayment.isAdvance 
+            ? ((currentMonthPayment.coveredMonths?.find(cm => cm.month === currentMonth && cm.year === currentYear)?.principal || 0) + (currentMonthPayment.coveredMonths?.find(cm => cm.month === currentMonth && cm.year === currentYear)?.interest || 0))
+            : (currentMonthPayment.amount + (currentMonthPayment.interest || 0))
+        ) : undefined;
+
+        // Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month.
+        // Its payment starts strictly from the following month.
+        const isStartsNextMonth = !isPaidThisMonth && isLoanRepaymentStartingInFuture(item.loan, currentMonth, currentYear);
 
         result.push({
           id: item.loan.id!,
@@ -387,6 +454,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
           activeLabel,
           dropdownTitle,
           isPaidThisMonth,
+          isStartsNextMonth,
           thisMonthPaymentAmount,
           principalAmount: item.principalAmount,
           remainingPrincipal: item.remainingPrincipal,
@@ -481,10 +549,13 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
   const hasMultipleActiveLoans = activeItem.memberActiveLoansCount > 1;
 
   // Real-time counts of active members who have paid vs those with dues for the current month
+  // Note: Loans recorded in current month start payment next month and are NOT due this month!
   const paidThisMonthCount = useMemo(() => {
     return activeLoanItems.filter(item => item.isPaidThisMonth).length;
   }, [activeLoanItems]);
-  const unpaidThisMonthCount = activeLoanItems.length - paidThisMonthCount;
+  const unpaidThisMonthCount = useMemo(() => {
+    return activeLoanItems.filter(item => !item.isPaidThisMonth && !item.isStartsNextMonth).length;
+  }, [activeLoanItems]);
 
   return (
     <div className={cn(
@@ -540,8 +611,16 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                       className={cn(
                         "px-2 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 border shadow-2xs",
                         isCurrent
-                          ? (sibling.isPaidThisMonth ? "bg-emerald-600 text-white border-emerald-700 shadow-xs ring-1 ring-emerald-300" : "bg-purple-600 text-white border-purple-700 shadow-xs ring-1 ring-purple-300")
-                          : (sibling.isPaidThisMonth ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300" : "bg-white hover:bg-purple-50 text-purple-700 border-purple-200")
+                          ? (sibling.isPaidThisMonth 
+                              ? "bg-emerald-600 text-white border-emerald-700 shadow-xs ring-1 ring-emerald-300" 
+                              : sibling.isStartsNextMonth
+                                ? "bg-blue-600 text-white border-blue-700 shadow-xs ring-1 ring-blue-300"
+                                : "bg-purple-600 text-white border-purple-700 shadow-xs ring-1 ring-purple-300")
+                          : (sibling.isPaidThisMonth 
+                              ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300" 
+                              : sibling.isStartsNextMonth
+                                ? "bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-200"
+                                : "bg-white hover:bg-purple-50 text-purple-700 border-purple-200")
                       )}
                     >
                       <span>{sibling.label}</span>
@@ -595,7 +674,9 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 "w-44 sm:w-52 md:w-56 flex items-center justify-between gap-1.5 px-2.5 py-1.5 bg-white hover:bg-slate-50 border rounded-xl shadow-2xs transition-all text-left text-xs font-semibold cursor-pointer shrink-0",
                 activeItem.isPaidThisMonth
                   ? "border-emerald-300 ring-1 ring-emerald-200/60"
-                  : "border-purple-200"
+                  : activeItem.isStartsNextMonth
+                    ? "border-blue-300 ring-1 ring-blue-200/60"
+                    : "border-purple-200"
               )}
             >
               <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
@@ -603,269 +684,137 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                   "w-5.5 h-5.5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 border",
                   activeItem.isPaidThisMonth
                     ? "bg-emerald-600 text-white border-emerald-700 shadow-2xs"
-                    : "bg-purple-100 text-purple-700 border-purple-200"
+                    : activeItem.isStartsNextMonth
+                      ? "bg-blue-100 text-blue-700 border-blue-200"
+                      : "bg-purple-100 text-purple-700 border-purple-200"
                 )}>
                   {activeItem.isPaidThisMonth ? "✓" : activeItem.borrowerInitial}
                 </div>
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  {activeItem.isPaidThisMonth ? (
-                    <span 
-                      className="truncate font-black text-white bg-emerald-600 px-1.5 py-0.5 rounded leading-tight text-[11px] sm:text-xs shadow-2xs inline-block max-w-full" 
-                      title={activeItem.dropdownTitle}
-                    >
-                      {activeItem.dropdownTitle}
-                    </span>
-                  ) : (
-                    <span 
-                      className="truncate font-bold text-slate-900 leading-tight text-[11px] sm:text-xs inline-block max-w-full" 
-                      title={activeItem.dropdownTitle}
-                    >
-                      {activeItem.dropdownTitle}
-                    </span>
-                  )}
+                <div className="truncate text-left">
+                  <div className="font-bold text-slate-800 text-xs truncate">
+                    {activeItem.dropdownTitle}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-normal">
+                    ₹{activeItem.principalAmount.toLocaleString('en-IN')}
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0 ml-1">
-                {activeItem.isPaidThisMonth ? (
-                  <span className="px-1.5 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
-                    Paid
-                  </span>
-                ) : (
-                  <span className="px-1.5 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs">
-                    Due
-                  </span>
-                )}
-                <ChevronDown className={cn("w-3 h-3 text-slate-400 shrink-0 ml-0.5 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
-              </div>
+              <ChevronDown className={cn(
+                "w-3.5 h-3.5 text-slate-400 transition-transform shrink-0",
+                isDropdownOpen && "rotate-180"
+              )} />
             </button>
 
             {/* Dropdown Menu */}
             {isDropdownOpen && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setIsDropdownOpen(false)} 
-                />
-                <div className="absolute right-0 top-full mt-1.5 w-64 sm:w-72 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="p-1 border-b border-slate-100 mb-1">
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search active member..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-purple-500"
-                        autoFocus
-                      />
-                    </div>
-                  </div>
-                  <div className="max-h-60 overflow-y-auto divide-y divide-slate-50 py-1">
-                    {filteredDropdownItems.length === 0 ? (
-                      <p className="text-center py-4 text-xs text-slate-400">No matching active loans found</p>
-                    ) : (
-                      filteredDropdownItems.map((item) => {
-                        const isSelected = item.id === activeItem.id;
-                        const isMulti = item.memberActiveLoansCount > 1;
-
-                        return (
-                          <button
-                            key={`dropdown-loan-${item.id}`}
-                            type="button"
-                            onClick={() => {
-                              handleSelectLoan(item.id);
-                              setIsDropdownOpen(false);
-                              setSearchQuery('');
-                            }}
-                            className={cn(
-                              "w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-left transition-all cursor-pointer",
-                              isSelected 
-                                ? (item.isPaidThisMonth ? "bg-emerald-50/80 ring-1 ring-emerald-300" : "bg-purple-50 ring-1 ring-purple-300 font-bold")
-                                : (item.isPaidThisMonth ? "hover:bg-emerald-50/40" : "hover:bg-slate-50 text-slate-700")
-                            )}
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <div className={cn(
-                                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 border transition-all",
-                                item.isPaidThisMonth 
-                                  ? "bg-emerald-600 text-white border-emerald-700 shadow-2xs" 
-                                  : (isSelected ? "bg-purple-600 text-white border-purple-700" : "bg-slate-100 text-slate-600 border-slate-200")
-                              )}>
-                                {item.isPaidThisMonth ? "✓" : item.borrowerInitial}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                {item.isPaidThisMonth ? (
-                                  /* Green-filled member name for those who paid loan for this month */
-                                  <span 
-                                    className="inline-block px-2 py-0.5 rounded-md bg-emerald-600 text-white text-xs font-bold shadow-2xs truncate max-w-full"
-                                    title={item.dropdownTitle}
-                                  >
-                                    {item.dropdownTitle}
-                                  </span>
-                                ) : (
-                                  /* Clean neutral member name for unpaid */
-                                  <span 
-                                    className="text-xs font-bold text-slate-800 truncate block"
-                                    title={item.dropdownTitle}
-                                  >
-                                    {item.dropdownTitle}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {/* Paid / Due status added at the other end of member names */}
-                              {item.isPaidThisMonth ? (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
-                                  Paid
-                                </span>
-                              ) : (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs">
-                                  Due
-                                </span>
-                              )}
-                              {isMulti && (
-                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase bg-indigo-100 text-indigo-800 border border-indigo-200">
-                                  {item.activeLabel}
-                                </span>
-                              )}
-                              {isSelected && (
-                                <CheckCircle2 className={cn("w-3.5 h-3.5 shrink-0", item.isPaidThisMonth ? "text-emerald-600" : "text-purple-600")} />
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
+              <div className="absolute right-0 top-full mt-1.5 w-64 sm:w-72 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50">
+                <div className="relative mb-2">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search member..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    autoFocus
+                  />
                 </div>
-              </>
+                <div className="max-h-56 overflow-y-auto space-y-1">
+                  {filteredDropdownItems.map(item => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        handleSelectLoan(item.id);
+                        setIsDropdownOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors cursor-pointer",
+                        item.id === activeItem.id ? "bg-purple-50 text-purple-700 font-bold" : "hover:bg-slate-50 text-slate-700"
+                      )}
+                    >
+                      <div className="truncate">
+                        <div className="font-bold truncate">{item.dropdownTitle}</div>
+                        <div className="text-[10px] text-slate-400">₹{item.principalAmount.toLocaleString('en-IN')}</div>
+                      </div>
+                      {item.isPaidThisMonth && (
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold shrink-0">
+                          Paid
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Collapse/Expand toggle */}
+          {/* Collapse/Expand Toggle Button */}
           <button
             type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-            title={isCollapsed ? "Expand Breakdown" : "Collapse Breakdown"}
+            className="p-1.5 hover:bg-purple-100/60 rounded-xl text-slate-500 hover:text-purple-700 transition-colors cursor-pointer"
+            title={isCollapsed ? "Expand breakdown" : "Collapse breakdown"}
           >
-            <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isCollapsed && "-rotate-90")} />
+            <ChevronDown className={cn("w-4 h-4 transition-transform", isCollapsed && "-rotate-90")} />
           </button>
         </div>
       </div>
 
+      {/* Main Breakdown Content */}
       {!isCollapsed && (
-        <div className="pt-3 space-y-3">
-          {/* KPI Stat Cards for the Selected Active Loan - 4 Cards styled cleanly like Loan Repayment tab */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
-            {/* Card 1: Sanctioned Loan (Purple/Indigo) */}
-            <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-              <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2">
-                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </div>
-                  <span className="text-[9.5px] sm:text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {activeItem.totalInstallments} Mos • {activeItem.activeLabel}
-                  </span>
-                </div>
-                <h4 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Sanctioned Loan</h4>
-                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-indigo-950 tracking-tight truncate">
-                  ₹{activeItem.principalAmount.toLocaleString('en-IN')}
-                </div>
-              </div>
-              <div className="mt-2 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px]">
-                <span className="font-semibold text-slate-500">Disbursed:</span>
-                <span className="font-bold text-indigo-700 truncate max-w-[130px]" title={activeItem.sanctionDateStr}>
-                  {activeItem.sanctionDateStr}
-                </span>
-              </div>
+        <div className="mt-4 space-y-4">
+          {/* Key Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+            <div className="bg-purple-50/60 border border-purple-100 p-3 rounded-2xl">
+              <span className="text-[10.5px] font-bold text-purple-700 uppercase tracking-wider block">Principal</span>
+              <span className="text-base sm:text-lg font-black text-slate-900 mt-0.5 block">
+                ₹{activeItem.principalAmount.toLocaleString('en-IN')}
+              </span>
+              <span className="text-[10px] text-slate-500">Sanctioned</span>
             </div>
 
-            {/* Card 2: Total Repaid (Emerald) */}
-            <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-              <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2">
-                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </div>
-                  <span className="text-[9.5px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {activeItem.repaymentProgress}% Paid
-                  </span>
-                </div>
-                <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Repaid</h4>
-                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-emerald-700 tracking-tight truncate">
-                  ₹{activeItem.totalPaid.toLocaleString('en-IN')}
-                </div>
-                <div className="w-full bg-emerald-200/60 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                  <div 
-                    className="bg-emerald-600 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${activeItem.repaymentProgress}%` }}
-                  />
-                </div>
-              </div>
-              <div className="mt-2 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[9.5px] sm:text-[10px] font-semibold gap-1">
-                <span className="text-emerald-800 truncate">
-                  Principal: <strong className="font-bold">₹{activeItem.totalPrincipalPaid.toLocaleString('en-IN')}</strong>
-                </span>
-                <span className="text-amber-800 truncate">
-                  Interest: <strong className="font-bold">₹{activeItem.totalInterestPaid.toLocaleString('en-IN')}</strong>
-                </span>
-              </div>
+            <div className="bg-emerald-50/60 border border-emerald-100 p-3 rounded-2xl">
+              <span className="text-[10.5px] font-bold text-emerald-700 uppercase tracking-wider block">Principal Paid</span>
+              <span className="text-base sm:text-lg font-black text-emerald-700 mt-0.5 block">
+                ₹{activeItem.totalPrincipalPaid.toLocaleString('en-IN')}
+              </span>
+              <span className="text-[10px] text-emerald-600 font-semibold">{activeItem.repaymentProgress}% recovered</span>
             </div>
 
-            {/* Card 3: Next Installment (Blue/Amber) */}
-            <div className="bg-gradient-to-br from-blue-50/90 via-blue-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-blue-200/90 hover:border-blue-400 hover:shadow-md hover:shadow-blue-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-              <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2">
-                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-blue-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </div>
-                  <span className="text-[9.5px] sm:text-[10px] font-bold text-blue-700 bg-blue-100/90 border border-blue-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                    {activeItem.nextInstallment ? `Inst #${activeItem.nextInstallment.installmentNumber} Due` : 'Due'}
-                  </span>
-                </div>
-                <h4 className="text-blue-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Next Installment</h4>
-                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-blue-950 tracking-tight truncate">
-                  {activeItem.nextInstallment ? `₹${activeItem.nextInstallment.total.toLocaleString('en-IN')}` : '₹0'}
-                </div>
-              </div>
-              <div className="mt-2 pt-2 border-t border-blue-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px]">
-                <span className="font-semibold text-slate-500">Upcoming:</span>
-                <span 
-                  className="font-bold text-blue-700 truncate max-w-[130px] sm:max-w-[150px]" 
-                  title={activeItem.nextInstallment ? `${activeItem.nextInstallment.periodLabel}: Principal ₹${activeItem.nextInstallment.principal} + Interest ₹${activeItem.nextInstallment.interest}` : 'No dues'}
-                >
-                  {activeItem.nextInstallment 
-                    ? `${activeItem.nextInstallment.periodLabel} (₹${activeItem.nextInstallment.principal}+₹${activeItem.nextInstallment.interest})` 
-                    : 'Completed'}
-                </span>
-              </div>
+            <div className="bg-indigo-50/60 border border-indigo-100 p-3 rounded-2xl">
+              <span className="text-[10.5px] font-bold text-indigo-700 uppercase tracking-wider block">Interest Paid</span>
+              <span className="text-base sm:text-lg font-black text-indigo-700 mt-0.5 block">
+                ₹{activeItem.totalInterestPaid.toLocaleString('en-IN')}
+              </span>
+              <span className="text-[10px] text-indigo-600">Total earned</span>
             </div>
 
-            {/* Card 4: Outstanding Balance (Rose) */}
-            <div className="bg-gradient-to-br from-rose-50/90 via-rose-50/40 to-white p-3 sm:p-3.5 rounded-2xl shadow-xs border-2 border-rose-200/90 hover:border-rose-400 hover:shadow-md hover:shadow-rose-100/50 transition-all flex flex-col justify-between group relative overflow-hidden">
-              <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2">
-                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform bg-rose-600">
-                    <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </div>
-                  <span className="text-[9.5px] sm:text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border text-rose-700 bg-rose-100/90 border-rose-200">
-                    Principal Due
-                  </span>
-                </div>
-                <h4 className="text-rose-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Balance</h4>
-                <div className="mt-0.5 text-lg sm:text-xl md:text-2xl font-black text-rose-700 tracking-tight truncate">
-                  ₹{activeItem.remainingPrincipal.toLocaleString('en-IN')}
-                </div>
-              </div>
-              <div className="mt-2 pt-2 border-t border-rose-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px]">
-                <span className="font-semibold text-slate-500">Balance:</span>
-                <span className="font-bold text-rose-700">
-                  Principal Due
-                </span>
-              </div>
+            <div className="bg-amber-50/60 border border-amber-100 p-3 rounded-2xl">
+              <span className="text-[10.5px] font-bold text-amber-700 uppercase tracking-wider block">Remaining Principal</span>
+              <span className="text-base sm:text-lg font-black text-amber-800 mt-0.5 block">
+                ₹{activeItem.remainingPrincipal.toLocaleString('en-IN')}
+              </span>
+              <span className="text-[10px] text-amber-600">{activeItem.paidInstallmentsCount} of {activeItem.totalInstallments} paid</span>
+            </div>
+          </div>
+
+          {/* Visual Progress Bar */}
+          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1.5">
+              <span>Repayment Progress</span>
+              <span className="text-purple-700 font-black">{activeItem.repaymentProgress}%</span>
+            </div>
+            <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden flex">
+              <div 
+                className="bg-emerald-500 h-full transition-all duration-300"
+                style={{ width: `${activeItem.repaymentProgress}%` }}
+                title={`Principal: ${activeItem.repaymentProgress}%`}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
+              <span>Sanctioned: {activeItem.sanctionDateStr}</span>
+              <span>Next Due: {activeItem.nextInstallment ? `₹${activeItem.nextInstallment.total.toLocaleString('en-IN')}` : 'Settled'}</span>
             </div>
           </div>
         </div>
@@ -873,3 +822,5 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     </div>
   );
 };
+
+export default LoanPrincipalInterestChart;

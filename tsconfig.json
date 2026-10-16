@@ -1,14 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "es2022",
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
-    "module": "ESNext",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "module": "esnext",
+    "lib": ["es2022", "dom", "dom.iterable"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
@@ -16,17 +12,15 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "resolvePackageJsonExports": true,
+    "resolvePackageJsonImports": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "preserveConstEnums": true
   },
-  "exclude": [
-    "node_modules",
-    "dist",
-    "android",
-    "ios"
-  ]
+  "exclude": ["node_modules", "dist", "android", "ios"]
 }

@@ -62,3 +62,5 @@ export const MobileQuickSort = <T extends string>({
     </div>
   );
 };
+
+export default MobileQuickSort;
