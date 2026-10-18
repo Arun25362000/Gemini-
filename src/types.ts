@@ -61,6 +61,8 @@ export interface LoanPayment {
   isAdvance?: boolean;
   coveredMonths?: Array<{ month: number; year: number; principal: number; interest: number }>;
   advanceSpanText?: string;
+  isExtraPrincipal?: boolean;
+  note?: string;
 }
 
 export interface Notice {

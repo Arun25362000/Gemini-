@@ -139,6 +139,18 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     if (docDate) dates.push(docDate);
     const disbDate = parseAnyDate((loan as any).disbursementDate || (loan as any).disbursedAt);
     if (disbDate) dates.push(disbDate);
+    const sancDate = parseAnyDate((loan as any).sanctionDate);
+    if (sancDate) dates.push(sancDate);
+    const lAny = loan as any;
+    if (lAny.approvedYear && lAny.approvedMonth) {
+      dates.push(new Date(lAny.approvedYear, lAny.approvedMonth - 1, 1, 12, 0, 0));
+    }
+    if (lAny.disbursementYear && lAny.disbursementMonth) {
+      dates.push(new Date(lAny.disbursementYear, lAny.disbursementMonth - 1, 1, 12, 0, 0));
+    }
+    if (lAny.year && lAny.month) {
+      dates.push(new Date(lAny.year, lAny.month - 1, 1, 12, 0, 0));
+    }
 
     if (dates.length > 0) {
       return new Date(Math.max(...dates.map(d => d.getTime())));
@@ -155,7 +167,14 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     const sanctionDate = getSanctionDate(loan);
     const sMonth = sanctionDate.getMonth() + 1; // 1-12
     const sYear = sanctionDate.getFullYear();
-    return (sYear > targetYear) || (sYear === targetYear && sMonth >= targetMonth);
+    if ((sYear > targetYear) || (sYear === targetYear && sMonth >= targetMonth)) {
+      return true;
+    }
+    const lAny = loan as any;
+    if (lAny.repaymentStartMonth && lAny.repaymentStartYear) {
+      return (lAny.repaymentStartYear > targetYear) || (lAny.repaymentStartYear === targetYear && lAny.repaymentStartMonth > targetMonth);
+    }
+    return false;
   };
 
   // Helper to determine if a loan payment belongs to a specific loan
@@ -165,14 +184,17 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     }
     const isUserMatch = (loan.userId && p.userId === loan.userId) ||
       (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
-    if (isUserMatch) return true;
-
-    // Pranesh Rao specific alias match
+    
     const pEmail = (p.userEmail || '').toLowerCase().trim();
     const lEmail = (loan.userEmail || '').toLowerCase().trim();
-    const isPraneshP = pEmail.includes('pranesh') || p.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
-    const isPraneshL = lEmail.includes('pranesh') || loan.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
-    if (isPraneshP && isPraneshL) return true;
+    const isPraneshMatch = Boolean(
+      (pEmail.includes('pranesh') || p.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2') &&
+      (lEmail.includes('pranesh') || loan.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2')
+    );
+
+    if (!isUserMatch && !isPraneshMatch) {
+      return false;
+    }
 
     // When payment lacks explicit loanId, attribute payment to loan only if made on/after loan sanction date
     const sanction = getSanctionDate(loan);
@@ -183,7 +205,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
         return false;
       }
     }
-    return false;
+    return true;
   };
 
   // Helper to calculate next scheduled installment for an individual loan
@@ -422,18 +444,20 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
         const nextInstallment = getSingleLoanNextInstallment(item.loan, loanPayments);
 
         // Check if member has paid their loan repayment for the current month
-        const currentMonthPayment = loanPayments.find(p => 
+        const currentMonthPayments = loanPayments.filter(p => 
           (p.loanId === item.loan.id || isPaymentBelongingToLoan(p, item.loan)) &&
           p.status === 'paid' &&
           ((p.month === currentMonth && p.year === currentYear) ||
            (p.isAdvance && p.coveredMonths?.some(cm => cm.month === currentMonth && cm.year === currentYear)))
         );
-        const isPaidThisMonth = Boolean(currentMonthPayment);
-        const thisMonthPaymentAmount = currentMonthPayment ? (
-          currentMonthPayment.isAdvance 
-            ? ((currentMonthPayment.coveredMonths?.find(cm => cm.month === currentMonth && cm.year === currentYear)?.principal || 0) + (currentMonthPayment.coveredMonths?.find(cm => cm.month === currentMonth && cm.year === currentYear)?.interest || 0))
-            : (currentMonthPayment.amount + (currentMonthPayment.interest || 0))
-        ) : undefined;
+        const isPaidThisMonth = currentMonthPayments.length > 0;
+        const thisMonthPaymentAmount = isPaidThisMonth ? currentMonthPayments.reduce((sum, p) => {
+          if (p.isAdvance) {
+            const cm = p.coveredMonths?.find(c => c.month === currentMonth && c.year === currentYear);
+            return sum + (cm ? (cm.principal || 0) + (cm.interest || 0) : 0);
+          }
+          return sum + (p.amount || 0) + (p.interest || 0);
+        }, 0) : undefined;
 
         // Core Unnati Rule: When a loan is recorded in a month, it cannot be due in the same month.
         // Its payment starts strictly from the following month.
@@ -529,7 +553,14 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       const emailMatch = (item.userEmail || '').toLowerCase().includes(q);
       const amountMatch = item.principalAmount.toString().includes(q);
       const activeLabelMatch = item.activeLabel.toLowerCase().includes(q);
-      return nameMatch || titleMatch || emailMatch || amountMatch || activeLabelMatch;
+      const startsNextMatch = item.isStartsNextMonth && (
+        'startnextmonth'.includes(q) || 
+        'start next month'.includes(q) || 
+        'start next mo'.includes(q) || 
+        'starts next'.includes(q) ||
+        'next mo'.includes(q)
+      );
+      return nameMatch || titleMatch || emailMatch || amountMatch || activeLabelMatch || startsNextMatch;
     });
   }, [activeLoanItems, searchQuery]);
 
@@ -555,6 +586,9 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
   }, [activeLoanItems]);
   const unpaidThisMonthCount = useMemo(() => {
     return activeLoanItems.filter(item => !item.isPaidThisMonth && !item.isStartsNextMonth).length;
+  }, [activeLoanItems]);
+  const startsNextMonthCount = useMemo(() => {
+    return activeLoanItems.filter(item => item.isStartsNextMonth).length;
   }, [activeLoanItems]);
 
   return (
@@ -593,6 +627,12 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
                 Due: {unpaidThisMonthCount}
               </span>
+              {startsNextMonthCount > 0 && (
+                <span className="flex items-center gap-1 font-bold text-blue-800 bg-blue-100/90 border border-blue-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block" />
+                  Starts Next Mo: {startsNextMonthCount}
+                </span>
+              )}
             </div>
 
             {/* Quick Sibling Loan Switcher Pills for Members with Multiple Active Loans */}
@@ -627,6 +667,11 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                       {sibling.isPaidThisMonth && (
                         <span className={cn("text-[9px] font-extrabold px-1 rounded", isCurrent ? "bg-emerald-700 text-white" : "bg-emerald-200 text-emerald-900")}>
                           ✓
+                        </span>
+                      )}
+                      {sibling.isStartsNextMonth && (
+                        <span className={cn("text-[8.5px] font-bold px-1 rounded", isCurrent ? "bg-blue-700 text-white" : "bg-blue-100 text-blue-800")}>
+                          Start Next Mo
                         </span>
                       )}
                       <span className={cn("text-[10px]", isCurrent ? "text-white/90 font-semibold" : "text-slate-500 font-medium")}>
@@ -690,9 +735,16 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 )}>
                   {activeItem.isPaidThisMonth ? "✓" : activeItem.borrowerInitial}
                 </div>
-                <div className="truncate text-left">
-                  <div className="font-bold text-slate-800 text-xs truncate">
-                    {activeItem.dropdownTitle}
+                <div className="truncate text-left flex-1 min-w-0">
+                  <div className="flex items-center gap-1 min-w-0">
+                    <span className="font-bold text-slate-800 text-xs truncate">
+                      {activeItem.dropdownTitle}
+                    </span>
+                    {activeItem.isStartsNextMonth && (
+                      <span className="text-[8.5px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 px-1 py-0.2 rounded shrink-0">
+                        Start Next Mo
+                      </span>
+                    )}
                   </div>
                   <div className="text-[10px] text-slate-400 font-normal">
                     ₹{activeItem.principalAmount.toLocaleString('en-IN')}
@@ -729,19 +781,25 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                         setIsDropdownOpen(false);
                       }}
                       className={cn(
-                        "w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors cursor-pointer",
+                        "w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors cursor-pointer gap-2",
                         item.id === activeItem.id ? "bg-purple-50 text-purple-700 font-bold" : "hover:bg-slate-50 text-slate-700"
                       )}
                     >
-                      <div className="truncate">
-                        <div className="font-bold truncate">{item.dropdownTitle}</div>
+                      <div className="truncate flex-1 min-w-0 pr-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-bold truncate">{item.dropdownTitle}</span>
+                        </div>
                         <div className="text-[10px] text-slate-400">₹{item.principalAmount.toLocaleString('en-IN')}</div>
                       </div>
-                      {item.isPaidThisMonth && (
+                      {item.isPaidThisMonth ? (
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold shrink-0">
                           Paid
                         </span>
-                      )}
+                      ) : item.isStartsNextMonth ? (
+                        <span className="text-[8.5px] bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.5 rounded-full font-bold shrink-0 whitespace-nowrap">
+                          Start Next Mo
+                        </span>
+                      ) : null}
                     </button>
                   ))}
                 </div>

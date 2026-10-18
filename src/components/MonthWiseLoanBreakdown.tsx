@@ -236,7 +236,8 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
         nextTotalAmount = nextPrincipal + nextInterest;
 
         // Due date calculation: 10th of next installment month, accounting for advance covered installments
-        const totalMonthsPaid = payments.reduce((acc, p) => acc + (p.isAdvance && p.coveredMonths?.length ? p.coveredMonths.length : 1), 0);
+        const regularPayments = payments.filter(p => !p.isExtraPrincipal);
+        const totalMonthsPaid = regularPayments.reduce((acc, p) => acc + (p.isAdvance && p.coveredMonths?.length ? p.coveredMonths.length : 1), 0);
         const nextDueDate = new Date(date.getFullYear(), date.getMonth() + totalMonthsPaid + 1, 10);
         nextPaymentDateStr = nextDueDate.toLocaleDateString('en-IN', {
           day: '2-digit',

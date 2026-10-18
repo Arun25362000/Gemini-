@@ -113,6 +113,7 @@ import {
   MapPin,
   Send,
   CheckSquare,
+  Sparkles,
   Square,
   Share2,
   Smartphone,
@@ -732,7 +733,10 @@ export default function App() {
     year: number;
     principal: number;
     interest: number;
+    isExtraPrincipal?: boolean;
   } | null>(null);
+  const [isExtraPrincipalPayment, setIsExtraPrincipalPayment] = useState<boolean>(false);
+  const [extraPrincipalTargetMonth, setExtraPrincipalTargetMonth] = useState<{ month: number; year: number } | null>(null);
   const [settleDate, setSettleDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [isSettlingPending, setIsSettlingPending] = useState(false);
   const [settlePaymentMode, setSettlePaymentMode] = useState<'Online' | 'Cash'>('Online');
@@ -814,6 +818,7 @@ export default function App() {
     interest: number;
     method: 'cash' | 'online';
     paymentDate: string;
+    isExtraPrincipal?: boolean;
   }>({
     isOpen: false,
     loan: null,
@@ -822,7 +827,8 @@ export default function App() {
     amount: 0,
     interest: 0,
     method: 'online',
-    paymentDate: format(new Date(), 'yyyy-MM-dd')
+    paymentDate: format(new Date(), 'yyyy-MM-dd'),
+    isExtraPrincipal: false
   });
 
   // Handle hardware back button on Android/iOS natively via Capacitor
@@ -1906,6 +1912,11 @@ export default function App() {
       isPending: boolean;
       payment?: LoanPayment;
       displayPayment?: LoanPayment;
+      allMonthPayments?: LoanPayment[];
+      paidPaymentsInMonth?: LoanPayment[];
+      pendingPaymentsInMonth?: LoanPayment[];
+      hasMultiplePayments?: boolean;
+      hasPendingExtra?: boolean;
       scheduledPrincipal: number;
       principalToDisplay: number;
       interestToDisplay: number;
@@ -1930,19 +1941,20 @@ export default function App() {
         break;
       }
 
-      const monthPayment = loanPaymentsList
-        .filter(p => p.month === instMonth && p.year === instYear)
-        .sort((a, b) => {
-          const statusOrder: Record<string, number> = { 'paid': 0, 'pending': 1, 'declined': 2 };
-          const orderA = statusOrder[a.status] ?? 3;
-          const orderB = statusOrder[b.status] ?? 3;
-          if (orderA !== orderB) return orderA - orderB;
-          return (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0);
-        })[0];
+      const allMonthPayments = loanPaymentsList.filter(p => p.month === instMonth && p.year === instYear);
+      const paidInMonth = allMonthPayments.filter(p => p.status === 'paid');
+      const pendingInMonth = allMonthPayments.filter(p => p.status === 'pending');
 
+      const isPaid = paidInMonth.length > 0 || (loan.status === 'paid' && !!settlement && settlement.month === instMonth && settlement.year === instYear);
+      const isPending = !isPaid && pendingInMonth.length > 0;
+      const hasPendingExtra = isPaid && pendingInMonth.some(p => p.isExtraPrincipal);
+      const hasMultiplePayments = paidInMonth.length > 1;
+
+      // Primary payment for display of mode and date
+      const sortedPaid = [...paidInMonth].sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
+      const sortedPending = [...pendingInMonth].sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0));
+      const monthPayment = sortedPaid[0] || sortedPending[0];
       const displayPayment = monthPayment || (loan.status === 'paid' ? settlement : undefined);
-      const isPaid = monthPayment?.status === 'paid' || (loan.status === 'paid' && !!settlement && settlement.month === instMonth && settlement.year === instYear);
-      const isPending = !isPaid && monthPayment?.status === 'pending';
 
       // If running principal is 0 and no payment in this month or later, stop
       if (runningPrincipal <= 0 && !isPaid && !isPending) {
@@ -1963,12 +1975,16 @@ export default function App() {
       let interestToDisplay: number;
 
       if (isPaid) {
-        principalToDisplay = monthPayment?.amount ?? scheduledBasePrincipal;
-        interestToDisplay = monthPayment?.interest ?? scheduledInterest;
+        const totalPrincipalInMonth = paidInMonth.reduce((acc, p) => acc + (p.amount || 0), 0);
+        const totalInterestInMonth = paidInMonth.reduce((acc, p) => acc + (p.interest || 0), 0);
+        principalToDisplay = totalPrincipalInMonth > 0 ? totalPrincipalInMonth : scheduledBasePrincipal;
+        interestToDisplay = totalInterestInMonth;
         runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
       } else if (isPending) {
-        principalToDisplay = monthPayment?.amount ?? scheduledBasePrincipal;
-        interestToDisplay = monthPayment?.interest ?? scheduledInterest;
+        const totalPrincipalInMonth = pendingInMonth.reduce((acc, p) => acc + (p.amount || 0), 0);
+        const totalInterestInMonth = pendingInMonth.reduce((acc, p) => acc + (p.interest || 0), 0);
+        principalToDisplay = totalPrincipalInMonth > 0 ? totalPrincipalInMonth : scheduledBasePrincipal;
+        interestToDisplay = totalInterestInMonth;
         runningPrincipal = Math.max(0, runningPrincipal - principalToDisplay);
       } else {
         principalToDisplay = scheduledBasePrincipal;
@@ -1995,6 +2011,11 @@ export default function App() {
         isPending,
         payment: monthPayment,
         displayPayment,
+        allMonthPayments,
+        paidPaymentsInMonth: paidInMonth,
+        pendingPaymentsInMonth: pendingInMonth,
+        hasMultiplePayments,
+        hasPendingExtra,
         scheduledPrincipal: principalToDisplay,
         principalToDisplay,
         interestToDisplay,
@@ -3645,16 +3666,27 @@ export default function App() {
     setSelectedLoanForPayment(null);
   };
 
-  const handlePayLoanInstallment = (loan: Loan, month: number, year: number, principal: number, interest: number, mode: 'online' | 'cash' = 'online') => {
-    const note = `Loan Payment - ${format(new Date(year, month - 1), 'MMM yyyy')}`;
+  const handlePayLoanInstallment = (
+    loan: Loan, 
+    month: number, 
+    year: number, 
+    principal: number, 
+    interest: number, 
+    mode: 'online' | 'cash' = 'online',
+    isExtraPrincipal: boolean = false
+  ) => {
+    const note = isExtraPrincipal
+      ? `Additional Principal Payment - ${format(new Date(year, month - 1), 'MMM yyyy')}`
+      : `Loan Payment - ${format(new Date(year, month - 1), 'MMM yyyy')}`;
+    const enforcedInterest = isExtraPrincipal ? 0 : interest;
     setPaymentModal({
       isOpen: true,
-      amount: principal + interest,
+      amount: principal + enforcedInterest,
       note,
       type: 'loan',
       mode: mode
     });
-    setSelectedLoanForPayment({ loan, month, year, principal, interest });
+    setSelectedLoanForPayment({ loan, month, year, principal, interest: enforcedInterest, isExtraPrincipal });
   };
 
   const updateMember = async () => {
@@ -6972,7 +7004,8 @@ ${scheduleHighlights}
           const approved = loan.approvedAmount || loan.amount || 0;
           const remainingPrincipal = Math.max(0, approved - totalPaid);
           const remainingFuture = Math.ceil(remainingPrincipal / 5000);
-          const newTenure = remainingPaid.length + remainingFuture;
+          const uniqueRemainingMonths = new Set(remainingPaid.filter(p => !p.isExtraPrincipal).map(p => `${p.year}-${p.month}`));
+          const newTenure = uniqueRemainingMonths.size + remainingFuture;
           await updateDoc(doc(db, 'loans', loan.id!), {
             status: totalPaid >= approved ? 'paid' : 'approved',
             installments: newTenure
@@ -7009,12 +7042,14 @@ ${scheduleHighlights}
         remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
         
         const remainingFutureTenure = Math.ceil(remainingPrincipal / 5000);
-        const newTotalInstallments = isLoanFullyPaid ? currentPaidPayments.length : (currentPaidPayments.length + remainingFutureTenure);
+        const uniquePaidMonths = new Set(currentPaidPayments.filter(p => !p.isExtraPrincipal).map(p => `${p.year}-${p.month}`));
+        const paidMonthsCount = uniquePaidMonths.size;
+        const newTotalInstallments = isLoanFullyPaid ? paidMonthsCount : (paidMonthsCount + remainingFutureTenure);
 
         if (isLoanFullyPaid) {
           await updateDoc(doc(db, 'loans', loan.id!), { 
             status: 'paid',
-            installments: currentPaidPayments.length
+            installments: paidMonthsCount
           });
           createNotification(payment.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount?.toLocaleString('en-IN')} is now fully paid.`, 'loan');
         } else {
@@ -7101,15 +7136,45 @@ ${scheduleHighlights}
     }
   };
 
-  const payLoanInstallment = async (loan: Loan, month: number, year: number, amount: number, interest: number, method: 'cash' | 'online' = 'online') => {
+  const payLoanInstallment = async (
+    loan: Loan, 
+    month: number, 
+    year: number, 
+    amount: number, 
+    interest: number, 
+    method: 'cash' | 'online' = 'online',
+    isExtraPrincipal: boolean = false
+  ) => {
     if (!user || !profile) return;
     try {
-      // Check if there's already a pending payment for this month/year
+      const curCalMonth = new Date().getMonth() + 1;
+      const curCalYear = new Date().getFullYear();
+      if (isExtraPrincipal && (year < curCalYear || (year === curCalYear && month < curCalMonth))) {
+        notify('error', "Additional principal payments cannot be made for previous months.");
+        return;
+      }
+      if (isExtraPrincipal) {
+        const regularPaid = loanPayments.some(p => 
+          p.loanId === loan.id && 
+          p.month === month && 
+          p.year === year && 
+          p.status === 'paid' && 
+          !p.isExtraPrincipal
+        );
+        if (!regularPaid) {
+          notify('error', `Please clear the regular monthly installment for ${format(new Date(year, month - 1), 'MMMM yyyy')} first.`);
+          return;
+        }
+      }
+
+      const enforcedInterest = isExtraPrincipal ? 0 : interest;
+      // Check if there's already a pending payment for this month/year with matching extra-principal status
       const existingPending = loanPayments.find(p => 
         p.loanId === loan.id && 
         p.month === month && 
         p.year === year && 
-        p.status === 'pending'
+        p.status === 'pending' &&
+        Boolean(p.isExtraPrincipal) === Boolean(isExtraPrincipal)
       );
 
       const mode = method === 'cash' ? 'Cash' : 'Online';
@@ -7117,9 +7182,11 @@ ${scheduleHighlights}
       if (existingPending) {
         await updateDoc(doc(db, 'loanPayments', existingPending.id!), {
           amount,
-          interest,
+          interest: enforcedInterest,
           paymentMethod: mode,
           paymentMode: mode,
+          isExtraPrincipal: Boolean(isExtraPrincipal),
+          note: isExtraPrincipal ? 'Additional Principal Payment' : undefined,
           timestamp: serverTimestamp()
         });
       } else {
@@ -7130,16 +7197,20 @@ ${scheduleHighlights}
           month,
           year,
           amount,
-          interest,
+          interest: enforcedInterest,
           paymentMethod: mode,
           paymentMode: mode,
           status: 'pending',
+          isExtraPrincipal: Boolean(isExtraPrincipal),
+          note: isExtraPrincipal ? 'Additional Principal Payment' : undefined,
           timestamp: serverTimestamp()
         });
       }
 
-      notify('success', 'Payment request submitted for approval!');
+      notify('success', isExtraPrincipal ? 'Additional principal payment request submitted for approval!' : 'Payment request submitted for approval!');
       setIsPayingLoan(false);
+      setIsExtraPrincipalPayment(false);
+      setExtraPrincipalTargetMonth(null);
     } catch (err: any) {
       handleFirestoreError(err, OperationType.CREATE, 'loanPayments');
     }
@@ -7149,21 +7220,52 @@ ${scheduleHighlights}
     if (profile?.role !== 'admin' || !adminManualRepayment.loan) return;
     
     try {
-      const { loan, month, year, amount, interest, method, paymentDate } = adminManualRepayment;
+      const { loan, month, year, amount, interest, method, paymentDate, isExtraPrincipal } = adminManualRepayment;
       const timestamp = getTimestampFromDateString(paymentDate);
       const mode = method === 'cash' ? 'Cash' : 'Online';
+      const enforcedInterest = isExtraPrincipal ? 0 : interest;
       
-      // Check if there's already a payment for this month/year
+      // Check if there's an existing payment for this month/year (non-extra regular EMI)
       const existingPayment = loanPayments.find(p => 
         p.loanId === loan.id && 
         p.month === month && 
-        p.year === year
+        p.year === year &&
+        !p.isExtraPrincipal
       );
 
-      if (existingPayment) {
+      if (isExtraPrincipal) {
+        const curCalMonth = new Date().getMonth() + 1;
+        const curCalYear = new Date().getFullYear();
+        if (year < curCalYear || (year === curCalYear && month < curCalMonth)) {
+          notify('error', "Additional principal payments cannot be recorded for previous months.");
+          return;
+        }
+        if (!existingPayment || existingPayment.status !== 'paid') {
+          notify('error', `Please record the regular monthly installment (including interest) for ${format(new Date(year, month - 1), 'MMMM yyyy')} first.`);
+          return;
+        }
+        // Additional payment in the same month must strictly create a separate payment towards principal
+        await addDoc(collection(db, 'loanPayments'), {
+          loanId: loan.id,
+          userId: loan.userId,
+          userEmail: loan.userEmail,
+          month,
+          year,
+          amount,
+          interest: 0,
+          paymentMethod: mode,
+          paymentMode: mode,
+          status: 'paid',
+          isExtraPrincipal: true,
+          note: 'Additional Principal Payment',
+          timestamp: timestamp,
+          approvedAt: timestamp
+        });
+      } else if (existingPayment && existingPayment.status !== 'paid') {
+        // If updating an existing pending regular payment
         await updateDoc(doc(db, 'loanPayments', existingPayment.id!), {
           amount,
-          interest,
+          interest: enforcedInterest,
           paymentMethod: mode,
           paymentMode: mode,
           status: 'paid',
@@ -7178,7 +7280,7 @@ ${scheduleHighlights}
           month,
           year,
           amount,
-          interest,
+          interest: enforcedInterest,
           paymentMethod: mode,
           paymentMode: mode,
           status: 'paid',
@@ -7188,36 +7290,40 @@ ${scheduleHighlights}
       }
 
       // Check if this was the last payment for the loan
-      // Note: Since we are using current loanPayments from state, we need to be careful.
-      // But typically state will update soon.
       const currentPaidPayments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
-      const prevPrincipal = existingPayment?.status === 'paid' ? existingPayment.amount : 0;
-      const prevInterest = existingPayment?.status === 'paid' ? (existingPayment.interest || 0) : 0;
-      const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + p.amount, 0) - prevPrincipal + amount;
-      const totalInterestPaid = currentPaidPayments.reduce((acc, p) => acc + (p.interest || 0), 0) - prevInterest + interest;
+      const prevPrincipal = (!isExtraPrincipal && existingPayment?.status === 'paid') ? existingPayment.amount : 0;
+      const prevInterest = (!isExtraPrincipal && existingPayment?.status === 'paid') ? (existingPayment.interest || 0) : 0;
+      const totalPrincipalPaid = currentPaidPayments.reduce((acc, p) => acc + (p.amount || 0), 0) - prevPrincipal + amount;
+      const totalInterestPaid = currentPaidPayments.reduce((acc, p) => acc + (p.interest || 0), 0) - prevInterest + enforcedInterest;
       
       const isLoanFullyPaid = Boolean(loan.approvedAmount && totalPrincipalPaid >= loan.approvedAmount);
       const remainingPrincipal = Math.max(0, (loan.approvedAmount || 0) - totalPrincipalPaid);
       
-      const paidCountAfter = existingPayment?.status === 'paid' ? currentPaidPayments.length : (currentPaidPayments.length + 1);
+      const uniquePaidMonths = new Set(currentPaidPayments.filter(p => !p.isExtraPrincipal).map(p => `${p.year}-${p.month}`));
+      uniquePaidMonths.add(`${year}-${month}`);
+      const paidMonthsCount = uniquePaidMonths.size;
       const remainingFutureTenure = Math.ceil(remainingPrincipal / 5000);
-      const newTotalInstallments = isLoanFullyPaid ? paidCountAfter : (paidCountAfter + remainingFutureTenure);
+      const newTotalInstallments = isLoanFullyPaid ? paidMonthsCount : (paidMonthsCount + remainingFutureTenure);
 
       if (isLoanFullyPaid) {
         await updateDoc(doc(db, 'loans', loan.id!), { 
           status: 'paid',
-          installments: paidCountAfter
+          installments: paidMonthsCount
         });
-        createNotification(loan.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${loan.approvedAmount.toLocaleString('en-IN')} is now fully paid.`, 'loan');
+        createNotification(loan.userId, "Loan Fully Paid", `Congratulations! Your loan of ₹${(loan.approvedAmount || 0).toLocaleString('en-IN')} is now fully paid.`, 'loan');
       } else {
         await updateDoc(doc(db, 'loans', loan.id!), {
           installments: newTotalInstallments
         });
       }
 
-      createNotification(loan.userId, "Loan Payment Recorded", `Admin has recorded your loan payment for ${format(new Date(year, month - 1), 'MMMM yyyy')}.`, 'payment');
+      const notifTitle = isExtraPrincipal ? "Additional Principal Recorded" : "Loan Payment Recorded";
+      const notifMsg = isExtraPrincipal
+        ? `Admin has recorded an additional principal payment of ₹${amount.toLocaleString('en-IN')} for ${format(new Date(year, month - 1), 'MMMM yyyy')}.`
+        : `Admin has recorded your loan payment for ${format(new Date(year, month - 1), 'MMMM yyyy')}.`;
+      createNotification(loan.userId, notifTitle, notifMsg, 'payment');
       
-      notify('success', `Repayment recorded successfully for ${format(new Date(year, month - 1), "MMMM yyyy")}`);
+      notify('success', `${isExtraPrincipal ? 'Additional principal' : 'Repayment'} recorded successfully for ${format(new Date(year, month - 1), "MMMM yyyy")}`);
       setAdminManualRepayment(prev => ({ ...prev, isOpen: false }));
 
       // Trigger WhatsApp acknowledgment for the member
@@ -7237,9 +7343,9 @@ ${scheduleHighlights}
           targetUser,
           type: 'loan_recorded',
           loanId: loan.id,
-          amount: amount + interest,
+          amount: amount + enforcedInterest,
           principal: amount,
-          interest: interest,
+          interest: enforcedInterest,
           month,
           year,
           paymentMode: mode,
@@ -7305,7 +7411,8 @@ ${scheduleHighlights}
         p.year === targetYear && 
         (p.status === 'paid' || (p as any).amountPaid || p.amount)
       );
-      loanPaidCount = monthlyPaidLoanPayments.length;
+      const distinctPaidLoans = new Set(monthlyPaidLoanPayments.map(p => p.loanId || p.userId || (p.userEmail || '').toLowerCase().trim()));
+      loanPaidCount = distinctPaidLoans.size;
       loanDueCount = 0;
     } else {
       const activeLoansForCollection = loans.filter(loan => {
@@ -10093,9 +10200,16 @@ ${scheduleHighlights}
                                     {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
                                   </div>
                                   <div>
-                                    <p className="text-sm font-bold text-slate-900">{targetUser?.displayName || p.userId}</p>
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-bold text-slate-900">{targetUser?.displayName || p.userId}</p>
+                                      {p.isExtraPrincipal && (
+                                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                          Extra Principal
+                                        </span>
+                                      )}
+                                    </div>
                                     <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                                      {format(new Date(p.year, p.month - 1), 'MMMM yyyy')} • Principal: ₹{p.amount.toLocaleString('en-IN')} • Interest: ₹{p.interest.toLocaleString('en-IN')}
+                                      {format(new Date(p.year, p.month - 1), 'MMMM yyyy')} • Principal: ₹{p.amount.toLocaleString('en-IN')} • Interest: ₹{(p.interest || 0).toLocaleString('en-IN')}
                                     </p>
                                   </div>
                                 </div>
@@ -10524,6 +10638,16 @@ ${scheduleHighlights}
                                                             </div>
                                                             <p className="text-[11px] text-slate-600 font-medium mt-0.5">
                                                               <span className="font-bold text-slate-800">Principal: ₹{principalToDisplay.toLocaleString('en-IN')}</span>
+                                                              {item.hasMultiplePayments && (
+                                                                <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 font-extrabold px-1.5 py-0.5 rounded ml-1.5 inline-block">
+                                                                  {item.paidPaymentsInMonth?.length} payments (₹{item.paidPaymentsInMonth?.map(p => (p.amount || 0).toLocaleString('en-IN')).join(' + ')})
+                                                                </span>
+                                                              )}
+                                                              {item.hasPendingExtra && (
+                                                                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 font-extrabold px-1.5 py-0.5 rounded ml-1.5 inline-block">
+                                                                  Extra Principal Pending
+                                                                </span>
+                                                              )}
                                                               <span className="mx-1 text-slate-400">•</span>
                                                               <span className="font-bold text-indigo-700">Interest (0.5%): ₹{interestToDisplay.toLocaleString('en-IN')}</span>
                                                             </p>
@@ -10554,14 +10678,40 @@ ${scheduleHighlights}
                                                           </div>
 
                                                           <div className="flex items-center gap-2">
-                                                            {isAdmin && !isSettledOrClosed && isPaid && (payment?.id || displayPayment?.id) && (
-                                                              <button 
-                                                                onClick={() => setDeletingRepaymentId((payment?.id || displayPayment?.id)!)}
-                                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-slate-200/60 hover:border-red-200 cursor-pointer"
-                                                                title="Delete Repayment Record"
-                                                              >
-                                                                <Trash2 className="w-4 h-4 text-red-500" />
-                                                              </button>
+                                                            {isAdmin && !isSettledOrClosed && isPaid && (
+                                                              <>
+                                                                {isCurrentMonth && remainingPrincipal > 0 && (
+                                                                  <button 
+                                                                    onClick={() => {
+                                                                      setAdminManualRepayment({
+                                                                        isOpen: true,
+                                                                        loan: l,
+                                                                        month: installmentMonth,
+                                                                        year: installmentYear,
+                                                                        amount: Math.min(5000, remainingPrincipal),
+                                                                        interest: 0,
+                                                                        method: 'cash',
+                                                                        paymentDate: format(new Date(), 'yyyy-MM-dd'),
+                                                                        isExtraPrincipal: true
+                                                                      });
+                                                                    }}
+                                                                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer active:scale-95"
+                                                                    title="Record Additional Principal for this month (Interest ₹0)"
+                                                                  >
+                                                                    <PlusCircle className="w-3.5 h-3.5" />
+                                                                    <span>+ Add Principal</span>
+                                                                  </button>
+                                                                )}
+                                                                {(payment?.id || displayPayment?.id) && (
+                                                                  <button 
+                                                                    onClick={() => setDeletingRepaymentId((payment?.id || displayPayment?.id)!)}
+                                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-slate-200/60 hover:border-red-200 cursor-pointer"
+                                                                    title="Delete Repayment Record"
+                                                                  >
+                                                                    <Trash2 className="w-4 h-4 text-red-500" />
+                                                                  </button>
+                                                                )}
+                                                              </>
                                                             )}
                                                             {!isPaid && !isPending && isAdmin && !isSettledOrClosed && (
                                                               <button 
@@ -10574,7 +10724,8 @@ ${scheduleHighlights}
                                                                     amount: principalToDisplay,
                                                                     interest: interestToDisplay,
                                                                     method: 'cash',
-                                                                    paymentDate: format(new Date(), 'yyyy-MM-dd')
+                                                                    paymentDate: format(new Date(), 'yyyy-MM-dd'),
+                                                                    isExtraPrincipal: false
                                                                   });
                                                                 }}
                                                                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer active:scale-95"
@@ -10872,6 +11023,31 @@ ${scheduleHighlights}
                                                 </div>
                                               </div>
 
+                                              {isPaid && isCurrentMonth && isAdmin && !isSettledOrClosed && remainingPrincipal > 0 && (
+                                                <div className="pt-0.5">
+                                                  <button 
+                                                    onClick={() => {
+                                                      setAdminManualRepayment({
+                                                        isOpen: true,
+                                                        loan: l,
+                                                        month: installmentMonth,
+                                                        year: installmentYear,
+                                                        amount: Math.min(5000, remainingPrincipal),
+                                                        interest: 0,
+                                                        method: 'cash',
+                                                        paymentDate: format(new Date(), 'yyyy-MM-dd'),
+                                                        isExtraPrincipal: true
+                                                      });
+                                                    }}
+                                                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 cursor-pointer"
+                                                    title="Record Additional Principal Payment"
+                                                  >
+                                                    <PlusCircle className="w-4 h-4 text-white" />
+                                                    <span>+ Add Principal in Same Month</span>
+                                                  </button>
+                                                </div>
+                                              )}
+
                                               {!isPaid && !isPending && isAdmin && !isSettledOrClosed && (
                                                 <div className="pt-0.5">
                                                   <button 
@@ -10884,7 +11060,8 @@ ${scheduleHighlights}
                                                         amount: principalToDisplay,
                                                         interest: interestToDisplay,
                                                         method: 'cash',
-                                                        paymentDate: format(new Date(), 'yyyy-MM-dd')
+                                                        paymentDate: format(new Date(), 'yyyy-MM-dd'),
+                                                        isExtraPrincipal: false
                                                       });
                                                     }}
                                                     className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 cursor-pointer"
@@ -11311,6 +11488,7 @@ ${scheduleHighlights}
                       const remainingPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - totalPrincipalPaid);
                       const remainingTotal = calculateLoanRemainingTotal(l, payments);
                       const loanSchedule = getAdjustedLoanSchedule(l, payments);
+                      const isCurrentMonthCleared = loanSchedule.some(item => item.isCurrentMonth && item.isPaid);
                       const totalTenure = loanSchedule.length;
                       const loanKey = l.id || `loan-${idx}`;
                       const isGroupExpanded = expandedMemberLoanGroups[loanKey] !== false; // expanded by default
@@ -11397,13 +11575,34 @@ ${scheduleHighlights}
                                       </div>
                                       <div className="flex items-center gap-2">
                                         {l.status !== 'paid' && (
-                                          <button
-                                            onClick={() => setSettlingLoanId(l.id!)}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border border-amber-400 shadow-sm hover:bg-amber-600 transition-all active:scale-95 cursor-pointer"
-                                          >
-                                            <CheckCircle2 className="w-3 h-3" />
-                                            Settle One-time
-                                          </button>
+                                          <div className="flex items-center gap-1.5 sm:gap-2">
+                                            {remainingPrincipal > 0 && isCurrentMonthCleared && (
+                                              <button
+                                                onClick={() => {
+                                                  setSelectedLoan(l);
+                                                  setIsExtraPrincipalPayment(true);
+                                                  const curM = new Date().getMonth() + 1;
+                                                  const curY = new Date().getFullYear();
+                                                  setExtraPrincipalTargetMonth({ month: curM, year: curY });
+                                                  setCustomPrincipal(Math.min(5000, remainingPrincipal));
+                                                  setLoanRepaymentMethod('online');
+                                                  setIsPayingLoan(true);
+                                                }}
+                                                className="flex items-center gap-1 px-3 py-1.5 bg-indigo-500/90 hover:bg-indigo-500 text-white rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border border-indigo-400/80 shadow-xs transition-all active:scale-95 cursor-pointer"
+                                                title="Pay Additional Principal towards loan"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                                Pay Principal
+                                              </button>
+                                            )}
+                                            <button
+                                              onClick={() => setSettlingLoanId(l.id!)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest border border-amber-400 shadow-sm hover:bg-amber-600 transition-all active:scale-95 cursor-pointer"
+                                            >
+                                              <CheckCircle2 className="w-3 h-3" />
+                                              Settle One-time
+                                            </button>
+                                          </div>
                                         )}
                                         {l.status === 'paid' ? (
                                           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest border border-emerald-400/50 shadow-sm animate-pulse-slow">
@@ -11602,6 +11801,8 @@ ${scheduleHighlights}
                                                           <button 
                                                             onClick={() => {
                                                               setSelectedLoan(l);
+                                                              setIsExtraPrincipalPayment(false);
+                                                              setExtraPrincipalTargetMonth(null);
                                                               setIsPayingLoan(true);
                                                               setLoanRepaymentMethod('online');
                                                               setCustomPrincipal(principalToDisplay);
@@ -11620,8 +11821,27 @@ ${scheduleHighlights}
                                                           <span className="text-[10px] font-black tracking-wider text-amber-700 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 uppercase">AWAITING</span>
                                                         )}
                                                         {isPaid && (
-                                                          <div className="p-1 bg-emerald-100 rounded-full border border-emerald-300">
-                                                            <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
+                                                          <div className="flex items-center gap-2">
+                                                            <div className="p-1 bg-emerald-100 rounded-full border border-emerald-300" title="Installment Cleared">
+                                                              <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-100" />
+                                                            </div>
+                                                            {isCurrentMonth && remainingPrincipal > 0 && (
+                                                              <button 
+                                                                onClick={() => {
+                                                                  setSelectedLoan(l);
+                                                                  setIsExtraPrincipalPayment(true);
+                                                                  setExtraPrincipalTargetMonth({ month: installmentMonth, year: installmentYear });
+                                                                  setCustomPrincipal(Math.min(5000, remainingPrincipal));
+                                                                  setLoanRepaymentMethod('online');
+                                                                  setIsPayingLoan(true);
+                                                                }}
+                                                                className="px-3 py-1.5 rounded-xl font-black text-xs transition-all flex items-center gap-1 shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white active:scale-95 cursor-pointer"
+                                                                title="Pay Additional Principal in this month (Interest ₹0)"
+                                                              >
+                                                                <Plus className="w-3.5 h-3.5" />
+                                                                <span>+ Pay Principal</span>
+                                                              </button>
+                                                            )}
                                                           </div>
                                                         )}
                                                       </div>
@@ -13470,7 +13690,8 @@ ${scheduleHighlights}
                              selectedLoanForPayment.year, 
                              selectedLoanForPayment.principal, 
                              selectedLoanForPayment.interest,
-                             paymentModal.mode
+                             paymentModal.mode,
+                             selectedLoanForPayment.isExtraPrincipal
                            );
                         }
                         setPaymentModal(p => ({ ...p, isOpen: false }));
@@ -15994,61 +16215,118 @@ ${scheduleHighlights}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative bg-white w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl shadow-2xl p-4 sm:p-6"
             >
-              <h2 className="text-xl font-extrabold text-slate-900 mb-3">Loan Repayment</h2>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-xl font-extrabold text-slate-900">
+                    {isExtraPrincipalPayment ? "Pay Extra Principal" : "Loan Repayment"}
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {isExtraPrincipalPayment ? "Multiple Payments in Same Month (₹0 Interest)" : "Monthly Installment & 0.5% Interest"}
+                  </p>
+                </div>
+                {isExtraPrincipalPayment && (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    Extra Principal
+                  </span>
+                )}
+              </div>
               
-              {/* Find first unpaid installment */}
               {(() => {
                 const payments = loanPayments.filter(p => p.loanId === selectedLoan.id);
-                let nextMonth = 1;
-                let nextYear = 2024;
+                let nextMonth = extraPrincipalTargetMonth?.month || (new Date().getMonth() + 1);
+                let nextYear = extraPrincipalTargetMonth?.year || new Date().getFullYear();
                 
                 const approvedDate = getLoanSanctionDate(selectedLoan);
-                // Core Unnati Rule: Repayment starts strictly from the next month after approval
                 const startMonth = (approvedDate.getMonth() + 1) % 12 + 1;
                 const startYear = approvedDate.getFullYear() + (approvedDate.getMonth() === 11 ? 1 : 0);
 
                 const paidPayments = loanPayments.filter(p => p.loanId === selectedLoan.id && p.status === 'paid');
                 const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + p.amount, 0);
-                const currentRemainingPrincipal = Math.max(0, selectedLoan.approvedAmount! - totalPrincipalPaid);
+                const currentRemainingPrincipal = Math.max(0, (selectedLoan.approvedAmount || selectedLoan.amount || 0) - totalPrincipalPaid);
 
-                for (let i = 0; i < (selectedLoan.installments || 12); i++) {
-                  const m = (startMonth + i - 1) % 12 + 1;
-                  const y = startYear + Math.floor((startMonth + i - 1) / 12);
-                  // Only skip if there's a paid or pending payment
-                  if (!payments.some(p => p.month === m && p.year === y && (p.status === 'paid' || p.status === 'pending'))) {
-                    nextMonth = m;
-                    nextYear = y;
-                    break;
+                if (!isExtraPrincipalPayment) {
+                  for (let i = 0; i < (selectedLoan.installments || 12); i++) {
+                    const m = (startMonth + i - 1) % 12 + 1;
+                    const y = startYear + Math.floor((startMonth + i - 1) / 12);
+                    if (!payments.some(p => p.month === m && p.year === y && (p.status === 'paid' || p.status === 'pending'))) {
+                      nextMonth = m;
+                      nextYear = y;
+                      break;
+                    }
                   }
                 }
 
                 const principal = customPrincipal;
-                const interest = Math.round(currentRemainingPrincipal * 0.005);
+                const interest = isExtraPrincipalPayment ? 0 : Math.round(currentRemainingPrincipal * 0.005);
                 const total = principal + interest;
 
                 return (
                   <div className="space-y-4">
+                    {isExtraPrincipalPayment && (
+                      <div className="p-3.5 bg-indigo-50/90 rounded-2xl border border-indigo-200/90 text-xs text-indigo-900 space-y-1.5 shadow-2xs">
+                        <div className="flex items-center gap-1.5 font-black text-indigo-950 text-xs">
+                          <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span>Same-Month Additional Principal Payment</span>
+                        </div>
+                        <p className="text-[11px] text-indigo-700 leading-relaxed font-medium">
+                          The monthly EMI and 0.5% interest for {format(new Date(nextYear, nextMonth - 1), 'MMMM yyyy')} are already cleared. This payment goes 100% towards reducing your remaining loan principal.
+                        </p>
+                        <p className="text-xs font-black text-indigo-950 pt-0.5">
+                          Outstanding Principal: ₹{currentRemainingPrincipal.toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                    )}
+
                     <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2.5">Installment Details</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2.5">
+                        {isExtraPrincipalPayment ? "Additional Payment Details" : "Installment Details"}
+                      </p>
                       <div className="flex justify-between mb-1.5 text-sm">
                         <span className="text-slate-600 font-medium">Month</span>
                         <span className="font-bold text-slate-900">{format(new Date(nextYear, nextMonth - 1), 'MMMM yyyy')}</span>
                       </div>
                       <div className="flex justify-between items-center mb-1.5 text-sm">
-                        <span className="text-slate-600 font-medium">Principal</span>
+                        <span className="text-slate-600 font-medium">Principal (₹)</span>
                         <div className="flex items-center gap-1.5">
                           <span className="text-slate-400 text-xs font-bold">₹</span>
                           <input 
                             type="number"
+                            min="100"
+                            max={currentRemainingPrincipal}
                             value={customPrincipal}
-                            onChange={(e) => setCustomPrincipal(Number(e.target.value))}
-                            className="w-20 p-1 bg-white border border-slate-200 rounded-md text-right font-bold text-slate-900 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
+                            onChange={(e) => setCustomPrincipal(Math.max(0, Math.min(currentRemainingPrincipal, Number(e.target.value))))}
+                            className="w-24 p-1 bg-white border border-slate-200 rounded-md text-right font-bold text-slate-900 text-sm focus:ring-1 focus:ring-indigo-500 outline-none"
                           />
                         </div>
                       </div>
-                      <div className="flex justify-between mb-2.5 text-sm">
-                        <span className="text-slate-600 font-medium">Interest (0.5%)</span>
-                        <span className="font-bold text-emerald-600">+₹{Math.round(interest).toLocaleString('en-IN')}</span>
+
+                      {isExtraPrincipalPayment && currentRemainingPrincipal > 0 && (
+                        <div className="flex flex-wrap gap-1.5 py-1.5 border-t border-slate-200/60 mt-1.5">
+                          {[2000, 5000, 10000].filter(amt => amt <= currentRemainingPrincipal).map(amt => (
+                            <button
+                              key={`quick-chip-${amt}`}
+                              type="button"
+                              onClick={() => setCustomPrincipal(amt)}
+                              className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
+                            >
+                              ₹{amt.toLocaleString('en-IN')}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setCustomPrincipal(currentRemainingPrincipal)}
+                            className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold hover:bg-emerald-100 transition-colors cursor-pointer"
+                          >
+                            Full Balance (₹{currentRemainingPrincipal.toLocaleString('en-IN')})
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between mb-2.5 text-sm pt-1">
+                        <span className="text-slate-600 font-medium">Interest</span>
+                        <span className="font-bold text-emerald-600">
+                          {isExtraPrincipalPayment ? "₹0 (Cleared in first monthly EMI)" : `+₹${Math.round(interest).toLocaleString('en-IN')}`}
+                        </span>
                       </div>
                       <div className="pt-2.5 border-t border-slate-200 flex justify-between items-center">
                         <span className="text-sm font-bold text-slate-950">Total Amount</span>
@@ -16094,6 +16372,8 @@ ${scheduleHighlights}
                         onClick={() => {
                           setIsPayingLoan(false);
                           setSelectedLoan(null);
+                          setIsExtraPrincipalPayment(false);
+                          setExtraPrincipalTargetMonth(null);
                         }}
                         className="flex-1 py-2.5 text-slate-500 font-bold hover:bg-slate-50 rounded-xl text-sm transition-all"
                       >
@@ -16103,10 +16383,15 @@ ${scheduleHighlights}
                         onClick={() => {
                           setIsPayingLoan(false);
                           if (loanRepaymentMethod === 'cash') {
-                            payLoanInstallment(selectedLoan!, nextMonth, nextYear, principal, interest, 'cash');
+                            payLoanInstallment(selectedLoan!, nextMonth, nextYear, principal, interest, 'cash', isExtraPrincipalPayment);
                             setSelectedLoan(null);
+                            setIsExtraPrincipalPayment(false);
+                            setExtraPrincipalTargetMonth(null);
                           } else {
-                            handlePayLoanInstallment(selectedLoan!, nextMonth, nextYear, principal, interest, 'online');
+                            handlePayLoanInstallment(selectedLoan!, nextMonth, nextYear, principal, interest, 'online', isExtraPrincipalPayment);
+                            setSelectedLoan(null);
+                            setIsExtraPrincipalPayment(false);
+                            setExtraPrincipalTargetMonth(null);
                           }
                         }}
                         className={cn(
@@ -16348,90 +16633,186 @@ ${scheduleHighlights}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
             >
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Record Loan Payment</h2>
-                  <p className="text-sm text-slate-500 font-medium">For {format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')}</p>
-                </div>
-                <button 
-                  onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              {(() => {
+                const loan = adminManualRepayment.loan!;
+                const payments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
+                const totalPaid = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
+                const approved = loan.approvedAmount || loan.amount || 0;
+                const remainingPrincipal = Math.max(0, approved - totalPaid);
+                const isExtra = adminManualRepayment.isExtraPrincipal;
 
-              <div className="space-y-5">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Principal Amount (₹)</label>
-                  <input
-                    type="number"
-                    value={adminManualRepayment.amount}
-                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, amount: Number(e.target.value) }))}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Interest (₹)</label>
-                  <input
-                    type="number"
-                    value={adminManualRepayment.interest}
-                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, interest: Number(e.target.value) }))}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-emerald-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Date</label>
-                  <input
-                    type="date"
-                    value={adminManualRepayment.paymentDate}
-                    onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, paymentDate: e.target.value }))}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Payment Mode</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {['cash', 'online'].map(m => (
-                      <button
-                        key={`manual-repayment-mode-${m}`}
-                        onClick={() => setAdminManualRepayment(prev => ({ ...prev, method: m as 'cash' | 'online' }))}
-                        className={cn(
-                          "py-3 rounded-2xl text-sm font-bold border-2 transition-all capitalize",
-                          adminManualRepayment.method === m 
-                            ? "bg-indigo-50 border-indigo-600 text-indigo-600" 
-                            : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
-                        )}
+                return (
+                  <>
+                    <div className="flex items-center justify-between mb-5">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-xl font-black text-slate-900">
+                            {isExtra ? "Record Extra Principal" : "Record Loan Payment"}
+                          </h2>
+                          {isExtra && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              Extra Principal
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium mt-0.5">
+                          {isExtra 
+                            ? `Multiple Payments in ${format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')} (₹0 Interest)`
+                            : `For ${format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')}`}
+                        </p>
+                      </div>
+                      <button 
+                        onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+                        className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
                       >
-                        {m}
+                        <X className="w-5 h-5" />
                       </button>
-                    ))}
-                  </div>
-                </div>
+                    </div>
 
-                <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
-                  <span className="text-xs font-bold text-indigo-700 uppercase">Total to Record</span>
-                  <span className="text-xl font-black text-indigo-900">₹{(adminManualRepayment.amount + adminManualRepayment.interest).toLocaleString('en-IN')}</span>
-                </div>
+                    <div className="space-y-4">
+                      {isExtra && (
+                        <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-200/90 text-xs text-indigo-900 space-y-1">
+                          <div className="flex items-center gap-1.5 font-black text-indigo-950 text-xs">
+                            <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <span>Additional Principal Payment in Same Month</span>
+                          </div>
+                          <p className="text-[11px] text-indigo-700 leading-relaxed font-medium">
+                            Monthly EMI and 0.5% interest are already recorded. This payment applies 100% towards principal reduction with ₹0 interest.
+                          </p>
+                          <p className="text-xs font-black text-indigo-950 pt-0.5">
+                            Remaining Outstanding Principal: ₹{remainingPrincipal.toLocaleString('en-IN')}
+                          </p>
+                        </div>
+                      )}
 
-                <div className="flex gap-3 pt-4">
-                  <button 
-                    onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={submitAdminManualRepayment}
-                    className="flex-[1.5] py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <CheckCircle2 className="w-5 h-5" /> Confirm Payment
-                  </button>
-                </div>
-              </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            Principal Amount (₹)
+                          </label>
+                          {remainingPrincipal > 0 && (
+                            <span className="text-[11px] font-bold text-slate-500">
+                              Max: ₹{remainingPrincipal.toLocaleString('en-IN')}
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="number"
+                          min="100"
+                          max={remainingPrincipal > 0 ? remainingPrincipal : undefined}
+                          value={adminManualRepayment.amount}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setAdminManualRepayment(prev => ({
+                              ...prev,
+                              amount: remainingPrincipal > 0 ? Math.min(val, remainingPrincipal) : val
+                            }));
+                          }}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                        />
+                        {isExtra && remainingPrincipal > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-2">
+                            {[2000, 5000, 10000].filter(amt => amt <= remainingPrincipal).map(amt => (
+                              <button
+                                key={`admin-quick-chip-${amt}`}
+                                type="button"
+                                onClick={() => setAdminManualRepayment(prev => ({ ...prev, amount: amt }))}
+                                className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
+                              >
+                                ₹{amt.toLocaleString('en-IN')}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => setAdminManualRepayment(prev => ({ ...prev, amount: remainingPrincipal }))}
+                              className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold hover:bg-emerald-100 transition-colors cursor-pointer"
+                            >
+                              Full Balance (₹{remainingPrincipal.toLocaleString('en-IN')})
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          Interest (₹)
+                        </label>
+                        {isExtra ? (
+                          <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-between text-slate-600">
+                            <span className="text-base font-bold text-slate-500">₹0</span>
+                            <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                              Cleared in 1st monthly EMI
+                            </span>
+                          </div>
+                        ) : (
+                          <input
+                            type="number"
+                            value={adminManualRepayment.interest}
+                            onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, interest: Number(e.target.value) }))}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-emerald-600"
+                          />
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Payment Date</label>
+                        <input
+                          type="date"
+                          value={adminManualRepayment.paymentDate}
+                          onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, paymentDate: e.target.value }))}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Payment Mode</label>
+                        <div className="grid grid-cols-2 gap-3">
+                          {['cash', 'online'].map(m => (
+                            <button
+                              key={`manual-repayment-mode-${m}`}
+                              onClick={() => setAdminManualRepayment(prev => ({ ...prev, method: m as 'cash' | 'online' }))}
+                              className={cn(
+                                "py-3 rounded-2xl text-sm font-bold border-2 transition-all capitalize",
+                                adminManualRepayment.method === m 
+                                  ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-xs" 
+                                  : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
+                              )}
+                            >
+                              {m}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-700 uppercase">
+                          {isExtra ? "Total Principal to Record" : "Total to Record"}
+                        </span>
+                        <span className="text-xl font-black text-indigo-900">
+                          ₹{(adminManualRepayment.amount + (isExtra ? 0 : adminManualRepayment.interest)).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-3 pt-3">
+                        <button 
+                          onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+                          className="flex-1 py-3.5 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all text-sm"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          disabled={adminManualRepayment.amount <= 0}
+                          onClick={submitAdminManualRepayment}
+                          className="flex-[1.5] py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <CheckCircle2 className="w-4 h-4" /> 
+                          <span>{isExtra ? "Record Extra Principal" : "Confirm Payment"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </motion.div>
           </div>
         )}
