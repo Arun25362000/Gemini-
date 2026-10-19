@@ -594,6 +594,8 @@ export default function App() {
   const [customAmount, setCustomAmount] = useState<number>(1000);
   const [customFine, setCustomFine] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online'>('online');
+  const [contribPayMode, setContribPayMode] = useState<'single' | 'multi'>('single');
+  const [selectedMultiMonthKeys, setSelectedMultiMonthKeys] = useState<string[]>([]);
   const [loanRepaymentMethod, setLoanRepaymentMethod] = useState<'cash' | 'online'>('online');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingNotification, setPendingNotification] = useState<string | null>(null);
@@ -726,6 +728,9 @@ export default function App() {
     note: string;
     type: 'contribution' | 'loan';
     mode: 'online' | 'cash';
+    multiMonths?: Array<{ month: number; year: number; amount: number; isAdvance: boolean }>;
+    advanceSpanText?: string;
+    targetUserId?: string;
   }>({ isOpen: false, amount: 0, note: '', type: 'contribution', mode: 'online' });
   const [selectedLoanForPayment, setSelectedLoanForPayment] = useState<{
     loan: Loan;
@@ -3082,10 +3087,128 @@ export default function App() {
     }
   }, [isLatePaymentDate, paymentDate, isAdding, selectedMonth, selectedYear]);
 
+  // Target Member for Contribution Modal
+  const contribModalTargetUser = useMemo(() => {
+    if (isAdmin) {
+      if (!selectedUserId) return null;
+      return allUsers.find(u => 
+        (u.uid && (u.uid === selectedUserId || (u as any).id === selectedUserId)) ||
+        (u.email && u.email.toLowerCase() === selectedUserId.toLowerCase())
+      ) || null;
+    }
+    return profile ? (allUsers.find(u => (u.uid && u.uid === user?.uid) || (u.email && u.email.toLowerCase() === user?.email?.toLowerCase())) || profile) : null;
+  }, [isAdmin, selectedUserId, allUsers, profile, user]);
+
+  // Generate upcoming months (20 months ahead) for multi-month advance selection
+  const upcomingMultiMonths = useMemo(() => {
+    const list: Array<{ month: number; year: number; key: string; label: string; isPastOrCurrent: boolean; isFuture: boolean }> = [];
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+
+    for (let i = 0; i < 20; i++) {
+      const d = new Date(curYear, curMonth - 1 + i, 1);
+      const m = d.getMonth() + 1;
+      const y = d.getFullYear();
+      const key = `${y}-${m}`;
+      const isPastOrCurrent = (y < curYear) || (y === curYear && m <= curMonth);
+      const isFuture = (y > curYear) || (y === curYear && m > curMonth);
+      list.push({
+        month: m,
+        year: y,
+        key,
+        label: format(d, 'MMM yyyy'),
+        isPastOrCurrent,
+        isFuture
+      });
+    }
+    return list;
+  }, []);
+
+  // Check if a month is settled for contribModalTargetUser
+  const isTargetMonthSettled = useCallback((m: number, y: number) => {
+    if (!contribModalTargetUser) return false;
+    const uid = contribModalTargetUser.uid || (contribModalTargetUser as any).id;
+    const email = (contribModalTargetUser.email || '').toLowerCase().trim();
+
+    return contributions.some(c => {
+      const match = (uid && (c.userId === uid || (c as any).id === uid)) || (email && c.userEmail?.toLowerCase().trim() === email);
+      if (!match) return false;
+      return c.status === 'paid' && c.month === m && c.year === y;
+    });
+  }, [contribModalTargetUser, contributions]);
+
+  // Check if a month is pending for contribModalTargetUser
+  const isTargetMonthPending = useCallback((m: number, y: number) => {
+    if (!contribModalTargetUser) return false;
+    const uid = contribModalTargetUser.uid || (contribModalTargetUser as any).id;
+    const email = (contribModalTargetUser.email || '').toLowerCase().trim();
+
+    return contributions.some(c => {
+      const match = (uid && (c.userId === uid || (c as any).id === uid)) || (email && c.userEmail?.toLowerCase().trim() === email);
+      if (!match) return false;
+      return c.status === 'pending' && c.month === m && c.year === y;
+    });
+  }, [contribModalTargetUser, contributions]);
+
+  // Available unpaid months for quick presets
+  const availableUnpaidMultiMonths = useMemo(() => {
+    return upcomingMultiMonths.filter(m => !isTargetMonthSettled(m.month, m.year) && !isTargetMonthPending(m.month, m.year));
+  }, [upcomingMultiMonths, isTargetMonthSettled, isTargetMonthPending]);
+
+  // Sorted selected multi-months
+  const sortedMultiMonths = useMemo(() => {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+
+    return selectedMultiMonthKeys
+      .map(key => {
+        const [y, m] = key.split('-').map(Number);
+        const isFuture = (y > curYear) || (y === curYear && m > curMonth);
+        return { month: m, year: y, key, isAdvance: isFuture };
+      })
+      .sort((a, b) => (a.year * 100 + a.month) - (b.year * 100 + b.month));
+  }, [selectedMultiMonthKeys]);
+
+  // Advance span text
+  const multiMonthSpanText = useMemo(() => {
+    if (sortedMultiMonths.length === 0) return '';
+    const count = sortedMultiMonths.length;
+    const first = sortedMultiMonths[0];
+    const last = sortedMultiMonths[sortedMultiMonths.length - 1];
+    const firstStr = format(new Date(first.year, first.month - 1, 1), 'MMM yyyy');
+    const lastStr = format(new Date(last.year, last.month - 1, 1), 'MMM yyyy');
+
+    if (count === 1) {
+      return `${firstStr} · 1 Month`;
+    }
+    return `${firstStr} – ${lastStr} · ${count} Months`;
+  }, [sortedMultiMonths]);
+
+  // Multi-month breakdown & total amount
+  const multiMonthBreakdown = useMemo(() => {
+    const now = new Date();
+    const curY = now.getFullYear();
+    const curM = now.getMonth() + 1;
+    const list = sortedMultiMonths.map((m, idx) => {
+      const isCurrentOrPast = m.year < curY || (m.year === curY && m.month <= curM);
+      const fineAmt = (isCurrentOrPast && isLatePaymentDate && idx === 0) ? customFine : 0;
+      return {
+        month: m.month,
+        year: m.year,
+        amount: MONTHLY_AMOUNT + fineAmt,
+        isAdvance: m.isAdvance
+      };
+    });
+    const totalAmount = list.reduce((sum, item) => sum + item.amount, 0);
+    return { list, totalAmount };
+  }, [sortedMultiMonths, isLatePaymentDate, customFine]);
+
   // Helper to generate simple WhatsApp message acknowledgment for member payments
   const triggerPaymentWhatsAppAcknowledgment = (params: {
     targetUser: UserProfile | null | undefined;
-    type: 'subscription_recorded' | 'subscription_approved' | 'loan_recorded' | 'loan_approved';
+    type: 'subscription_recorded' | 'subscription_approved' | 'advance_subscription_recorded' | 'advance_subscription_approved' | 'loan_recorded' | 'loan_approved';
     amount: number;
     principal?: number;
     interest?: number;
@@ -3098,6 +3221,8 @@ export default function App() {
     totalPrincipalPaid?: number;
     totalInterestPaid?: number;
     loanId?: string;
+    advanceSpanText?: string;
+    isAdvance?: boolean;
   }) => {
     if (!params.targetUser) return;
     const rawPhone = 
@@ -3123,7 +3248,7 @@ export default function App() {
 
     // Calculate member's Total Subscription Balance up to and including the month & year being recorded
     let totalSubscriptionBalance = 0;
-    if (params.type === 'subscription_recorded' || params.type === 'subscription_approved') {
+    if (params.type === 'subscription_recorded' || params.type === 'subscription_approved' || params.type === 'advance_subscription_recorded' || params.type === 'advance_subscription_approved') {
       const userPaidPriorAndCurrent = contributions.filter(c => {
         const matchesUser = 
           (params.targetUser?.uid && (c.userId === params.targetUser.uid || (params.targetUser as any).id === c.userId)) ||
@@ -3205,7 +3330,17 @@ export default function App() {
       }
     }
 
-    if (params.type === 'subscription_recorded') {
+    if (params.type === 'advance_subscription_recorded' || (params.isAdvance && params.type === 'subscription_recorded')) {
+      actionBadge = 'Advance Subscription Recorded';
+      modalTitle = 'Advance Contribution Recorded';
+      const spanStr = params.advanceSpanText || `${monthName} ${params.year}`;
+      message = `*Unnati Trust - Advance Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour advance subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${spanStr}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Confirmed & Recorded\n• Covered Period: ${spanStr}\n• Allocation: Split at ₹1,000 / month to your savings ledger\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you for your prompt advance contribution!`;
+    } else if (params.type === 'advance_subscription_approved' || (params.isAdvance && params.type === 'subscription_approved')) {
+      actionBadge = 'Advance Subscription Approved';
+      modalTitle = 'Advance Payment Approved';
+      const spanStr = params.advanceSpanText || `${monthName} ${params.year}`;
+      message = `*Unnati Trust - Advance Payment Approved* ✅\n\nDear *${memberName}*,\nYour advance subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${spanStr}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Covered Period: ${spanStr}\n• Allocation: Split at ₹1,000 / month to your savings ledger\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you!`;
+    } else if (params.type === 'subscription_recorded') {
       actionBadge = 'Subscription Recorded';
       modalTitle = 'Subscription Payment Recorded';
       message = `*Unnati Trust - Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Confirmed & Recorded\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you for your prompt contribution!`;
@@ -3305,15 +3440,138 @@ export default function App() {
     }
   };
 
+  const addMultiMonthContribution = async (
+    monthsList: Array<{ month: number; year: number; amount: number; isAdvance: boolean }>,
+    targetUserId?: string,
+    status: 'paid' | 'pending' = 'paid',
+    customDate?: string,
+    method: 'cash' | 'online' = 'online',
+    spanText?: string
+  ) => {
+    if (!user || !profile) return;
+    const uid = targetUserId || user.uid;
+    const targetUser = allUsers.find(u => 
+      (uid && (u.uid === uid || u.id === uid)) || 
+      (uid && u.email.toLowerCase() === uid.toLowerCase())
+    );
+    if (!targetUser) return;
+
+    if (!monthsList || monthsList.length === 0) {
+      notify('error', "No months selected for advance contribution.");
+      return;
+    }
+
+    try {
+      const timestampValue = customDate ? getTimestampFromDateString(customDate) : serverTimestamp();
+      const batch = writeBatch(db);
+      const batchGroupId = `adv_${Date.now()}_${(targetUser.uid || targetUser.email).replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const coveredMonthsSummary = monthsList.map(m => ({ month: m.month, year: m.year, amount: m.amount }));
+      const totalAmount = monthsList.reduce((sum, m) => sum + (m.amount || 0), 0);
+
+      let addedCount = 0;
+      for (const m of monthsList) {
+        // Double check if already paid or existing to avoid duplicate entries
+        const existing = contributions.find(c => 
+          ((targetUser.uid && c.userId === targetUser.uid) || (targetUser.email && c.userEmail?.toLowerCase() === targetUser.email.toLowerCase())) &&
+          c.month === m.month && c.year === m.year && c.status === 'paid'
+        );
+        if (existing) continue;
+
+        const newDocRef = doc(collection(db, 'contributions'));
+        batch.set(newDocRef, {
+          userId: targetUser.uid || null,
+          userEmail: targetUser.email,
+          month: m.month,
+          year: m.year,
+          amount: m.amount,
+          status,
+          paymentMethod: method || 'online',
+          timestamp: timestampValue,
+          isAdvance: m.isAdvance,
+          advanceSpanText: spanText || `${monthsList.length} Months Advance`,
+          coveredMonths: coveredMonthsSummary,
+          transactionGroupId: batchGroupId
+        });
+        addedCount++;
+      }
+
+      if (addedCount === 0) {
+        notify('error', "Selected months have already been recorded.");
+        return;
+      }
+
+      await batch.commit();
+
+      setIsAdding(false);
+      setSelectedMultiMonthKeys([]);
+      setContribPayMode('single');
+      setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+      setPaymentMethod('online');
+
+      if (status === 'pending') {
+        notify('success', `Advance payment for ${addedCount} months recorded as pending! Administrator will verify soon.`);
+      } else if (isAdmin) {
+        notify('success', `Advance contribution of ₹${totalAmount.toLocaleString('en-IN')} for ${addedCount} months recorded successfully!`);
+        triggerPaymentWhatsAppAcknowledgment({
+          targetUser,
+          type: 'advance_subscription_recorded',
+          amount: totalAmount,
+          month: monthsList[0].month,
+          year: monthsList[0].year,
+          paymentMode: method || 'online',
+          paymentDate: customDate || new Date(),
+          advanceSpanText: spanText || `${addedCount} Months Advance`,
+          isAdvance: true
+        });
+      } else {
+        notify('success', `Advance contribution for ${addedCount} months recorded successfully!`);
+      }
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.CREATE, 'contributions');
+    }
+  };
+
   const approveContribution = async (id: string) => {
     if (profile?.role !== 'admin') return;
     try {
       const contrib = contributions.find(c => c.id === id);
-      await updateDoc(doc(db, 'contributions', id), {
-        status: 'paid'
-      });
-      
-      if (contrib) {
+      if (!contrib) return;
+
+      if (contrib.transactionGroupId) {
+        // Approve all linked contributions in this advance transaction group
+        const linkedContribs = contributions.filter(c => c.transactionGroupId === contrib.transactionGroupId && c.status === 'pending');
+        const batch = writeBatch(db);
+        linkedContribs.forEach(lc => {
+          if (lc.id) {
+            batch.update(doc(db, 'contributions', lc.id), { status: 'paid' });
+          }
+        });
+        await batch.commit();
+
+        const targetUser = allUsers.find(u => 
+          (contrib.userId && u.uid === contrib.userId) || 
+          (contrib.userEmail && u.email.toLowerCase() === contrib.userEmail.toLowerCase())
+        );
+        if (targetUser) {
+          const totalGroupAmt = linkedContribs.reduce((sum, lc) => sum + (lc.amount || 0), 0);
+          triggerPaymentWhatsAppAcknowledgment({
+            targetUser,
+            type: 'advance_subscription_approved',
+            amount: totalGroupAmt || contrib.amount,
+            month: contrib.month,
+            year: contrib.year,
+            paymentMode: contrib.paymentMethod || 'online',
+            paymentDate: contrib.timestamp?.toDate ? contrib.timestamp.toDate() : new Date(),
+            advanceSpanText: contrib.advanceSpanText,
+            isAdvance: true
+          });
+        }
+        notify('success', `Advance contribution approved for ${linkedContribs.length} months!`);
+      } else {
+        await updateDoc(doc(db, 'contributions', id), {
+          status: 'paid'
+        });
+        
         const targetUser = allUsers.find(u => 
           (contrib.userId && u.uid === contrib.userId) || 
           (contrib.userEmail && u.email.toLowerCase() === contrib.userEmail.toLowerCase())
@@ -3321,17 +3579,18 @@ export default function App() {
         if (targetUser) {
           triggerPaymentWhatsAppAcknowledgment({
             targetUser,
-            type: 'subscription_approved',
+            type: contrib.isAdvance ? 'advance_subscription_approved' : 'subscription_approved',
             amount: contrib.amount,
             month: contrib.month,
             year: contrib.year,
             paymentMode: contrib.paymentMethod || 'online',
-            paymentDate: contrib.timestamp?.toDate ? contrib.timestamp.toDate() : new Date()
+            paymentDate: contrib.timestamp?.toDate ? contrib.timestamp.toDate() : new Date(),
+            advanceSpanText: contrib.advanceSpanText,
+            isAdvance: contrib.isAdvance
           });
         }
+        notify('success', "Contribution approved!");
       }
-      
-      notify('success', "Contribution approved!");
     } catch (err: any) {
       handleFirestoreError(err, OperationType.UPDATE, `contributions/${id}`);
     }
@@ -3650,18 +3909,30 @@ export default function App() {
     }
   };
 
-  const handleUPIPayment = (month: number, year: number, customPayAmount?: number) => {
+  const handleUPIPayment = (
+    month: number, 
+    year: number, 
+    customPayAmount?: number,
+    multiMonths?: Array<{ month: number; year: number; amount: number; isAdvance: boolean }>,
+    advanceSpanText?: string,
+    targetUid?: string
+  ) => {
     if (!user || !profile) return;
     
     const monthName = format(new Date(year, month - 1), 'MMMM');
     const amount = customPayAmount !== undefined ? customPayAmount : getContributionAmount(month, year, paymentDate);
-    const note = `Unnati Contribution - ${monthName} ${year}`;
+    const note = advanceSpanText
+      ? `Unnati Advance Contrib - ${advanceSpanText}`
+      : `Unnati Contribution - ${monthName} ${year}`;
     setPaymentModal({
       isOpen: true,
       amount: typeof amount === 'number' ? amount : parseFloat(String(amount)),
       note,
       type: 'contribution',
-      mode: 'online'
+      mode: 'online',
+      multiMonths,
+      advanceSpanText,
+      targetUserId: targetUid
     });
     setSelectedLoanForPayment(null);
   };
@@ -8471,16 +8742,31 @@ ${scheduleHighlights}
             )}
             {activeTab === 'contributions' && !isAdmin && (
               <button 
-                onClick={() => !hasPaidCurrent && !hasPendingCurrent && setIsAdding(true)}
-                disabled={hasPaidCurrent || hasPendingCurrent}
+                onClick={() => {
+                  if (hasPaidCurrent || hasPendingCurrent) {
+                    setContribPayMode('multi');
+                  } else {
+                    setContribPayMode('single');
+                  }
+                  setIsAdding(true);
+                }}
                 className={cn(
-                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-                  (hasPaidCurrent || hasPendingCurrent) 
-                    ? "bg-slate-100 text-slate-400 shadow-none border border-slate-200" 
-                    : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 cursor-pointer text-white",
+                  (hasPaidCurrent || hasPendingCurrent)
+                    ? "bg-gradient-to-r from-indigo-600 to-indigo-700 shadow-indigo-200 hover:from-indigo-700 hover:to-indigo-800"
+                    : "bg-indigo-600 shadow-indigo-100 hover:bg-indigo-700"
                 )}
+                title={(hasPaidCurrent || hasPendingCurrent) ? "Pay upcoming months in advance" : "Pay regular contribution"}
               >
-                <Wallet className="w-5 h-5" /> Pay Now
+                {(hasPaidCurrent || hasPendingCurrent) ? (
+                  <>
+                    <Sparkles className="w-5 h-5 text-indigo-200" /> Pay Advance
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="w-5 h-5" /> Pay Now
+                  </>
+                )}
               </button>
             )}
             {/* Remove the separate Pending div as it's now handled in the button */}
@@ -9133,23 +9419,29 @@ ${scheduleHighlights}
                                         setSelectedUserId(userId);
                                         const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
                                           .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                                        if (firstMissing) setSelectedMonth(firstMissing);
-                                        setSelectedYear(currentYear);
+                                        if (firstMissing) {
+                                          setSelectedMonth(firstMissing);
+                                          setSelectedYear(currentYear);
+                                          setContribPayMode('single');
+                                        } else {
+                                          setContribPayMode('multi');
+                                          setSelectedMonth(currentMonth === 12 ? 1 : currentMonth + 1);
+                                          setSelectedYear(currentMonth === 12 ? currentYear + 1 : currentYear);
+                                        }
                                         setIsAdding(true);
                                       }}
-                                      disabled={!hasPendingThisYear}
                                       className={cn(
-                                        "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-2xs select-none shrink-0",
+                                        "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-2xs select-none shrink-0 cursor-pointer active:scale-95",
                                         !hasPendingThisYear 
-                                          ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-default opacity-70" 
-                                          : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-indigo-200/60 hover:shadow-xs active:scale-95 cursor-pointer"
+                                          ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200" 
+                                          : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-indigo-200/60"
                                       )}
-                                      title={!hasPendingThisYear ? "All contributions for this year are paid" : "Record Pending Contribution"}
+                                      title={!hasPendingThisYear ? "Record Advance Contribution for future months" : "Record Pending Contribution"}
                                     >
                                       {!hasPendingThisYear ? (
                                         <>
-                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                          <span className="text-slate-600">Paid</span>
+                                          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                                          <span>+ Advance</span>
                                         </>
                                       ) : (
                                         <>
@@ -9338,6 +9630,27 @@ ${scheduleHighlights}
                         <div className="flex flex-col text-left min-w-0">
                           <span className="font-bold text-slate-900 leading-tight">Add Loan</span>
                           <span className="text-[10px] text-slate-400 font-normal">Sanction loan for member</span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const targetUser = memberActionMenu.member;
+                          setMemberActionMenu(null);
+                          setSelectedUserId(targetUser.uid || targetUser.email);
+                          setContribPayMode('multi');
+                          setIsAdding(true);
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 border border-indigo-200/70">
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="flex flex-col text-left min-w-0">
+                          <span className="font-bold text-slate-900 leading-tight">Record Advance Payment</span>
+                          <span className="text-[10px] text-slate-400 font-normal">Multi-month split contribution</span>
                         </div>
                       </button>
                       <button
@@ -9647,22 +9960,28 @@ ${scheduleHighlights}
                             setSelectedUserId(userId);
                             const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
                               .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                            if (firstMissing) setSelectedMonth(firstMissing);
-                            setSelectedYear(currentYear);
+                            if (firstMissing) {
+                              setSelectedMonth(firstMissing);
+                              setSelectedYear(currentYear);
+                              setContribPayMode('single');
+                            } else {
+                              setContribPayMode('multi');
+                              setSelectedMonth(currentMonth === 12 ? 1 : currentMonth + 1);
+                              setSelectedYear(currentMonth === 12 ? currentYear + 1 : currentYear);
+                            }
                             setIsAdding(true);
                           }}
-                          disabled={!hasPendingThisYear}
                           className={cn(
-                            "w-full py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+                            "w-full py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer",
                             !hasPendingThisYear 
-                              ? "bg-slate-100 text-slate-400 border border-slate-200" 
+                              ? "bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
                               : "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white hover:from-indigo-700 hover:to-indigo-800 shadow-indigo-200/60"
                           )}
                         >
                           {!hasPendingThisYear ? (
                             <>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" />
-                              <span>All Contributions Paid</span>
+                              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Record Advance Contribution</span>
                             </>
                           ) : (
                             <>
@@ -13237,9 +13556,22 @@ ${scheduleHighlights}
                               )}
                               {(!isAdmin || appliedFilter.month === 'all' || appliedFilter.year === 'all') && (
                                 <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
-                                  <span className="text-sm font-bold text-slate-800">
-                                    {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-sm font-bold text-slate-800">
+                                      {format(new Date(c.year, c.month - 1), 'MMMM yyyy')}
+                                    </span>
+                                    {c.isAdvance && (
+                                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs">
+                                        <Sparkles className="w-2.5 h-2.5 text-indigo-600" />
+                                        Advance
+                                      </span>
+                                    )}
+                                  </div>
+                                  {c.advanceSpanText && (
+                                    <span className="text-[10px] text-slate-400 font-medium block truncate max-w-[190px]">
+                                      {c.advanceSpanText}
+                                    </span>
+                                  )}
                                 </td>
                               )}
                               <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
@@ -13383,7 +13715,17 @@ ${scheduleHighlights}
                             </div>
                             <div>
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Period</p>
-                              <p className="font-bold text-slate-700 text-xs mt-0.5">{periodFormatted}</p>
+                              <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                <p className="font-bold text-slate-700 text-xs">{periodFormatted}</p>
+                                {c.isAdvance && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9.5px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    Advance
+                                  </span>
+                                )}
+                              </div>
+                              {c.advanceSpanText && (
+                                <p className="text-[9.5px] text-slate-400 truncate mt-0.5">{c.advanceSpanText}</p>
+                              )}
                             </div>
                             <div>
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment Date</p>
@@ -13673,15 +14015,28 @@ ${scheduleHighlights}
                       onClick={async () => {
                         // Mark as recorded
                         if (paymentModal.type === 'contribution') {
-                           notify('success', `Payment noted as ${paymentModal.mode}. Admin will verify once received.`);
-                           const parts = paymentModal.note.split(' ');
-                           const yearStr = parts[parts.length - 1];
-                           const monthName = parts[parts.length - 2];
-                           const monthMap: any = { 'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12 };
-                           const month = monthMap[monthName] || (new Date().getMonth() + 1);
-                           const year = parseInt(yearStr) || new Date().getFullYear();
-                           const paymentDateToRecord = paymentDate || format(new Date(), 'yyyy-MM-dd');
-                           await addContribution(month, year, undefined, 'pending', paymentDateToRecord, paymentModal.amount, paymentModal.mode);
+                           if (paymentModal.multiMonths && paymentModal.multiMonths.length > 0) {
+                              notify('success', `Advance payment noted as ${paymentModal.mode}. Admin will verify once received.`);
+                              const paymentDateToRecord = paymentDate || format(new Date(), 'yyyy-MM-dd');
+                              await addMultiMonthContribution(
+                                paymentModal.multiMonths,
+                                paymentModal.targetUserId || selectedUserId || undefined,
+                                'pending',
+                                paymentDateToRecord,
+                                paymentModal.mode,
+                                paymentModal.advanceSpanText
+                              );
+                           } else {
+                              notify('success', `Payment noted as ${paymentModal.mode}. Admin will verify once received.`);
+                              const parts = paymentModal.note.split(' ');
+                              const yearStr = parts[parts.length - 1];
+                              const monthName = parts[parts.length - 2];
+                              const monthMap: any = { 'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12 };
+                              const month = monthMap[monthName] || (new Date().getMonth() + 1);
+                              const year = parseInt(yearStr) || new Date().getFullYear();
+                              const paymentDateToRecord = paymentDate || format(new Date(), 'yyyy-MM-dd');
+                              await addContribution(month, year, paymentModal.targetUserId || selectedUserId || undefined, 'pending', paymentDateToRecord, paymentModal.amount, paymentModal.mode);
+                           }
                         } else if (paymentModal.type === 'loan' && selectedLoanForPayment) {
                            notify('success', `Installment noted as ${paymentModal.mode}. Admin will verify once received.`);
                            await payLoanInstallment(
@@ -15552,7 +15907,7 @@ ${scheduleHighlights}
         )}
 
         {isAdding && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div 
               key="modal-add-contrib-backdrop"
               initial={{ opacity: 0 }}
@@ -15561,218 +15916,557 @@ ${scheduleHighlights}
               onClick={() => {
                 setIsAdding(false);
                 setSelectedUserId(null);
+                setSelectedMultiMonthKeys([]);
+                setContribPayMode('single');
               }}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
             />
             <motion.div 
               key="modal-add-contrib-content"
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className={cn(
+                "relative bg-white w-full rounded-3xl shadow-2xl border border-slate-200/90 p-5 sm:p-7 max-h-[92vh] overflow-y-auto my-auto z-10 transition-all duration-300",
+                contribPayMode === 'multi' ? "max-w-xl" : "max-w-md"
+              )}
             >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">Record Contribution</h2>
-              <div className="space-y-6">
+              {/* Header with Title & Mode Switch */}
+              <div className="flex items-start justify-between gap-3 mb-5 pb-4 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+                      Record Contribution
+                    </h2>
+                    {contribPayMode === 'multi' && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5" /> Advance
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    {contribPayMode === 'multi' 
+                      ? 'Select multiple future months with automatic ledger split' 
+                      : 'Record regular monthly subscription payment'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAdding(false);
+                    setSelectedUserId(null);
+                    setSelectedMultiMonthKeys([]);
+                    setContribPayMode('single');
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer shrink-0"
+                  title="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Mode Tabs: Single Month vs Multi-Month Advance */}
+              <div className="p-1 bg-slate-100/90 rounded-2xl flex gap-1 mb-5 border border-slate-200/70">
+                <button
+                  type="button"
+                  onClick={() => setContribPayMode('single')}
+                  className={cn(
+                    "flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all text-center cursor-pointer",
+                    contribPayMode === 'single'
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800 hover:bg-white/50"
+                  )}
+                >
+                  Standard (1 Month)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContribPayMode('multi');
+                    if (selectedMultiMonthKeys.length === 0 && availableUnpaidMultiMonths.length > 0) {
+                      // Smart default: pre-select next 3 unpaid months
+                      setSelectedMultiMonthKeys(availableUnpaidMultiMonths.slice(0, 3).map(m => m.key));
+                    }
+                  }}
+                  className={cn(
+                    "flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                    contribPayMode === 'multi'
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50/50"
+                  )}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Multi-Month Advance</span>
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                {/* Admin Select Member */}
                 {isAdmin && (
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Select Member</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Member</label>
                     <select 
                       value={selectedUserId || ''}
-                      onChange={(e) => setSelectedUserId(e.target.value)}
-                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                      onChange={(e) => {
+                        setSelectedUserId(e.target.value);
+                        setSelectedMultiMonthKeys([]);
+                      }}
+                      className="w-full py-3 px-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
                     >
                       <option value="">Select a member...</option>
                       {allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase()).map((u, uidx) => (
                         <option key={`contrib-reg-opt-${u.email?.toLowerCase() || 'email'}-${uidx}`} value={u.uid || u.email}>
-                          {u.displayName || u.email}
+                          {u.displayName || u.email} {u.phoneNumber ? `(${u.phoneNumber})` : ''}
                         </option>
                       ))}
                     </select>
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Month</label>
-                    <select 
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                    >
-                      {Array.from({ length: 12 }).map((_, i) => (
-                        <option key={`contrib-reg-month-${i + 1}`} value={i + 1}>
-                          {format(new Date(2024, i, 1), 'MMMM')}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Year</label>
-                    <select 
-                      value={selectedYear}
-                      onChange={(e) => setSelectedYear(Number(e.target.value))}
-                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                    >
-                      {getAppAvailableYears().map(y => (
-                        <option key={`contrib-reg-year-${y}`} value={y}>{y}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                {/* SINGLE MONTH MODE */}
+                {contribPayMode === 'single' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Month</label>
+                        <select 
+                          value={selectedMonth}
+                          onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                          className="w-full py-3 px-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                        >
+                          {Array.from({ length: 12 }).map((_, i) => (
+                            <option key={`contrib-reg-month-${i + 1}`} value={i + 1}>
+                              {format(new Date(2024, i, 1), 'MMMM')}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Year</label>
+                        <select 
+                          value={selectedYear}
+                          onChange={(e) => setSelectedYear(Number(e.target.value))}
+                          className="w-full py-3 px-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                        >
+                          {getAppAvailableYears().map(y => (
+                            <option key={`contrib-reg-year-${y}`} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                            Subscription (₹)
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">₹</span>
+                            <input
+                              type="number"
+                              value={MONTHLY_AMOUNT}
+                              disabled
+                              className="w-full pl-7 pr-3 py-2.5 bg-white rounded-xl border border-slate-200 text-slate-700 font-bold text-sm outline-none cursor-not-allowed"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                              Fine / Late Fee (₹)
+                            </label>
+                            <span className={cn(
+                              "text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider border",
+                              isLatePaymentDate 
+                                ? "bg-red-50 text-red-600 border-red-200" 
+                                : "bg-slate-100 text-slate-400 border-slate-200"
+                            )}>
+                              {isLatePaymentDate ? "Active (>10th)" : "Inactive (≤10th)"}
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className={cn(
+                              "absolute left-3 top-1/2 -translate-y-1/2 font-bold text-sm",
+                              isLatePaymentDate ? "text-red-600" : "text-slate-400"
+                            )}>₹</span>
+                            <input
+                              type="number"
+                              value={isLatePaymentDate ? customFine : 0}
+                              onChange={(e) => {
+                                const val = Math.max(0, Number(e.target.value) || 0);
+                                setCustomFine(val);
+                                setCustomAmount(MONTHLY_AMOUNT + val);
+                              }}
+                              disabled={!isLatePaymentDate}
+                              className={cn(
+                                "w-full pl-7 pr-3 py-2.5 rounded-xl border font-bold text-sm outline-none transition-all",
+                                isLatePaymentDate
+                                  ? "bg-red-50/50 border-red-300 text-red-700 focus:ring-2 focus:ring-red-400"
+                                  : "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
+                              )}
+                              placeholder="0"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
+                        <div>
+                          <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Total Amount to Pay</span>
+                          <p className="text-[10px] text-slate-400 font-medium">
+                            {isLatePaymentDate 
+                              ? `₹${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base + ₹${customFine.toLocaleString('en-IN')} Fine (Paid after 10th)` 
+                              : `₹${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base (Paid on or before 10th)`}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xl font-black text-indigo-900">
+                            ₹{(MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0)).toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* MULTI-MONTH ADVANCE MODE */}
+                {contribPayMode === 'multi' && (
+                  <div className="space-y-4">
+                    {/* Quick Presets Bar */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-700">
+                          Quick Presets
+                        </label>
+                        <span className="text-[10.5px] font-semibold text-slate-400">
+                          1-tap forward select
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const keys = availableUnpaidMultiMonths.slice(0, 3).map(m => m.key);
+                            setSelectedMultiMonthKeys(keys);
+                          }}
+                          className="py-2 px-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all text-center cursor-pointer active:scale-95"
+                        >
+                          Next 3 Mos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const keys = availableUnpaidMultiMonths.slice(0, 6).map(m => m.key);
+                            setSelectedMultiMonthKeys(keys);
+                          }}
+                          className="py-2 px-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all text-center cursor-pointer active:scale-95"
+                        >
+                          Next 6 Mos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const keys = availableUnpaidMultiMonths.slice(0, 12).map(m => m.key);
+                            setSelectedMultiMonthKeys(keys);
+                          }}
+                          className="py-2 px-2 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all text-center cursor-pointer active:scale-95"
+                        >
+                          Next 12 Mos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const keys = availableUnpaidMultiMonths.slice(0, 18).map(m => m.key);
+                            setSelectedMultiMonthKeys(keys);
+                          }}
+                          className="py-2 px-2 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all text-center cursor-pointer active:scale-95"
+                        >
+                          All Unpaid
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Interactive Month Selection Grid with Checkboxes */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-700">
+                          Select Months ({selectedMultiMonthKeys.length} Selected)
+                        </label>
+                        {selectedMultiMonthKeys.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMultiMonthKeys([])}
+                            className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
+                          >
+                            Clear Selection
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto p-2 border border-slate-200 rounded-2xl bg-slate-50/60">
+                        {upcomingMultiMonths.map((m) => {
+                          const settled = isTargetMonthSettled(m.month, m.year);
+                          const pending = isTargetMonthPending(m.month, m.year);
+                          const isSelected = selectedMultiMonthKeys.includes(m.key);
+                          const disabled = settled || pending;
+
+                          return (
+                            <button
+                              key={`adv-month-opt-${m.key}`}
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => {
+                                setSelectedMultiMonthKeys(prev => 
+                                  prev.includes(m.key) ? prev.filter(k => k !== m.key) : [...prev, m.key]
+                                );
+                              }}
+                              className={cn(
+                                "p-2.5 rounded-xl border flex items-center justify-between transition-all text-left cursor-pointer disabled:cursor-not-allowed select-none",
+                                disabled 
+                                  ? "bg-slate-100/70 border-slate-200 text-slate-400 opacity-60" 
+                                  : isSelected
+                                  ? "bg-indigo-600 border-indigo-600 text-white shadow-xs"
+                                  : "bg-white border-slate-200 text-slate-800 hover:border-indigo-300 hover:bg-slate-50"
+                              )}
+                            >
+                              <div className="min-w-0 pr-1">
+                                <span className="font-extrabold text-xs block leading-tight truncate">
+                                  {m.label}
+                                </span>
+                                <span className={cn(
+                                  "text-[10px] font-semibold block leading-tight mt-0.5",
+                                  isSelected ? "text-indigo-100" : "text-slate-400"
+                                )}>
+                                  {settled ? "Paid ✅" : pending ? "Pending ⏳" : m.isFuture ? "₹1,000 · Advance" : "₹1,000"}
+                                </span>
+                              </div>
+
+                              <div className="shrink-0">
+                                {settled ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : pending ? (
+                                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                                ) : isSelected ? (
+                                  <CheckSquare className="w-4 h-4 text-white" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-slate-300" />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Dynamic Advance Coverage Breakdown Card */}
+                    {selectedMultiMonthKeys.length > 0 && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-slate-50 to-white border-2 border-indigo-200/80 shadow-xs space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 block">
+                              Advance Coverage Period
+                            </span>
+                            <span className="text-sm font-black text-slate-900">
+                              {multiMonthSpanText}
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                              Months Selected
+                            </span>
+                            <span className="text-sm font-black text-indigo-600">
+                              {selectedMultiMonthKeys.length} Months
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Financial Ledger Calculation */}
+                        <div className="pt-2 border-t border-indigo-100 space-y-1.5 text-xs text-slate-700">
+                          <div className="flex justify-between items-center">
+                            <span>Contribution Subscription ({selectedMultiMonthKeys.length} × ₹1,000):</span>
+                            <span className="font-mono font-bold tabular-nums">
+                              ₹{(selectedMultiMonthKeys.length * 1000).toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          {isLatePaymentDate && sortedMultiMonths.some(m => !m.isAdvance) && (
+                            <div className="flex justify-between items-center text-red-600">
+                              <span>Late Fee (Current Month &gt; 10th):</span>
+                              <span className="font-mono font-bold tabular-nums">+₹{customFine.toLocaleString('en-IN')}</span>
+                            </div>
+                          )}
+
+                          <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-sm font-black text-slate-900">
+                            <span>Total Transaction Amount:</span>
+                            <span className="text-lg font-black text-indigo-600 font-mono tabular-nums">
+                              ₹{multiMonthBreakdown.totalAmount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Architectural Explanatory Banner */}
+                        <div className="p-2.5 bg-indigo-100/60 rounded-xl border border-indigo-200 text-[11px] text-indigo-900 flex items-start gap-2">
+                          <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                          <p className="leading-relaxed">
+                            <strong>Smart Split-Ledger:</strong> 1 consolidated transaction of ₹{multiMonthBreakdown.totalAmount.toLocaleString('en-IN')} will record {selectedMultiMonthKeys.length} individual ₹1,000 entries into the ledger, tagging future months as <strong>Advance</strong>. Monthly reports accurately attribute ₹1,000 to each respective month.
+                          </p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                )}
+
+                {/* Common Payment Date and Method Controls */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Payment Date</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Payment Date</label>
                     <input 
                       type="date"
                       value={paymentDate}
                       onChange={(e) => setPaymentDate(e.target.value)}
-                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-full py-3 px-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Payment Method</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Payment Method</label>
                     <div className="grid grid-cols-2 gap-2">
                       <button
+                        type="button"
                         onClick={() => setPaymentMethod('online')}
                         className={cn(
-                          "py-4 rounded-2xl font-bold transition-all text-sm flex items-center justify-center gap-2 border-2",
+                          "py-3 rounded-2xl font-bold transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 border-2 cursor-pointer",
                           paymentMethod === 'online'
-                            ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-lg shadow-indigo-100/50"
+                            ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-md shadow-indigo-100/50"
                             : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
                         )}
                       >
-                        <Zap className={cn("w-4 h-4", paymentMethod === 'online' ? "fill-indigo-600" : "fill-none")} />
+                        <Zap className={cn("w-3.5 h-3.5", paymentMethod === 'online' ? "fill-indigo-600" : "fill-none")} />
                         Online
                       </button>
                       <button
+                        type="button"
                         onClick={() => setPaymentMethod('cash')}
                         className={cn(
-                          "py-4 rounded-2xl font-bold transition-all text-sm flex items-center justify-center gap-2 border-2",
+                          "py-3 rounded-2xl font-bold transition-all text-xs sm:text-sm flex items-center justify-center gap-1.5 border-2 cursor-pointer",
                           paymentMethod === 'cash'
-                            ? "bg-amber-50 border-amber-600 text-amber-600 shadow-lg shadow-amber-100/50"
+                            ? "bg-amber-50 border-amber-600 text-amber-600 shadow-md shadow-amber-100/50"
                             : "bg-slate-50 border-slate-100 text-slate-400 hover:bg-slate-100"
                         )}
                       >
-                        <Banknote className="w-4 h-4" />
+                        <Banknote className="w-3.5 h-3.5" />
                         Cash
                       </button>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Base Contribution Field */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                        Subscription (₹)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">₹</span>
-                        <input
-                          type="number"
-                          value={MONTHLY_AMOUNT}
-                          disabled
-                          className="w-full pl-7 pr-3 py-2.5 bg-white rounded-xl border border-slate-200 text-slate-700 font-bold text-sm outline-none cursor-not-allowed"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Separate Fine / Late Fee Field */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
-                          Fine / Late Fee (₹)
-                        </label>
-                        <span className={cn(
-                          "text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider border",
-                          isLatePaymentDate 
-                            ? "bg-red-50 text-red-600 border-red-200" 
-                            : "bg-slate-100 text-slate-400 border-slate-200"
-                        )}>
-                          {isLatePaymentDate ? "Active (>10th)" : "Inactive (≤10th)"}
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <span className={cn(
-                          "absolute left-3 top-1/2 -translate-y-1/2 font-bold text-sm",
-                          isLatePaymentDate ? "text-red-600" : "text-slate-400"
-                        )}>₹</span>
-                        <input
-                          type="number"
-                          value={isLatePaymentDate ? customFine : 0}
-                          onChange={(e) => {
-                            const val = Math.max(0, Number(e.target.value) || 0);
-                            setCustomFine(val);
-                            setCustomAmount(MONTHLY_AMOUNT + val);
-                          }}
-                          disabled={!isLatePaymentDate}
-                          className={cn(
-                            "w-full pl-7 pr-3 py-2.5 rounded-xl border font-bold text-sm outline-none transition-all",
-                            isLatePaymentDate
-                              ? "bg-red-50/50 border-red-300 text-red-700 focus:ring-2 focus:ring-red-400"
-                              : "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
-                          )}
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Total Amount to Pay row */}
-                  <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
-                    <div>
-                      <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Total Amount to Pay</span>
-                      <p className="text-[10px] text-slate-400 font-medium">
-                        {isLatePaymentDate 
-                          ? `₹${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base + ₹${customFine.toLocaleString('en-IN')} Fine (Paid after 10th)` 
-                          : `₹${MONTHLY_AMOUNT.toLocaleString('en-IN')} Base (Paid on or before 10th)`}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xl font-black text-indigo-900">
-                        ₹{(MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0)).toLocaleString('en-IN')}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-4">
+                {/* Modal Action Buttons */}
+                <div className="flex gap-3 pt-4 border-t border-slate-100">
                   <button 
+                    type="button"
                     onClick={() => {
                       setIsAdding(false);
                       setSelectedUserId(null);
+                      setSelectedMultiMonthKeys([]);
+                      setContribPayMode('single');
                     }}
-                    className="flex-1 py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all"
+                    className="flex-1 py-3.5 text-slate-600 font-bold hover:bg-slate-100 rounded-2xl transition-all cursor-pointer text-xs sm:text-sm"
                   >
                     Cancel
                   </button>
-                  {paymentMethod === 'online' ? (
-                    <button 
-                      onClick={() => {
-                        const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
-                        if (isAdmin && selectedUserId) {
-                           // Admin recording online payment directly
-                           addContribution(selectedMonth, selectedYear, selectedUserId, 'paid', paymentDate, finalAmt, 'online');
-                        } else {
-                           handleUPIPayment(selectedMonth, selectedYear, finalAmt);
-                        }
-                      }}
-                      className="flex-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <Zap className="w-5 h-5 fill-white" /> Pay via UPI
-                    </button>
+
+                  {contribPayMode === 'single' ? (
+                    paymentMethod === 'online' ? (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
+                          if (isAdmin && selectedUserId) {
+                             addContribution(selectedMonth, selectedYear, selectedUserId, 'paid', paymentDate, finalAmt, 'online');
+                          } else {
+                             handleUPIPayment(selectedMonth, selectedYear, finalAmt);
+                          }
+                        }}
+                        className="flex-2 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm"
+                      >
+                        <Zap className="w-4 h-4 fill-white" /> Pay via UPI
+                      </button>
+                    ) : (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
+                          addContribution(selectedMonth, selectedYear, selectedUserId || undefined, isAdmin ? 'paid' : 'pending', paymentDate, finalAmt, 'cash');
+                        }}
+                        className="flex-2 py-3.5 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm"
+                      >
+                        <Banknote className="w-4 h-4" /> Pay Cash
+                      </button>
+                    )
                   ) : (
-                    <button 
-                      onClick={() => {
-                        const finalAmt = MONTHLY_AMOUNT + (isLatePaymentDate ? customFine : 0);
-                        addContribution(selectedMonth, selectedYear, selectedUserId || undefined, isAdmin ? 'paid' : 'pending', paymentDate, finalAmt, 'cash');
-                      }}
-                      className="flex-2 py-4 bg-amber-600 text-white rounded-2xl font-bold hover:bg-amber-700 transition-all shadow-lg shadow-amber-100 active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <Banknote className="w-5 h-5" /> Pay
-                    </button>
+                    // MULTI-MONTH SUBMISSION
+                    paymentMethod === 'online' ? (
+                      <button 
+                        type="button"
+                        disabled={selectedMultiMonthKeys.length === 0}
+                        onClick={() => {
+                          if (selectedMultiMonthKeys.length === 0) return;
+                          if (isAdmin && selectedUserId) {
+                            addMultiMonthContribution(
+                              multiMonthBreakdown.list,
+                              selectedUserId,
+                              'paid',
+                              paymentDate,
+                              'online',
+                              multiMonthSpanText
+                            );
+                          } else {
+                            handleUPIPayment(
+                              sortedMultiMonths[0].month,
+                              sortedMultiMonths[0].year,
+                              multiMonthBreakdown.totalAmount,
+                              multiMonthBreakdown.list,
+                              multiMonthSpanText,
+                              selectedUserId || undefined
+                            );
+                          }
+                        }}
+                        className="flex-2 py-3.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-bold transition-all shadow-lg shadow-indigo-100 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm"
+                      >
+                        <Zap className="w-4 h-4 fill-white" />
+                        <span>
+                          {isAdmin ? `Record Online (₹${multiMonthBreakdown.totalAmount.toLocaleString('en-IN')})` : `Pay via UPI (₹${multiMonthBreakdown.totalAmount.toLocaleString('en-IN')})`}
+                        </span>
+                      </button>
+                    ) : (
+                      <button 
+                        type="button"
+                        disabled={selectedMultiMonthKeys.length === 0}
+                        onClick={() => {
+                          if (selectedMultiMonthKeys.length === 0) return;
+                          addMultiMonthContribution(
+                            multiMonthBreakdown.list,
+                            selectedUserId || undefined,
+                            isAdmin ? 'paid' : 'pending',
+                            paymentDate,
+                            'cash',
+                            multiMonthSpanText
+                          );
+                        }}
+                        className="flex-2 py-3.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-bold transition-all shadow-lg shadow-amber-100 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-xs sm:text-sm"
+                      >
+                        <Banknote className="w-4 h-4" />
+                        <span>
+                          Record Cash (₹${multiMonthBreakdown.totalAmount.toLocaleString('en-IN')})
+                        </span>
+                      </button>
+                    )
                   )}
                 </div>
               </div>

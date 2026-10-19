@@ -24,6 +24,7 @@ export interface Contribution {
   isAdvance?: boolean;
   coveredMonths?: Array<{ month: number; year: number; amount: number }>;
   advanceSpanText?: string;
+  transactionGroupId?: string;
 }
 
 export interface Loan {
