@@ -117,7 +117,8 @@ import {
   Square,
   Share2,
   Smartphone,
-  Info
+  Info,
+  Eye
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -640,9 +641,12 @@ export default function App() {
   const [isMonthlyCollectionSummaryExpanded, setIsMonthlyCollectionSummaryExpanded] = useState<boolean>(true);
   const [customPrincipal, setCustomPrincipal] = useState<number>(5000);
   const [searchQuery, setSearchQuery] = useState('');
-  const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online'>('all');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online' | 'advance'>('all');
   const [isMemberActionsCollapsed, setIsMemberActionsCollapsed] = useState<boolean>(false);
   const [isMemberDetailsCollapsed, setIsMemberDetailsCollapsed] = useState<boolean>(false);
+  const [showAdvanceSummaryModal, setShowAdvanceSummaryModal] = useState<boolean>(false);
+  const [showMyAdvanceModal, setShowMyAdvanceModal] = useState<boolean>(false);
+  const [advanceSummarySearch, setAdvanceSummarySearch] = useState<string>('');
   const [memberActionMenu, setMemberActionMenu] = useState<{
     memberKey: string;
     member: UserProfile;
@@ -1499,6 +1503,87 @@ export default function App() {
   }, [user, isSystemAdmin, hasPaidCurrent, allUsers, contributions, loans, loanPayments, currentMonth, currentYear]);
   const isLate = !hasPaidCurrent && !hasPendingCurrent && new Date().getDate() > DUE_DAY;
 
+  // Advance Contributions Summary for Admin
+  const membersAdvanceList = useMemo(() => {
+    return allUsers
+      .filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase())
+      .map(u => {
+        const uid = u.uid || (u as any).id;
+        const email = u.email?.toLowerCase().trim();
+        const userAdvanceContribs = contributions.filter(c => {
+          const match = (uid && (c.userId === uid || (c as any).id === uid)) ||
+            (email && c.userEmail?.toLowerCase().trim() === email);
+          if (!match || c.status !== 'paid') return false;
+          return Boolean(c.isAdvance || (c.year > currentYear) || (c.year === currentYear && c.month > currentMonth));
+        }).sort((a, b) => {
+          if (a.year !== b.year) return a.year - b.year;
+          return a.month - b.month;
+        });
+
+        const totalAmount = userAdvanceContribs.reduce((sum, c) => sum + (c.amount || 0), 0);
+        const count = userAdvanceContribs.length;
+
+        let spanText = '';
+        if (count > 0) {
+          const first = userAdvanceContribs[0];
+          const last = userAdvanceContribs[count - 1];
+          const firstLabel = format(new Date(first.year, first.month - 1, 1), 'MMM yyyy');
+          const lastLabel = format(new Date(last.year, last.month - 1, 1), 'MMM yyyy');
+          spanText = count === 1 ? firstLabel : `${firstLabel} – ${lastLabel}`;
+        }
+
+        return {
+          user: u,
+          uid,
+          email,
+          advanceContribs: userAdvanceContribs,
+          count,
+          totalAmount,
+          spanText
+        };
+      })
+      .filter(m => m.count > 0)
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+  }, [allUsers, contributions, currentMonth, currentYear]);
+
+  // Fast lookup map for advance summary by member id / email
+  const advanceSummaryMap = useMemo(() => {
+    const map = new Map<string, { count: number; totalAmount: number; spanText: string; contribs: typeof contributions }>();
+    membersAdvanceList.forEach(item => {
+      const data = { count: item.count, totalAmount: item.totalAmount, spanText: item.spanText, contribs: item.advanceContribs };
+      if (item.uid) map.set(item.uid, data);
+      if (item.email) map.set(item.email.toLowerCase(), data);
+    });
+    return map;
+  }, [membersAdvanceList]);
+
+  // Advance contribution summary for the currently logged-in member
+  const myAdvanceSummary = useMemo(() => {
+    if (!user) return { count: 0, totalAmount: 0, spanText: '', contribs: [] as typeof contributions };
+    const uid = user.uid;
+    const email = user.email?.toLowerCase().trim();
+    const found = (uid && advanceSummaryMap.get(uid)) || (email && advanceSummaryMap.get(email));
+    if (found) return found;
+
+    // Direct fallback from myContributions in case user is resolving or not in allUsers yet
+    const advList = myContributions.filter(c => 
+      c.status === 'paid' && 
+      (c.isAdvance === true || (c.year > currentYear || (c.year === currentYear && c.month > currentMonth)))
+    ).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+    
+    if (advList.length === 0) return { count: 0, totalAmount: 0, spanText: '', contribs: [] as typeof contributions };
+    
+    const count = advList.length;
+    const totalAmount = advList.reduce((sum, c) => sum + (c.amount || 0), 0);
+    const first = advList[0];
+    const last = advList[advList.length - 1];
+    const spanText = count === 1
+      ? format(new Date(first.year, first.month - 1, 1), 'MMM yyyy')
+      : `${format(new Date(first.year, first.month - 1, 1), 'MMM yyyy')} - ${format(new Date(last.year, last.month - 1, 1), 'MMM yyyy')}`;
+
+    return { count, totalAmount, spanText, contribs: advList };
+  }, [user, advanceSummaryMap, myContributions, currentMonth, currentYear]);
+
   const sortedContributions = useMemo(() => {
     if (!appliedFilter) return [];
     
@@ -1526,7 +1611,13 @@ export default function App() {
         if (paymentMethodFilter === 'online') {
           return c.paymentMethod === 'online' || !c.paymentMethod;
         }
-        return c.paymentMethod === 'cash';
+        if (paymentMethodFilter === 'cash') {
+          return c.paymentMethod === 'cash';
+        }
+        if (paymentMethodFilter === 'advance') {
+          return Boolean(c.isAdvance || (c.year > currentYear) || (c.year === currentYear && c.month > currentMonth));
+        }
+        return true;
       });
     }
 
@@ -3099,14 +3190,14 @@ export default function App() {
     return profile ? (allUsers.find(u => (u.uid && u.uid === user?.uid) || (u.email && u.email.toLowerCase() === user?.email?.toLowerCase())) || profile) : null;
   }, [isAdmin, selectedUserId, allUsers, profile, user]);
 
-  // Generate upcoming months (20 months ahead) for multi-month advance selection
+  // Generate upcoming months (12 months ahead) for multi-month advance selection
   const upcomingMultiMonths = useMemo(() => {
     const list: Array<{ month: number; year: number; key: string; label: string; isPastOrCurrent: boolean; isFuture: boolean }> = [];
     const now = new Date();
     const curYear = now.getFullYear();
     const curMonth = now.getMonth() + 1;
 
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 12; i++) {
       const d = new Date(curYear, curMonth - 1 + i, 1);
       const m = d.getMonth() + 1;
       const y = d.getFullYear();
@@ -6541,7 +6632,7 @@ export default function App() {
           paymentDateTime,
           (c.paymentMethod || 'N/A').toUpperCase(),
           `Rs. ${(c.amount || 0).toLocaleString('en-IN')}`,
-          (c.status || 'N/A').toUpperCase()
+          c.isAdvance ? 'PAID (ADVANCE)' : (c.status || 'N/A').toUpperCase()
         ];
       });
 
@@ -8199,8 +8290,8 @@ ${scheduleHighlights}
           "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5 mb-6",
           !isAdmin && (
             loans.some(l => l.status === 'approved' && ((user?.uid && l.userId === user.uid) || (user?.email && l.userEmail?.toLowerCase() === user.email?.toLowerCase())))
-              ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-4xl"
-              : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 max-w-2xl"
+              ? (myAdvanceSummary.count > 0 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-4xl")
+              : (myAdvanceSummary.count > 0 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-4xl" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 max-w-2xl")
           ),
           isMobileVisual && "gap-2.5 mb-5"
         )}>
@@ -8306,6 +8397,44 @@ ${scheduleHighlights}
                   </div>
                 </div>
               </motion.div>
+
+              {myAdvanceSummary.count > 0 && (
+                <motion.div 
+                  key="dashboard-card-your-advance"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.06 }}
+                  onClick={() => setShowMyAdvanceModal(true)}
+                  className={cn(
+                    "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden",
+                    isMobileVisual && "p-3 rounded-xl"
+                  )}
+                  title="Click to view advance payment details"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1.5 mb-2.5">
+                      <div className="w-7.5 h-7.5 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                        {myAdvanceSummary.count} {myAdvanceSummary.count === 1 ? 'Month' : 'Months'} Pre-Paid
+                      </span>
+                    </div>
+                    <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Advance Paid</h3>
+                    <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight">
+                      ₹{myAdvanceSummary.totalAmount.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
+                    <span className="font-semibold text-slate-500 truncate max-w-[130px]" title={myAdvanceSummary.spanText}>
+                      {myAdvanceSummary.spanText}
+                    </span>
+                    <span className="inline-flex items-center gap-1 font-bold text-purple-700 group-hover:text-purple-900 transition-colors">
+                      Breakdown <ChevronRight className="w-3 h-3" />
+                    </span>
+                  </div>
+                </motion.div>
+              )}
 
               {(() => {
                 const myActiveLoans = loans.filter(l => 
@@ -9175,6 +9304,23 @@ ${scheduleHighlights}
                             : <ArrowUp className="w-3 h-3 text-white" />
                         )}
                       </button>
+
+                      {/* Advance Payments Registry for Admin */}
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setAdvanceSummarySearch('');
+                          setShowAdvanceSummaryModal(true);
+                        }}
+                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 hover:from-purple-100 hover:to-indigo-100 text-purple-900 border border-purple-200/90 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 whitespace-nowrap cursor-pointer select-none"
+                        title="View members who have paid contributions in advance"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Advance Payments</span>
+                        <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-purple-600 text-white shadow-2xs">
+                          {membersAdvanceList.length}
+                        </span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -9339,6 +9485,10 @@ ${scheduleHighlights}
                         (u.uid && activeLoanUserIdentifiers.has(u.uid)) ||
                         (u.email && activeLoanUserIdentifiers.has(u.email.toLowerCase().trim()))
                       );
+                      const memberAdvanceSummary = (u.uid && advanceSummaryMap.get(u.uid)) || 
+                        ((u as any).id && advanceSummaryMap.get((u as any).id)) || 
+                        (u.email ? advanceSummaryMap.get(u.email.toLowerCase().trim()) : undefined) || 
+                        { count: 0, totalAmount: 0, spanText: '', contribs: [] };
 
                       return (
                         <motion.tr 
@@ -9385,6 +9535,14 @@ ${scheduleHighlights}
                           </td>
                           <td className="px-2.5 py-3 border-r border-slate-200/60 w-28 whitespace-nowrap">
                             <span className="text-sm font-bold text-slate-900">₹{totalPaid.toLocaleString('en-IN')}</span>
+                            {memberAdvanceSummary.count > 0 && (
+                              <span 
+                                className="text-[9.5px] text-purple-600 font-bold block"
+                                title={`Includes ₹${memberAdvanceSummary.totalAmount.toLocaleString('en-IN')} advance for ${memberAdvanceSummary.count} months`}
+                              >
+                                (₹{memberAdvanceSummary.totalAmount.toLocaleString('en-IN')} adv)
+                              </span>
+                            )}
                           </td>
                           <td className="px-2.5 py-3 border-r border-slate-200/60 w-28 whitespace-nowrap">
                             <div className="flex flex-col items-start gap-0.5">
@@ -9419,29 +9577,24 @@ ${scheduleHighlights}
                                         setSelectedUserId(userId);
                                         const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
                                           .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                                        if (firstMissing) {
-                                          setSelectedMonth(firstMissing);
-                                          setSelectedYear(currentYear);
-                                          setContribPayMode('single');
-                                        } else {
-                                          setContribPayMode('multi');
-                                          setSelectedMonth(currentMonth === 12 ? 1 : currentMonth + 1);
-                                          setSelectedYear(currentMonth === 12 ? currentYear + 1 : currentYear);
-                                        }
+                                        if (firstMissing) setSelectedMonth(firstMissing);
+                                        setSelectedYear(currentYear);
+                                        setContribPayMode('single');
                                         setIsAdding(true);
                                       }}
+                                      disabled={!hasPendingThisYear}
                                       className={cn(
-                                        "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-2xs select-none shrink-0 cursor-pointer active:scale-95",
+                                        "px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-2xs select-none shrink-0",
                                         !hasPendingThisYear 
-                                          ? "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200" 
-                                          : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-indigo-200/60"
+                                          ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-default opacity-70" 
+                                          : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-indigo-200/60 hover:shadow-xs active:scale-95 cursor-pointer"
                                       )}
-                                      title={!hasPendingThisYear ? "Record Advance Contribution for future months" : "Record Pending Contribution"}
+                                      title={!hasPendingThisYear ? "All contributions for this year are paid" : "Record Pending Contribution"}
                                     >
                                       {!hasPendingThisYear ? (
                                         <>
-                                          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                                          <span>+ Advance</span>
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span className="text-slate-600">Paid</span>
                                         </>
                                       ) : (
                                         <>
@@ -9653,6 +9806,34 @@ ${scheduleHighlights}
                           <span className="text-[10px] text-slate-400 font-normal">Multi-month split contribution</span>
                         </div>
                       </button>
+                      {(() => {
+                        const targetUser = memberActionMenu.member;
+                        const summary = (targetUser.uid && advanceSummaryMap.get(targetUser.uid)) || 
+                          ((targetUser as any).id && advanceSummaryMap.get((targetUser as any).id)) || 
+                          (targetUser.email ? advanceSummaryMap.get(targetUser.email.toLowerCase().trim()) : undefined);
+                        if (!summary || summary.count === 0) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMemberActionMenu(null);
+                              setAdvanceSummarySearch(targetUser.displayName || targetUser.email);
+                              setShowAdvanceSummaryModal(true);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            className="w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 rounded-xl transition-colors cursor-pointer"
+                          >
+                            <div className="w-6 h-6 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 border border-purple-200/70">
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="flex flex-col text-left min-w-0">
+                              <span className="font-bold text-purple-900 leading-tight">View Advance Details</span>
+                              <span className="text-[10px] text-purple-600 font-medium">{summary.count} mos (₹{summary.totalAmount.toLocaleString('en-IN')})</span>
+                            </div>
+                          </button>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={() => {
@@ -9746,6 +9927,10 @@ ${scheduleHighlights}
                 const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear);
                 const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                   .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                const memberAdvanceSummary = (u.uid && advanceSummaryMap.get(u.uid)) || 
+                  ((u as any).id && advanceSummaryMap.get((u as any).id)) || 
+                  (u.email ? advanceSummaryMap.get(u.email.toLowerCase().trim()) : undefined) || 
+                  { count: 0, totalAmount: 0, spanText: '', contribs: [] };
 
                 return (
                   <motion.div 
@@ -9808,12 +9993,45 @@ ${scheduleHighlights}
                       <div className="bg-slate-50 p-3 rounded-2xl">
                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Total Paid</p>
                         <p className="font-bold text-slate-900">₹{totalPaid.toLocaleString('en-IN')}</p>
+                        {memberAdvanceSummary.count > 0 && (
+                          <p className="text-[10px] text-purple-600 font-bold mt-0.5">
+                            ₹{memberAdvanceSummary.totalAmount.toLocaleString('en-IN')} in adv
+                          </p>
+                        )}
                       </div>
                       <div className="bg-slate-50 p-3 rounded-2xl">
                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Joined</p>
                         <p className="font-bold text-slate-900 text-sm">{u.joinDate}</p>
                       </div>
                     </div>
+
+                    {memberAdvanceSummary.count > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdvanceSummarySearch(u.displayName || u.email);
+                          setShowAdvanceSummaryModal(true);
+                        }}
+                        className="w-full mb-3 p-3 bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 rounded-2xl border border-purple-200/90 flex items-center justify-between text-left hover:border-purple-300 transition-all cursor-pointer shadow-2xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-xs font-black text-purple-900 block truncate">
+                              Advance: {memberAdvanceSummary.count} {memberAdvanceSummary.count === 1 ? 'Month' : 'Months'} (₹{memberAdvanceSummary.totalAmount.toLocaleString('en-IN')})
+                            </span>
+                            <span className="text-[10px] font-medium text-slate-500 block truncate">
+                              Coverage: {memberAdvanceSummary.spanText}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-purple-700 bg-white px-2 py-1 rounded-lg border border-purple-200 shrink-0">
+                          Details &rarr;
+                        </span>
+                      </button>
+                    )}
 
                     <div className="bg-slate-50 p-3 rounded-2xl mb-4 flex items-center justify-between">
                       <div className="min-w-0 pr-2">
@@ -9960,28 +10178,24 @@ ${scheduleHighlights}
                             setSelectedUserId(userId);
                             const firstMissing = Array.from({ length: currentMonth }, (_, i) => i + 1)
                               .find(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
-                            if (firstMissing) {
-                              setSelectedMonth(firstMissing);
-                              setSelectedYear(currentYear);
-                              setContribPayMode('single');
-                            } else {
-                              setContribPayMode('multi');
-                              setSelectedMonth(currentMonth === 12 ? 1 : currentMonth + 1);
-                              setSelectedYear(currentMonth === 12 ? currentYear + 1 : currentYear);
-                            }
+                            if (firstMissing) setSelectedMonth(firstMissing);
+                            setSelectedYear(currentYear);
+                            setContribPayMode('single');
                             setIsAdding(true);
                           }}
+                          disabled={!hasPendingThisYear}
                           className={cn(
-                            "w-full py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer",
+                            "w-full py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-2xs select-none shrink-0",
                             !hasPendingThisYear 
-                              ? "bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100" 
-                              : "bg-gradient-to-r from-indigo-600 to-indigo-700 text-white hover:from-indigo-700 hover:to-indigo-800 shadow-indigo-200/60"
+                              ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-default opacity-70" 
+                              : "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white shadow-indigo-200/60 active:scale-95 cursor-pointer"
                           )}
+                          title={!hasPendingThisYear ? "All contributions for this year are paid" : "Record Pending Contribution"}
                         >
                           {!hasPendingThisYear ? (
                             <>
-                              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-                              <span>Record Advance Contribution</span>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="text-slate-600">Paid</span>
                             </>
                           ) : (
                             <>
@@ -13414,6 +13628,9 @@ ${scheduleHighlights}
                         );
                         const cash = filtered.filter(c => c.paymentMethod === 'cash').length;
                         const online = filtered.filter(c => c.paymentMethod === 'online' || !c.paymentMethod).length;
+                        const advanceItems = filtered.filter(c => Boolean(c.isAdvance || (c.year > currentYear) || (c.year === currentYear && c.month > currentMonth)));
+                        const advanceCount = advanceItems.length;
+                        const advanceTotal = advanceItems.reduce((acc, c) => acc + (c.amount || 0), 0);
                         const total = filtered.reduce((acc, c) => acc + c.amount, 0);
                         
                         return (
@@ -13443,6 +13660,25 @@ ${scheduleHighlights}
                               <p className={cn("text-lg font-black", paymentMethodFilter === 'cash' ? "text-white" : "text-amber-700")}>{cash}</p>
                             </button>
                             <button 
+                              onClick={() => setPaymentMethodFilter(prev => prev === 'advance' ? 'all' : 'advance')}
+                              className={cn(
+                                "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
+                                paymentMethodFilter === 'advance' 
+                                  ? "bg-purple-600 border-purple-600 text-white shadow-md shadow-purple-200" 
+                                  : "bg-purple-50/90 border-purple-200/90 text-purple-700 hover:bg-purple-100"
+                              )}
+                            >
+                              <div className="flex items-center gap-1">
+                                <Sparkles className={cn("w-3 h-3", paymentMethodFilter === 'advance' ? "text-purple-200" : "text-purple-600")} />
+                                <p className={cn("text-[10px] font-bold uppercase tracking-wider", paymentMethodFilter === 'advance' ? "text-purple-50" : "text-purple-800")}>
+                                  Advance ({advanceCount})
+                                </p>
+                              </div>
+                              <p className={cn("text-lg font-black", paymentMethodFilter === 'advance' ? "text-white" : "text-purple-700")}>
+                                ₹{advanceTotal.toLocaleString('en-IN')}
+                              </p>
+                            </button>
+                            <button 
                               onClick={() => setPaymentMethodFilter('all')}
                               className={cn(
                                 "px-4 py-2.5 rounded-2xl border-2 transition-all text-left active:scale-95 shadow-2xs",
@@ -13460,6 +13696,7 @@ ${scheduleHighlights}
                     </div>
                   )}
                 </div>
+
 
             {appliedFilter ? (
               <>
@@ -15906,6 +16143,374 @@ ${scheduleHighlights}
           </div>
         )}
 
+        {/* Advance Contributions Registry Modal (Admin) */}
+        {showAdvanceSummaryModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <motion.div 
+              key="modal-advance-summary-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowAdvanceSummaryModal(false);
+                setAdvanceSummarySearch('');
+              }}
+              className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
+            />
+            <motion.div 
+              key="modal-advance-summary-content"
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="relative bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200/90 my-auto z-10 flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              {/* Header */}
+              <div className="p-5 sm:p-6 bg-gradient-to-r from-purple-50/90 via-indigo-50/50 to-white border-b border-slate-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-purple-200 shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg sm:text-xl font-black text-slate-900 leading-tight">
+                        Advance Contributions Registry
+                      </h2>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200">
+                        Admin Overview
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      Members who paid future monthly contributions in advance
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setShowAdvanceSummaryModal(false);
+                    setAdvanceSummarySearch('');
+                  }}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* KPI Strip */}
+              <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-200/80 grid grid-cols-3 gap-2.5 sm:gap-3 shrink-0">
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Total Advance Collected</span>
+                  <span className="text-base sm:text-xl font-black text-purple-700 font-mono tabular-nums">
+                    ₹{membersAdvanceList.reduce((s, m) => s + m.totalAmount, 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Advance Members</span>
+                  <span className="text-base sm:text-xl font-black text-indigo-700">
+                    {membersAdvanceList.length} <span className="text-xs font-semibold text-slate-500">Members</span>
+                  </span>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Total Months Covered</span>
+                  <span className="text-base sm:text-xl font-black text-emerald-700">
+                    {membersAdvanceList.reduce((s, m) => s + m.count, 0)} <span className="text-xs font-semibold text-slate-500">Months</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Search bar */}
+              <div className="p-3.5 sm:p-4 border-b border-slate-100 bg-white shrink-0">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input 
+                    type="text"
+                    value={advanceSummarySearch}
+                    onChange={(e) => setAdvanceSummarySearch(e.target.value)}
+                    placeholder="Search member name, email or phone..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-purple-500 transition-all font-medium"
+                  />
+                  {advanceSummarySearch && (
+                    <button
+                      type="button"
+                      onClick={() => setAdvanceSummarySearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Scrollable Members List */}
+              <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1 bg-slate-50/40">
+                {(() => {
+                  const query = advanceSummarySearch.toLowerCase().trim();
+                  const filtered = membersAdvanceList.filter(item => {
+                    if (!query) return true;
+                    return (
+                      (item.user.displayName && item.user.displayName.toLowerCase().includes(query)) ||
+                      (item.user.email && item.user.email.toLowerCase().includes(query)) ||
+                      (item.user.phoneNumber && item.user.phoneNumber.includes(query)) ||
+                      (item.spanText && item.spanText.toLowerCase().includes(query))
+                    );
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-12 px-4 bg-white rounded-2xl border border-slate-200">
+                        <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center mx-auto mb-3">
+                          <Sparkles className="w-6 h-6" />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-800">
+                          {advanceSummarySearch ? "No matching members found" : "No Advance Contributions Recorded Yet"}
+                        </h3>
+                        <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+                          {advanceSummarySearch 
+                            ? "Try searching with a different member name or email." 
+                            : "When an administrator records advance contributions covering upcoming months, the member details, amount, covered months, and schedule will appear here."}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return filtered.map((item, idx) => (
+                    <div 
+                      key={`adv-reg-item-${item.uid || item.email}-${idx}`}
+                      className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-purple-200 hover:shadow-xs transition-all space-y-3"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm shrink-0">
+                            {item.user.displayName ? item.user.displayName[0].toUpperCase() : '?'}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-slate-900 text-sm truncate">
+                              {item.user.displayName || 'Unnamed Member'}
+                            </h4>
+                            <p className="text-xs text-slate-500 truncate">
+                              {item.user.email} {item.user.phoneNumber ? `· ${item.user.phoneNumber}` : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                              Advance Paid
+                            </span>
+                            <span className="text-base font-black text-purple-700 font-mono tabular-nums">
+                              ₹{item.totalAmount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-xl bg-purple-50 text-purple-800 border border-purple-200 text-xs font-black shrink-0">
+                            {item.count} {item.count === 1 ? 'Month' : 'Months'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Coverage Span and Individual Months */}
+                      <div className="pt-2.5 border-t border-slate-100">
+                        <div className="flex items-center justify-between text-xs mb-2 flex-wrap gap-1">
+                          <span className="font-bold text-slate-600">Advance Coverage Span:</span>
+                          <span className="font-extrabold text-purple-950 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200">
+                            {item.spanText} ({item.count} {item.count === 1 ? 'Month' : 'Months'})
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.advanceContribs.map((c, cIdx) => (
+                            <span 
+                              key={`adv-tag-${c.id || cIdx}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-semibold text-slate-700"
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span>{format(new Date(c.year, c.month - 1, 1), 'MMM yyyy')}:</span>
+                              <span className="font-bold text-purple-700 font-mono">₹{c.amount.toLocaleString('en-IN')}</span>
+                              <span className="text-[9.5px] text-slate-400 capitalize">({c.paymentMethod || 'online'})</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+
+              {/* Footer */}
+              <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between shrink-0">
+                <span className="text-xs text-slate-500 font-medium">
+                  Showing {membersAdvanceList.length} member{membersAdvanceList.length === 1 ? '' : 's'} with advance contributions
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAdvanceSummaryModal(false);
+                    setAdvanceSummarySearch('');
+                  }}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Member Advance Contributions Details Modal */}
+        {showMyAdvanceModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <motion.div 
+              key="modal-my-advance-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowMyAdvanceModal(false)}
+              className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
+            />
+            <motion.div 
+              key="modal-my-advance-content"
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200/90 my-auto z-10 flex flex-col max-h-[90vh] overflow-hidden"
+            >
+              {/* Header */}
+              <div className="p-5 sm:p-6 bg-gradient-to-r from-purple-50/90 via-indigo-50/50 to-white border-b border-slate-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-purple-200 shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg sm:text-xl font-black text-slate-900 leading-tight">
+                        Your Advance Contributions
+                      </h2>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-200">
+                        {myAdvanceSummary.count} {myAdvanceSummary.count === 1 ? 'Month' : 'Months'} Pre-Paid
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      Schedule and receipts for future monthly subscriptions paid ahead
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowMyAdvanceModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* KPI Strip */}
+              <div className="p-4 sm:p-5 bg-slate-50/80 border-b border-slate-200/80 grid grid-cols-3 gap-2.5 sm:gap-3 shrink-0">
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Total Advance Paid</span>
+                  <span className="text-base sm:text-xl font-black text-purple-700 font-mono tabular-nums">
+                    ₹{myAdvanceSummary.totalAmount.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Pre-Paid Months</span>
+                  <span className="text-base sm:text-xl font-black text-indigo-700">
+                    {myAdvanceSummary.count} <span className="text-xs font-semibold text-slate-500">Months</span>
+                  </span>
+                </div>
+                <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">Coverage Window</span>
+                  <span className="text-xs sm:text-sm font-black text-emerald-700 block truncate" title={myAdvanceSummary.spanText}>
+                    {myAdvanceSummary.spanText || '-'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Pre-Paid Months Breakdown List */}
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-3 flex-1 bg-slate-50/40">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-600 px-1">
+                  <span>Pre-Paid Monthly Schedule</span>
+                  <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> All Payments Verified & Credited
+                  </span>
+                </div>
+
+                {myAdvanceSummary.contribs.length === 0 ? (
+                  <div className="text-center py-10 px-4 bg-white rounded-2xl border border-slate-200">
+                    <Sparkles className="w-8 h-8 text-purple-400 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-slate-700">No advance contributions active</p>
+                    <p className="text-xs text-slate-500 mt-1">You can pay upcoming months in advance using the Advance Contribution option.</p>
+                  </div>
+                ) : (
+                  myAdvanceSummary.contribs.map((c, idx) => {
+                    const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : null;
+                    const formattedDate = dateObj ? format(dateObj, 'dd MMM yyyy') : 'Recorded';
+                    return (
+                      <div 
+                        key={`my-adv-${c.id || idx}`}
+                        className="p-4 bg-white rounded-2xl border border-purple-100 shadow-2xs hover:border-purple-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-purple-50 text-purple-700 border border-purple-200/80 flex items-center justify-center font-bold text-xs shrink-0">
+                            {format(new Date(c.year, c.month - 1, 1), 'MMM')}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-slate-900 text-sm">
+                                {format(new Date(c.year, c.month - 1, 1), 'MMMM yyyy')}
+                              </h4>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> Paid in Advance
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Deposited on {formattedDate} · Mode: <span className="capitalize font-semibold text-slate-700">{c.paymentMethod || 'online'}</span>
+                              {c.advanceSpanText && ` · ${c.advanceSpanText}`}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                          <div className="text-left sm:text-right">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Contribution</span>
+                            <span className="text-base font-black text-slate-900 font-mono">
+                              ₹{c.amount.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+
+                <div className="mt-4 p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-100 text-[11.5px] text-indigo-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-indigo-950">
+                    <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0" /> How Advance Contributions Work For You:
+                  </div>
+                  <p className="text-slate-600 leading-relaxed">
+                    When the calendar month for any pre-paid period arrives, your status will automatically be displayed as <strong>"Paid"</strong> across all society records. You will not receive any due reminders or payment requests for these months.
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between shrink-0">
+                <span className="text-xs text-slate-500 font-medium">
+                  {myAdvanceSummary.count} month{myAdvanceSummary.count === 1 ? '' : 's'} fully pre-paid
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowMyAdvanceModal(false)}
+                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {isAdding && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div 
@@ -16179,7 +16784,7 @@ ${scheduleHighlights}
                         <button
                           type="button"
                           onClick={() => {
-                            const keys = availableUnpaidMultiMonths.slice(0, 18).map(m => m.key);
+                            const keys = availableUnpaidMultiMonths.slice(0, 12).map(m => m.key);
                             setSelectedMultiMonthKeys(keys);
                           }}
                           className="py-2 px-2 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all text-center cursor-pointer active:scale-95"
@@ -16192,9 +16797,14 @@ ${scheduleHighlights}
                     {/* Interactive Month Selection Grid with Checkboxes */}
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-bold text-slate-700">
-                          Select Months ({selectedMultiMonthKeys.length} Selected)
-                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-xs font-bold text-slate-700">
+                            Select Months ({selectedMultiMonthKeys.length} Selected)
+                          </label>
+                          <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/60 px-1.5 py-0.5 rounded-md">
+                            12 Months Max
+                          </span>
+                        </div>
                         {selectedMultiMonthKeys.length > 0 && (
                           <button
                             type="button"
