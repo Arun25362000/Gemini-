@@ -16,6 +16,49 @@ export const GURURAJ_PHONE = '9686763186';
 export const GURURAJ_EMAIL = 'rajagurujp@gmail.com';
 export const GURURAJ_ENGLISH_NAME = 'Gururaj JP';
 
+export const PRANESH_PHONE = '9845901902';
+export const PRANESH_CANONICAL_EMAIL = 'jpranesh1954@gmail.com';
+export const PRANESH_LEGACY_EMAIL = 'praneshrao1954@gmail.com';
+export const PRANESH_CANONICAL_NAME = 'Pranesh Rao J';
+export const PRANESH_CANONICAL_UID = 'hkyUFqkelMVqYbQ27jfpTkN29LC3';
+export const PRANESH_LEGACY_UID = 'imp5eagibVcvtfD5qleX4ISC1Nj2';
+export const PRANESH_ADDRESS = 'Mathura,Tumkur';
+
+/**
+ * Checks whether an entity (profile, contribution, loan, payment, etc.) corresponds to Pranesh Rao J.
+ */
+export function isPraneshMember(
+  data?: { phoneNumber?: string; phone?: string; email?: string; userEmail?: string; displayName?: string; userName?: string; uid?: string; userId?: string; id?: string } | null,
+  rawPhone?: string | null,
+  rawEmail?: string | null,
+  rawName?: string | null,
+  rawUid?: string | null
+): boolean {
+  const email = String(rawEmail || data?.email || data?.userEmail || '').trim().toLowerCase();
+  if (email === PRANESH_CANONICAL_EMAIL || email === PRANESH_LEGACY_EMAIL) return true;
+  if (email.includes('pranesh')) return true;
+
+  const uid = String(rawUid || data?.uid || data?.userId || (data as any)?.id || '');
+  if (uid === PRANESH_CANONICAL_UID || uid === PRANESH_LEGACY_UID) return true;
+
+  const name = String(rawName || data?.displayName || data?.userName || '').trim().toLowerCase();
+  if (
+    name === 'pranesh rao j' || 
+    name === 'pranesh rao' || 
+    name === 'praneshrao1954' || 
+    name === 'praneshrao' || 
+    name === 'pranesh' ||
+    name.includes('pranesh')
+  ) {
+    return true;
+  }
+
+  const phone = String(rawPhone || data?.phoneNumber || (data as any)?.phone || '').replace(/\D/g, '');
+  if (phone.endsWith(PRANESH_PHONE)) return true;
+
+  return false;
+}
+
 /**
  * Checks whether a user profile, phone number, email, or display name corresponds to Gururaj JP.
  */
@@ -47,15 +90,19 @@ export function isGururajMember(
 
 /**
  * Resolves safe English display name for members, specifically ensuring phone 9686763186,
- * email rajagurujp@gmail.com, or Kannada/corrupted characters map to "Gururaj JP".
+ * email rajagurujp@gmail.com, or Kannada/corrupted characters map to "Gururaj JP",
+ * and ensuring Pranesh Rao's name is always "Pranesh Rao J".
  */
 export function getSafeMemberDisplayName(
-  displayNameOrUser?: string | { displayName?: string; phoneNumber?: string; phone?: string; email?: string } | null,
+  displayNameOrUser?: string | { displayName?: string; phoneNumber?: string; phone?: string; email?: string; uid?: string; id?: string } | null,
   phoneNumber?: string | null,
   email?: string | null
 ): string {
   if (!displayNameOrUser) {
     if (phoneNumber || email) {
+      if (isPraneshMember(null, phoneNumber, email, null)) {
+        return PRANESH_CANONICAL_NAME;
+      }
       if (isGururajMember(null, phoneNumber, email, null)) {
         return GURURAJ_ENGLISH_NAME;
       }
@@ -64,6 +111,9 @@ export function getSafeMemberDisplayName(
   }
   if (typeof displayNameOrUser === 'object') {
     const user = displayNameOrUser as any;
+    if (isPraneshMember(user)) {
+      return PRANESH_CANONICAL_NAME;
+    }
     if (isGururajMember(user)) {
       return GURURAJ_ENGLISH_NAME;
     }
@@ -74,6 +124,9 @@ export function getSafeMemberDisplayName(
     return name;
   }
   const displayName = String(displayNameOrUser);
+  if (isPraneshMember(null, phoneNumber, email, displayName)) {
+    return PRANESH_CANONICAL_NAME;
+  }
   if (isGururajMember(null, phoneNumber, email, displayName)) {
     return GURURAJ_ENGLISH_NAME;
   }
@@ -84,9 +137,20 @@ export function getSafeMemberDisplayName(
 }
 
 /**
- * Sanitizes a UserProfile object to ensure Gururaj JP's name, phone, and email are kept intact.
+ * Sanitizes a UserProfile object to ensure Gururaj JP and Pranesh Rao J are correctly structured and canonical.
  */
 export function sanitizeUserProfile<T extends { displayName?: string; phoneNumber?: string; email?: string; [key: string]: any }>(user: T): T {
+  if (isPraneshMember(user)) {
+    return {
+      ...user,
+      id: PRANESH_CANONICAL_UID,
+      uid: PRANESH_CANONICAL_UID,
+      displayName: PRANESH_CANONICAL_NAME,
+      email: PRANESH_CANONICAL_EMAIL,
+      phoneNumber: user.phoneNumber && user.phoneNumber.replace(/\D/g, '').endsWith(PRANESH_PHONE) ? user.phoneNumber : PRANESH_PHONE,
+      address: user.address || PRANESH_ADDRESS
+    };
+  }
   if (isGururajMember(user)) {
     return {
       ...user,
@@ -96,6 +160,43 @@ export function sanitizeUserProfile<T extends { displayName?: string; phoneNumbe
     };
   }
   return user;
+}
+
+export function sanitizeContribution<T extends { userEmail?: string; userName?: string; userId?: string; [key: string]: any }>(c: T): T {
+  if (isPraneshMember(c)) {
+    return {
+      ...c,
+      userId: PRANESH_CANONICAL_UID,
+      userEmail: PRANESH_CANONICAL_EMAIL,
+      userName: PRANESH_CANONICAL_NAME
+    };
+  }
+  return c;
+}
+
+export function sanitizeLoan<T extends { userEmail?: string; userName?: string; userId?: string; [key: string]: any }>(l: T): T {
+  if (isPraneshMember(l)) {
+    return {
+      ...l,
+      userId: PRANESH_CANONICAL_UID,
+      userEmail: PRANESH_CANONICAL_EMAIL,
+      userName: PRANESH_CANONICAL_NAME,
+      phoneNumber: PRANESH_PHONE
+    };
+  }
+  return l;
+}
+
+export function sanitizeLoanPayment<T extends { userEmail?: string; userName?: string; userId?: string; [key: string]: any }>(p: T): T {
+  if (isPraneshMember(p)) {
+    return {
+      ...p,
+      userId: PRANESH_CANONICAL_UID,
+      userEmail: PRANESH_CANONICAL_EMAIL,
+      userName: PRANESH_CANONICAL_NAME
+    };
+  }
+  return p;
 }
 
 export function getAppAvailableYears(): number[] {

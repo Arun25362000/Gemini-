@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { Loan, LoanPayment, UserProfile } from '../types';
-import { getSafeMemberDisplayName } from './utils';
+import { getSafeMemberDisplayName, isPraneshMember } from './utils';
 
 export interface LoanListPdfOptions {
   loans: Loan[];
@@ -45,11 +45,8 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
     const isMatchUser = (loan.userId && p.userId === loan.userId) ||
       (loan.userEmail && p.userEmail && loan.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim());
     if (isMatchUser) return true;
-    const pEmail = (p.userEmail || '').toLowerCase().trim();
-    const lEmail = (loan.userEmail || '').toLowerCase().trim();
-    const isPraneshP = pEmail.includes('pranesh') || p.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
-    const isPraneshL = lEmail.includes('pranesh') || loan.userId === 'imp5eagibVcvtfD5qleX4ISC1Nj2';
-    return Boolean(isPraneshP && isPraneshL);
+    if (isPraneshMember(p) && isPraneshMember(loan)) return true;
+    return false;
   };
 
   // Build enhanced loan records
@@ -58,7 +55,8 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
     .map(loan => {
       const targetUser = allUsers.find(u => 
         (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) || 
-        (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
+        (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
+        (isPraneshMember(loan) && isPraneshMember(u))
       );
       const memberName = getSafeMemberDisplayName(
         targetUser?.displayName || (loan as any).userName,

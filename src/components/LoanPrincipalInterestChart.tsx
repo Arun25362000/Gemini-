@@ -887,23 +887,37 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
             </div>
 
             <div className="bg-emerald-50/60 border border-emerald-100 p-3 rounded-2xl">
-              <span className="text-[10.5px] font-bold text-emerald-700 uppercase tracking-wider block">Principal Paid</span>
+              <span className="text-[10.5px] font-bold text-emerald-700 uppercase tracking-wider block">Total Paid</span>
               <span className="text-base sm:text-lg font-black text-emerald-700 mt-0.5 block">
-                ₹{activeItem.totalPrincipalPaid.toLocaleString('en-IN')}
+                ₹{activeItem.totalPaid.toLocaleString('en-IN')}
               </span>
-              <span className="text-[10px] text-emerald-600 font-semibold">{activeItem.repaymentProgress}% recovered</span>
+              <span className="text-[10px] text-emerald-600 block truncate" title={`Principal: ₹${activeItem.totalPrincipalPaid.toLocaleString('en-IN')} | Interest: ₹${activeItem.totalInterestPaid.toLocaleString('en-IN')}`}>
+                P: ₹{activeItem.totalPrincipalPaid.toLocaleString('en-IN')} • Int: ₹{activeItem.totalInterestPaid.toLocaleString('en-IN')}
+              </span>
             </div>
 
-            <div className="bg-indigo-50/60 border border-indigo-100 p-3 rounded-2xl">
-              <span className="text-[10.5px] font-bold text-indigo-700 uppercase tracking-wider block">Interest Paid</span>
-              <span className="text-base sm:text-lg font-black text-indigo-700 mt-0.5 block">
-                ₹{activeItem.totalInterestPaid.toLocaleString('en-IN')}
+            <div className="bg-blue-50/60 border border-blue-100 p-3 rounded-2xl">
+              <span className="text-[10.5px] font-bold text-blue-700 uppercase tracking-wider block">Next Installment</span>
+              <span className="text-base sm:text-lg font-black text-blue-900 mt-0.5 block">
+                {activeItem.nextInstallment ? `₹${activeItem.nextInstallment.total.toLocaleString('en-IN')}` : 'Settled'}
               </span>
-              <span className="text-[10px] text-indigo-600">Total earned</span>
+              <span className="text-[10px] text-blue-600 block truncate" title={
+                activeItem.isStartsNextMonth
+                  ? `Starts next month • Inst. #${activeItem.nextInstallment?.installmentNumber || 1}`
+                  : activeItem.nextInstallment
+                  ? `${activeItem.nextInstallment.periodLabel} (P: ₹${activeItem.nextInstallment.principal.toLocaleString('en-IN')} + Int: ₹${activeItem.nextInstallment.interest.toLocaleString('en-IN')})`
+                  : 'All installments cleared'
+              }>
+                {activeItem.isStartsNextMonth
+                  ? `Starts next month • Inst. #${activeItem.nextInstallment?.installmentNumber || 1}`
+                  : activeItem.nextInstallment
+                  ? `${activeItem.nextInstallment.periodLabel} (P: ₹${activeItem.nextInstallment.principal.toLocaleString('en-IN')} + Int: ₹${activeItem.nextInstallment.interest.toLocaleString('en-IN')})`
+                  : 'All installments cleared'}
+              </span>
             </div>
 
             <div className="bg-amber-50/60 border border-amber-100 p-3 rounded-2xl">
-              <span className="text-[10.5px] font-bold text-amber-700 uppercase tracking-wider block">Remaining Principal</span>
+              <span className="text-[10.5px] font-bold text-amber-700 uppercase tracking-wider block">Outstanding Balance</span>
               <span className="text-base sm:text-lg font-black text-amber-800 mt-0.5 block">
                 ₹{activeItem.remainingPrincipal.toLocaleString('en-IN')}
               </span>

@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { Contribution, Loan, LoanPayment, UserProfile } from '../types';
-import { getSafeMemberDisplayName } from './utils';
+import { getSafeMemberDisplayName, isPraneshMember } from './utils';
 
 export interface MonthlyCollectionPdfOptions {
   month: number; // 1-12
@@ -302,7 +302,8 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
   const memberRows = monthlyPaidContributions.map((c, idx) => {
     const member = allUsers.find(u =>
       (u.uid && c.userId && u.uid === c.userId) ||
-      (u.email && c.userEmail && u.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim())
+      (u.email && c.userEmail && u.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim()) ||
+      (isPraneshMember(c) && isPraneshMember(u))
     );
     const rawMemberName = member?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : `Member ${idx + 1}`);
     const memberPhone = member?.phoneNumber || (member as any)?.phone || '';
@@ -414,7 +415,8 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
       (u.uid && parentLoan?.userId && u.uid === parentLoan.userId) ||
       (u.email && parentLoan?.userEmail && u.email.toLowerCase().trim() === parentLoan.userEmail.toLowerCase().trim()) ||
       (u.uid && p.userId && u.uid === p.userId) ||
-      (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
+      (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim()) ||
+      ((isPraneshMember(p) || (parentLoan && isPraneshMember(parentLoan))) && isPraneshMember(u))
     );
     const rawBorrowerName = borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || `Borrower ${idx + 1}`;
     const borrowerPhone = borrower?.phoneNumber || (borrower as any)?.phone || '';

@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { Loan, UserProfile } from '../types';
-import { getSafeMemberDisplayName, normalizePhoneNumber } from './utils';
+import { getSafeMemberDisplayName, normalizePhoneNumber, isPraneshMember } from './utils';
 
 export interface LoanApplicationsPdfOptions {
   loans: Loan[];
@@ -60,7 +60,8 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
   validLoans.forEach(loan => {
     const targetUser = allUsers.find(
       u => (loan.userId && u.uid === loan.userId) ||
-           (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
+           (loan.userEmail && u.email?.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
+           (isPraneshMember(loan) && isPraneshMember(u))
     );
     const identifier = targetUser?.uid || targetUser?.email || loan.userId || loan.userEmail;
     if (identifier) uniqueApplicants.add(identifier.toLowerCase().trim());
@@ -184,7 +185,8 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
   const tableRows = validLoans.map((l, idx) => {
     const targetUser = allUsers.find(
       u => (l.userId && u.uid === l.userId) ||
-           (l.userEmail && u.email?.toLowerCase().trim() === l.userEmail.toLowerCase().trim())
+           (l.userEmail && u.email?.toLowerCase().trim() === l.userEmail.toLowerCase().trim()) ||
+           (isPraneshMember(l) && isPraneshMember(u))
     );
 
     const rawPhone = targetUser?.phoneNumber || (targetUser as any)?.phone || '-';

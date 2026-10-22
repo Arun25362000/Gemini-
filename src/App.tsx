@@ -132,14 +132,56 @@ import {
   isGururajMember, 
   getSafeMemberDisplayName, 
   sanitizeUserProfile, 
+  sanitizeContribution,
+  sanitizeLoan,
+  sanitizeLoanPayment,
   GURURAJ_PHONE, 
   GURURAJ_EMAIL, 
-  GURURAJ_ENGLISH_NAME 
+  GURURAJ_ENGLISH_NAME,
+  isPraneshMember,
+  PRANESH_PHONE,
+  PRANESH_CANONICAL_EMAIL,
+  PRANESH_LEGACY_EMAIL,
+  PRANESH_CANONICAL_NAME,
+  PRANESH_CANONICAL_UID,
+  PRANESH_LEGACY_UID,
+  PRANESH_ADDRESS
 } from './lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import XLSX from 'xlsx-js-style';
 import JSZip from 'jszip';
+
+export const isContribMatchUser = (c: Contribution, targetUser: any): boolean => {
+  if (!targetUser) return false;
+  if (isPraneshMember(c) && isPraneshMember(targetUser)) return true;
+  const uid = targetUser.uid || targetUser.id;
+  const email = (targetUser.email || '').toLowerCase().trim();
+  const cEmail = (c.userEmail || '').toLowerCase().trim();
+  return Boolean((uid && c.userId === uid) || (email && cEmail === email));
+};
+
+export const isLoanMatchUser = (l: Loan, targetUser: any): boolean => {
+  if (!targetUser) return false;
+  if (isPraneshMember(l) && isPraneshMember(targetUser)) return true;
+  const uid = targetUser.uid || targetUser.id;
+  const email = (targetUser.email || '').toLowerCase().trim();
+  const lEmail = (l.userEmail || '').toLowerCase().trim();
+  return Boolean((uid && l.userId === uid) || (email && lEmail === email));
+};
+
+export const isPaymentMatchUser = (p: LoanPayment, targetUser: any, loanList?: Loan[]): boolean => {
+  if (!targetUser) return false;
+  if (isPraneshMember(p) && isPraneshMember(targetUser)) return true;
+  if (loanList && p.loanId) {
+    const parentLoan = loanList.find(l => l.id === p.loanId);
+    if (parentLoan && isLoanMatchUser(parentLoan, targetUser)) return true;
+  }
+  const uid = targetUser.uid || targetUser.id;
+  const email = (targetUser.email || '').toLowerCase().trim();
+  const pEmail = (p.userEmail || '').toLowerCase().trim();
+  return Boolean((uid && p.userId === uid) || (email && pEmail === email));
+};
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { Notice, AppNotification } from './types';
@@ -1224,13 +1266,10 @@ export default function App() {
   const memberHasLoans = useMemo(() => {
     if (isAdmin) return true;
     if (!user) return false;
-    const uUid = user.uid;
-    const uEmail = user.email ? user.email.toLowerCase() : '';
-    return loans.some(l => {
-      const matchUid = Boolean(l.userId && uUid && l.userId === uUid);
-      const matchEmail = Boolean(l.userEmail && uEmail && l.userEmail.toLowerCase() === uEmail);
-      return (matchUid || matchEmail) && (l.status === 'approved' || l.status === 'paid' || l.status === 'pending');
-    });
+    return loans.some(l => 
+      isLoanMatchUser(l, user) && 
+      (l.status === 'approved' || l.status === 'paid' || l.status === 'pending')
+    );
   }, [isAdmin, user, loans]);
 
   // If a non-admin member has no loans, automatically switch away from the 'graphs' tab
@@ -1401,12 +1440,11 @@ export default function App() {
     console.log("App mounted. User:", user?.email, "isAdmin:", isAdmin);
   }, [user, isAdmin]);
   const hasActiveLoan = loans.some(l => 
-    (l.userId === user?.uid || (user?.email && l.userEmail === user.email)) && 
+    isLoanMatchUser(l, user) && 
     (l.status === 'approved' || l.status === 'pending')
   );
   const myContributions = contributions.filter(c => 
-    (user?.uid && c.userId === user.uid) || 
-    (user?.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())
+    isContribMatchUser(c, user)
   );
 
   const availableContributionYears = useMemo(() => {
@@ -1511,8 +1549,7 @@ export default function App() {
         const uid = u.uid || (u as any).id;
         const email = u.email?.toLowerCase().trim();
         const userAdvanceContribs = contributions.filter(c => {
-          const match = (uid && (c.userId === uid || (c as any).id === uid)) ||
-            (email && c.userEmail?.toLowerCase().trim() === email);
+          const match = isContribMatchUser(c, u);
           if (!match || c.status !== 'paid') return false;
           return Boolean(c.isAdvance || (c.year > currentYear) || (c.year === currentYear && c.month > currentMonth));
         }).sort((a, b) => {
@@ -1675,6 +1712,12 @@ export default function App() {
       if (!isFullyPaid) {
         if (loan.userId) activeSet.add(loan.userId);
         if (loan.userEmail) activeSet.add(loan.userEmail.toLowerCase().trim());
+        if (isPraneshMember(loan)) {
+          activeSet.add(PRANESH_CANONICAL_UID);
+          activeSet.add(PRANESH_LEGACY_UID);
+          activeSet.add(PRANESH_CANONICAL_EMAIL);
+          activeSet.add(PRANESH_LEGACY_EMAIL);
+        }
       }
     });
     return activeSet;
@@ -1696,8 +1739,8 @@ export default function App() {
 
     if (memberSortConfig.field) {
       items = [...items].sort((a, b) => {
-        const aContribs = contributions.filter(c => (a.uid && c.userId === a.uid) || (a.email && c.userEmail?.toLowerCase() === a.email.toLowerCase()));
-        const bContribs = contributions.filter(c => (b.uid && c.userId === b.uid) || (b.email && c.userEmail?.toLowerCase() === b.email.toLowerCase()));
+        const aContribs = contributions.filter(c => isContribMatchUser(c, a));
+        const bContribs = contributions.filter(c => isContribMatchUser(c, b));
         
         switch (memberSortConfig.field) {
           case 'name':
@@ -1758,8 +1801,7 @@ export default function App() {
         return false;
       }
       const userContribs = contributions.filter(c => 
-        ((u.uid && c.userId === u.uid) || 
-        (u.email && c.userEmail?.toLowerCase().trim() === email)) &&
+        isContribMatchUser(c, u) &&
         c.year >= 2026
       );
       const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear && (c.status === 'paid' || !c.status));
@@ -2225,13 +2267,14 @@ export default function App() {
         console.log(`Checking for data to backfill for email: ${email}, oldUid: ${oldUid}, oldEmail: ${oldEmail}`);
         
         const normEmail = email.toLowerCase().trim();
+        const isPranesh = normEmail.includes('pranesh') || (oldEmail && oldEmail.toLowerCase().includes('pranesh')) || uid === PRANESH_CANONICAL_UID || uid === PRANESH_LEGACY_UID;
         const emailsToMatch = [normEmail];
         if (oldEmail && oldEmail.toLowerCase().trim() !== normEmail) {
           emailsToMatch.push(oldEmail.toLowerCase().trim());
         }
-        if (normEmail.includes('pranesh') || (oldEmail && oldEmail.toLowerCase().includes('pranesh'))) {
-          if (!emailsToMatch.includes('praneshrao1954@gmail.com')) emailsToMatch.push('praneshrao1954@gmail.com');
-          if (!emailsToMatch.includes('jpranesh1954@gmail.com')) emailsToMatch.push('jpranesh1954@gmail.com');
+        if (isPranesh) {
+          if (!emailsToMatch.includes(PRANESH_LEGACY_EMAIL)) emailsToMatch.push(PRANESH_LEGACY_EMAIL);
+          if (!emailsToMatch.includes(PRANESH_CANONICAL_EMAIL)) emailsToMatch.push(PRANESH_CANONICAL_EMAIL);
         }
         if (normEmail.includes('rajaguru') || (oldEmail && oldEmail.toLowerCase().includes('rajaguru')) || normEmail === GURURAJ_EMAIL) {
           if (!emailsToMatch.includes(GURURAJ_EMAIL)) emailsToMatch.push(GURURAJ_EMAIL);
@@ -2241,8 +2284,9 @@ export default function App() {
         if (oldUid && oldUid !== uid) {
           uidsToMatch.push(oldUid);
         }
-        if (normEmail.includes('pranesh') && !uidsToMatch.includes('imp5eagibVcvtfD5qleX4ISC1Nj2')) {
-          uidsToMatch.push('imp5eagibVcvtfD5qleX4ISC1Nj2');
+        if (isPranesh) {
+          if (!uidsToMatch.includes(PRANESH_CANONICAL_UID)) uidsToMatch.push(PRANESH_CANONICAL_UID);
+          if (!uidsToMatch.includes(PRANESH_LEGACY_UID)) uidsToMatch.push(PRANESH_LEGACY_UID);
         }
 
         const batch = writeBatch(db);
@@ -2261,8 +2305,23 @@ export default function App() {
             const cUid = data.userId || '';
             const matchEmail = emailsToMatch.includes(cEmail);
             const matchUid = uidsToMatch.includes(cUid);
+            const isPraneshContrib = isPraneshMember(data);
             
-            if (matchEmail || matchUid) {
+            if (isPranesh) {
+              if (isPraneshContrib || matchEmail || matchUid) {
+                const needsUpdate = data.userId !== PRANESH_CANONICAL_UID ||
+                  cEmail !== PRANESH_CANONICAL_EMAIL ||
+                  data.userName !== PRANESH_CANONICAL_NAME;
+                if (needsUpdate) {
+                  batch.update(doc.ref, { 
+                    userId: PRANESH_CANONICAL_UID, 
+                    userEmail: PRANESH_CANONICAL_EMAIL,
+                    userName: PRANESH_CANONICAL_NAME
+                  });
+                  hasChanges = true;
+                }
+              }
+            } else if (matchEmail || matchUid) {
               const needsUidUpdate = data.userId !== uid;
               const needsEmailUpdate = (data.userEmail || '').toLowerCase().trim() !== normEmail;
               if (needsUidUpdate || needsEmailUpdate) {
@@ -2284,8 +2343,9 @@ export default function App() {
             const nUserId = (data.userId || '').toLowerCase().trim();
             const matchEmail = emailsToMatch.includes(nUserId);
             const matchUid = uidsToMatch.includes(data.userId || '');
-            if ((matchEmail || matchUid) && data.userId !== uid) {
-              batch.update(doc.ref, { userId: uid });
+            const targetUid = isPranesh ? PRANESH_CANONICAL_UID : uid;
+            if ((matchEmail || matchUid) && data.userId !== targetUid) {
+              batch.update(doc.ref, { userId: targetUid });
               hasChanges = true;
             }
           });
@@ -2300,7 +2360,23 @@ export default function App() {
             const lUid = data.userId || '';
             const matchEmail = emailsToMatch.includes(lEmail);
             const matchUid = uidsToMatch.includes(lUid);
-            if (matchEmail || matchUid) {
+            const isPraneshLoan = isPraneshMember(data);
+
+            if (isPranesh) {
+              if (isPraneshLoan || matchEmail || matchUid) {
+                const needsUpdate = data.userId !== PRANESH_CANONICAL_UID ||
+                  lEmail !== PRANESH_CANONICAL_EMAIL ||
+                  data.userName !== PRANESH_CANONICAL_NAME;
+                if (needsUpdate) {
+                  batch.update(doc.ref, { 
+                    userId: PRANESH_CANONICAL_UID, 
+                    userEmail: PRANESH_CANONICAL_EMAIL,
+                    userName: PRANESH_CANONICAL_NAME
+                  });
+                  hasChanges = true;
+                }
+              }
+            } else if (matchEmail || matchUid) {
               const needsUidUpdate = data.userId !== uid;
               const needsEmailUpdate = (data.userEmail || '').toLowerCase().trim() !== normEmail;
               if (needsUidUpdate || needsEmailUpdate) {
@@ -2320,7 +2396,23 @@ export default function App() {
             const pUid = data.userId || '';
             const matchEmail = emailsToMatch.includes(pEmail);
             const matchUid = uidsToMatch.includes(pUid);
-            if (matchEmail || matchUid) {
+            const isPraneshPayment = isPraneshMember(data);
+
+            if (isPranesh) {
+              if (isPraneshPayment || matchEmail || matchUid) {
+                const needsUpdate = data.userId !== PRANESH_CANONICAL_UID ||
+                  pEmail !== PRANESH_CANONICAL_EMAIL ||
+                  data.userName !== PRANESH_CANONICAL_NAME;
+                if (needsUpdate) {
+                  batch.update(doc.ref, { 
+                    userId: PRANESH_CANONICAL_UID, 
+                    userEmail: PRANESH_CANONICAL_EMAIL,
+                    userName: PRANESH_CANONICAL_NAME
+                  });
+                  hasChanges = true;
+                }
+              }
+            } else if (matchEmail || matchUid) {
               const needsUidUpdate = data.userId !== uid;
               const needsEmailUpdate = (data.userEmail || '').toLowerCase().trim() !== normEmail;
               if (needsUidUpdate || needsEmailUpdate) {
@@ -2332,8 +2424,34 @@ export default function App() {
         }
 
         // 5. Clean up old user document (by email or oldUid)
+        if (isPranesh) {
+          const legacyRef = doc(db, 'users', PRANESH_LEGACY_UID);
+          const legacySnap = await getDoc(legacyRef).catch(() => null);
+          if (legacySnap?.exists()) {
+            batch.delete(legacyRef);
+            hasChanges = true;
+          }
+          const legacyEmailRef = doc(db, 'users', PRANESH_LEGACY_EMAIL);
+          const legacyEmailSnap = await getDoc(legacyEmailRef).catch(() => null);
+          if (legacyEmailSnap?.exists()) {
+            batch.delete(legacyEmailRef);
+            hasChanges = true;
+          }
+          const canonicalRef = doc(db, 'users', PRANESH_CANONICAL_UID);
+          batch.set(canonicalRef, {
+            uid: PRANESH_CANONICAL_UID,
+            displayName: PRANESH_CANONICAL_NAME,
+            email: PRANESH_CANONICAL_EMAIL,
+            phoneNumber: PRANESH_PHONE,
+            address: PRANESH_ADDRESS,
+            role: 'user',
+            joinDate: '2026-01-01'
+          }, { merge: true });
+          hasChanges = true;
+        }
+
         for (const e of emailsToMatch) {
-          if (e !== uid) {
+          if (e !== uid && (!isPranesh || (e !== PRANESH_CANONICAL_UID))) {
             const emailRef = doc(db, 'users', e);
             const emailSnap = await getDoc(emailRef).catch(() => null);
             if (emailSnap?.exists()) {
@@ -2456,7 +2574,8 @@ export default function App() {
                 const dEmail = (data.email || '').trim().toLowerCase();
                 if (dEmail === email) return true;
                 // Specific matching for Pranesh Rao transition from praneshrao1954@gmail.com to jpranesh1954@gmail.com
-                if (email === 'jpranesh1954@gmail.com' && (dEmail === 'praneshrao1954@gmail.com' || d.id === 'imp5eagibVcvtfD5qleX4ISC1Nj2')) return true;
+                if ((email === PRANESH_CANONICAL_EMAIL || email === PRANESH_LEGACY_EMAIL) && 
+                    (dEmail === PRANESH_LEGACY_EMAIL || dEmail === PRANESH_CANONICAL_EMAIL || d.id === PRANESH_LEGACY_UID || d.id === PRANESH_CANONICAL_UID || isPraneshMember(data))) return true;
                 // Specific matching for Gururaj JP transition from Kannada/corrupted doc to rajagurujp@gmail.com
                 if ((email === GURURAJ_EMAIL || email.includes('rajaguru')) && isGururajMember(data)) return true;
                 return false;
@@ -2482,33 +2601,61 @@ export default function App() {
             };
           }
 
+          // Allow jpranesh1954@gmail.com to log in even if matching didn't catch oldDoc
+          if ((email === PRANESH_CANONICAL_EMAIL || email === PRANESH_LEGACY_EMAIL) && !existingData) {
+            existingData = {
+              uid: firebaseUser.uid,
+              email: PRANESH_CANONICAL_EMAIL,
+              displayName: PRANESH_CANONICAL_NAME,
+              phoneNumber: PRANESH_PHONE,
+              address: PRANESH_ADDRESS,
+              role: 'user',
+              joinDate: '2026-01-01'
+            };
+          }
+
           if (existingData) {
             const isGururaj = (email === GURURAJ_EMAIL || email.includes('rajaguru')) || isGururajMember(existingData);
-            // For Gururaj JP, keep English name 'Gururaj JP' intact - do NOT overwrite with Google's Kannada font or corrupted name
+            const isPranesh = (email === PRANESH_CANONICAL_EMAIL || email === PRANESH_LEGACY_EMAIL) || isPraneshMember(existingData);
+            
+            // For Gururaj JP, keep English name 'Gururaj JP' intact
+            // For Pranesh Rao J, keep English name 'Pranesh Rao J' intact
             const finalDisplayName = isGururaj 
               ? GURURAJ_ENGLISH_NAME 
-              : (firebaseUser.displayName || existingData.displayName);
+              : isPranesh
+                ? PRANESH_CANONICAL_NAME
+                : (firebaseUser.displayName || existingData.displayName);
+
+            const finalEmail = isPranesh
+              ? PRANESH_CANONICAL_EMAIL
+              : (rawEmail || existingData.email);
 
             const finalPhone = isGururaj 
               ? (existingData.phoneNumber && existingData.phoneNumber.replace(/\D/g, '').endsWith(GURURAJ_PHONE) ? existingData.phoneNumber : GURURAJ_PHONE) 
-              : existingData.phoneNumber;
+              : isPranesh
+                ? (existingData.phoneNumber && existingData.phoneNumber.replace(/\D/g, '').endsWith(PRANESH_PHONE) ? existingData.phoneNumber : PRANESH_PHONE)
+                : existingData.phoneNumber;
 
             // Link UID to existing record (User was pre-registered by email or email was updated)
             const updatedProfile: UserProfile = { 
               ...existingData, 
               uid: firebaseUser.uid, 
-              email: rawEmail || existingData.email,
+              email: finalEmail,
               displayName: finalDisplayName,
-              phoneNumber: finalPhone
+              phoneNumber: finalPhone,
+              address: isPranesh ? (existingData.address || PRANESH_ADDRESS) : existingData.address
             };
             await setDoc(userRef, updatedProfile);
             if (oldDocId && oldDocId !== firebaseUser.uid) {
               await deleteDoc(doc(db, 'users', oldDocId)).catch(err => console.warn("Could not delete old user doc:", err));
             }
+            if (isPranesh && oldDocId !== PRANESH_LEGACY_UID) {
+              await deleteDoc(doc(db, 'users', PRANESH_LEGACY_UID)).catch(() => {});
+            }
             setProfile(updatedProfile);
             
             // Backfill contributions, loans, and notifications
-            backfillUserData(firebaseUser.uid, rawEmail, oldDocId !== firebaseUser.uid ? oldDocId : undefined, existingData.email);
+            backfillUserData(firebaseUser.uid, finalEmail, oldDocId !== firebaseUser.uid ? oldDocId : undefined, existingData.email);
           } else {
             // STRICT VERIFICATION: Not in database = Access Denied
             await signOut(auth);
@@ -2541,6 +2688,36 @@ export default function App() {
               profileData = { ...profileData, ...updates };
             }
           }
+
+          const isPranesh = (firebaseUser.email || '').toLowerCase().trim() === PRANESH_CANONICAL_EMAIL || isPraneshMember(profileData);
+          if (isPranesh) {
+            let needsUpdate = false;
+            const updates: Partial<UserProfile> = {};
+            if (profileData.displayName !== PRANESH_CANONICAL_NAME) {
+              updates.displayName = PRANESH_CANONICAL_NAME;
+              needsUpdate = true;
+            }
+            if (profileData.email !== PRANESH_CANONICAL_EMAIL) {
+              updates.email = PRANESH_CANONICAL_EMAIL;
+              needsUpdate = true;
+            }
+            if (!profileData.phoneNumber || !profileData.phoneNumber.replace(/\D/g, '').endsWith(PRANESH_PHONE)) {
+              updates.phoneNumber = PRANESH_PHONE;
+              needsUpdate = true;
+            }
+            if (!profileData.address) {
+              updates.address = PRANESH_ADDRESS;
+              needsUpdate = true;
+            }
+            if (needsUpdate) {
+              await updateDoc(userRef, updates).catch(err => console.warn("Error updating Pranesh profile:", err));
+              profileData = { ...profileData, ...updates };
+            }
+            // Delete legacy user doc if still lingering
+            deleteDoc(doc(db, 'users', PRANESH_LEGACY_UID)).catch(() => {});
+            deleteDoc(doc(db, 'users', PRANESH_LEGACY_EMAIL)).catch(() => {});
+            backfillUserData(firebaseUser.uid, PRANESH_CANONICAL_EMAIL, PRANESH_LEGACY_UID, PRANESH_LEGACY_EMAIL);
+          }
           
           // Auto-promote to admin if email is in ADMIN_EMAILS but role is 'user'
           if (firebaseUser.email && ADMIN_EMAILS.includes(firebaseUser.email) && profileData.role !== 'admin') {
@@ -2559,6 +2736,9 @@ export default function App() {
           // Always attempt backfill in case some records were added by email while user was already registered
           if (firebaseUser.email) {
             backfillUserData(firebaseUser.uid, firebaseUser.email);
+            if (ADMIN_EMAILS.includes(firebaseUser.email) || profileData.role === 'admin') {
+              backfillUserData(PRANESH_CANONICAL_UID, PRANESH_CANONICAL_EMAIL, PRANESH_LEGACY_UID, PRANESH_LEGACY_EMAIL);
+            }
           }
           
           if (!profileData.phoneNumber) {
@@ -2581,7 +2761,10 @@ export default function App() {
 
     const q = query(collection(db, 'contributions'), orderBy('timestamp', 'desc'));
     const unsubscribeContribs = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Contribution));
+      const data = snapshot.docs.map(doc => {
+        const raw = { ...doc.data(), id: doc.id } as Contribution;
+        return sanitizeContribution(raw);
+      });
       setContributions(data);
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, 'contributions');
@@ -2591,12 +2774,12 @@ export default function App() {
       const data = snapshot.docs.map(doc => {
         const raw = { ...doc.data(), id: doc.id } as UserProfile;
         return sanitizeUserProfile(raw);
-      }).filter(u => u && (u.email || isGururajMember(u)));
+      }).filter(u => u && (u.email || isGururajMember(u) || isPraneshMember(u)));
       // Ensure uniqueness by email to prevent double counting if a user has both UID and Email docs
       // Prioritize entries that have a UID
       const uniqueUsersMap = new Map<string, UserProfile>();
       data.forEach(u => {
-        const email = (u.email || (isGururajMember(u) ? GURURAJ_EMAIL : '')).trim().toLowerCase();
+        const email = (u.email || (isGururajMember(u) ? GURURAJ_EMAIL : (isPraneshMember(u) ? PRANESH_CANONICAL_EMAIL : ''))).trim().toLowerCase();
         if (!email) return;
         const existing = uniqueUsersMap.get(email);
         if (!existing || (!existing.uid && u.uid)) {
@@ -2613,6 +2796,24 @@ export default function App() {
           email: GURURAJ_EMAIL
         });
       }
+      // Ensure Pranesh Rao J is cleanly mapped and deduplicated
+      uniqueUsersMap.delete(PRANESH_LEGACY_EMAIL);
+      uniqueUsersMap.delete('praneshrao');
+      const praneshDoc = data.find(u => isPraneshMember(u));
+      if (praneshDoc || uniqueUsersMap.has(PRANESH_CANONICAL_EMAIL)) {
+        const basePranesh = praneshDoc || uniqueUsersMap.get(PRANESH_CANONICAL_EMAIL)!;
+        uniqueUsersMap.set(PRANESH_CANONICAL_EMAIL, {
+          ...basePranesh,
+          id: PRANESH_CANONICAL_UID,
+          uid: PRANESH_CANONICAL_UID,
+          displayName: PRANESH_CANONICAL_NAME,
+          email: PRANESH_CANONICAL_EMAIL,
+          phoneNumber: PRANESH_PHONE,
+          address: PRANESH_ADDRESS,
+          role: 'user',
+          joinDate: basePranesh.joinDate || '2026-01-01'
+        });
+      }
       setAllUsers(Array.from(uniqueUsersMap.values()));
     }, (err) => {
       handleFirestoreError(err, OperationType.GET, 'users');
@@ -2621,12 +2822,15 @@ export default function App() {
     const loansQuery = collection(db, 'loans');
 
     const unsubscribeLoans = onSnapshot(loansQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Loan));
+      const data = snapshot.docs.map(doc => {
+        const raw = { ...doc.data(), id: doc.id } as Loan;
+        return sanitizeLoan(raw);
+      });
       setLoans(data);
       
       // Check for newly approved loans for current user
       const newlyApproved = data.find(l => 
-        l.userId === user.uid && 
+        (l.userId === user.uid || (isPraneshMember(l) && isPraneshMember(user))) && 
         l.status === 'approved' && 
         !localStorage.getItem(`loan_popup_${l.id}`)
       );
@@ -2641,7 +2845,10 @@ export default function App() {
     const paymentsQuery = collection(db, 'loanPayments');
 
     const unsubscribeLoanPayments = onSnapshot(paymentsQuery, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as LoanPayment));
+      const data = snapshot.docs.map(doc => {
+        const raw = { ...doc.data(), id: doc.id } as LoanPayment;
+        return sanitizeLoanPayment(raw);
+      });
       // Filter out test loan repayment entry (20,100 in Apr 2026)
       const validData = data.filter(p => {
         const isApr2026 = p.month === 4 && p.year === 2026;
@@ -3342,6 +3549,7 @@ export default function App() {
     if (params.type === 'subscription_recorded' || params.type === 'subscription_approved' || params.type === 'advance_subscription_recorded' || params.type === 'advance_subscription_approved') {
       const userPaidPriorAndCurrent = contributions.filter(c => {
         const matchesUser = 
+          isContribMatchUser(c, params.targetUser) ||
           (params.targetUser?.uid && (c.userId === params.targetUser.uid || (params.targetUser as any).id === c.userId)) ||
           (params.targetUser?.email && c.userEmail?.toLowerCase().trim() === params.targetUser.email.toLowerCase().trim());
         if (!matchesUser) return false;
@@ -4409,19 +4617,13 @@ export default function App() {
     // 1. Master Report - Consolidated Member Summary
     const masterReport = allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).map(u => {
       // Contributions / Subscriptions for this member
-      const userContribs = contributions.filter(c => 
-        (u.uid && c.userId && c.userId === u.uid) || 
-        (u.email && c.userEmail && c.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim())
-      );
+      const userContribs = contributions.filter(c => isContribMatchUser(c, u));
       const paidContribs = userContribs.filter(c => c.status === 'paid');
       const totalDeposited = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
       const subscriptionMonthsCount = paidContribs.length;
       
       // All loans associated with this member
-      const userLoans = loans.filter(l => 
-        (u.uid && l.userId && l.userId === u.uid) || 
-        (u.email && l.userEmail && l.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim())
-      );
+      const userLoans = loans.filter(l => isLoanMatchUser(l, u));
       
       // Sanctioned/Disbursed loans (approved or paid)
       const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
@@ -4430,17 +4632,7 @@ export default function App() {
       const hasLoan = sanctionedLoans.length > 0;
       
       // All payments made by this member across all loans (matching loan borrower or direct payment record)
-      const userPayments = loanPayments.filter(p => {
-        const parentLoan = loans.find(l => l.id === p.loanId);
-        if (parentLoan) {
-          const matchLoanUid = u.uid && parentLoan.userId && parentLoan.userId === u.uid;
-          const matchLoanEmail = u.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim();
-          if (matchLoanUid || matchLoanEmail) return true;
-        }
-        const matchDirectUid = u.uid && p.userId && p.userId === u.uid;
-        const matchDirectEmail = u.email && p.userEmail && p.userEmail.toLowerCase().trim() === u.email.toLowerCase().trim();
-        return matchDirectUid || matchDirectEmail;
-      });
+      const userPayments = loanPayments.filter(p => isPaymentMatchUser(p, u, loans));
       const paidUserPayments = userPayments.filter(p => p.status === 'paid');
 
       let totalSanctionedAmount = 0;
@@ -5116,29 +5308,15 @@ export default function App() {
       };
       
       // 1. Member Contributions Filter
-      const userContribs = contributions.filter(c => 
-        ((targetUser.uid && c.userId && c.userId === targetUser.uid) || (targetUser.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
-      );
+      const userContribs = contributions.filter(c => isContribMatchUser(c, targetUser));
       const paidContribs = userContribs.filter(c => c.status === 'paid');
       const totalDeposited = paidContribs.reduce((acc, c) => acc + (c.amount || 0), 0);
 
       // 2. Member Loans Filter
-      const userLoans = loans.filter(l => 
-        ((targetUser.uid && l.userId && l.userId === targetUser.uid) || (targetUser.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim()))
-      );
+      const userLoans = loans.filter(l => isLoanMatchUser(l, targetUser));
       
       // 3. Member Loan Repayments Filter
-      const userLoanPayments = loanPayments.filter(p => {
-        const parentLoan = loans.find(l => l.id === p.loanId);
-        if (parentLoan) {
-          const matchLoanUid = targetUser.uid && parentLoan.userId && parentLoan.userId === targetUser.uid;
-          const matchLoanEmail = targetUser.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
-          if (matchLoanUid || matchLoanEmail) return true;
-        }
-        const matchDirectUid = targetUser.uid && p.userId && p.userId === targetUser.uid;
-        const matchDirectEmail = targetUser.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
-        return matchDirectUid || matchDirectEmail;
-      });
+      const userLoanPayments = loanPayments.filter(p => isPaymentMatchUser(p, targetUser, loans));
 
       const paidLoanPayments = userLoanPayments.filter(p => p.status === 'paid');
       const totalPrincipalPaid = paidLoanPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
@@ -6298,10 +6476,7 @@ export default function App() {
   };
 
   const sortedLoans = useMemo(() => {
-    let items = isAdmin ? [...loans] : loans.filter(l => 
-      (user?.uid && l.userId && l.userId === user.uid) || 
-      (user?.email && l.userEmail && l.userEmail.toLowerCase() === user.email.toLowerCase())
-    );
+    let items = isAdmin ? [...loans] : loans.filter(l => isLoanMatchUser(l, user));
     
     if (isAdmin && searchQuery && searchQuery.trim()) {
       const query = searchQuery.trim().toLowerCase();
@@ -6309,6 +6484,7 @@ export default function App() {
 
       items = items.filter(l => {
         const targetUser = allUsers.find(u => 
+          isLoanMatchUser(l, u) ||
           (l.userId && u.uid === l.userId) || 
           (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
         );
@@ -6523,27 +6699,9 @@ export default function App() {
     allLoanPayments: LoanPayment[]
   ): { doc: jsPDF; fileName: string } => {
     const doc = new jsPDF();
-    const userContribs = allContributions.filter(c => 
-      (targetUser.uid && c.userId && c.userId === targetUser.uid) || 
-      (targetUser.email && c.userEmail && c.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim())
-    );
-    
-    const userLoans = allLoans.filter(l => 
-      (targetUser.uid && l.userId && l.userId === targetUser.uid) || 
-      (targetUser.email && l.userEmail && l.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim())
-    );
-
-    const userLoanPayments = allLoanPayments.filter(p => {
-      const parentLoan = allLoans.find(l => l.id === p.loanId);
-      if (parentLoan) {
-        const matchLoanUid = targetUser.uid && parentLoan.userId && parentLoan.userId === targetUser.uid;
-        const matchLoanEmail = targetUser.email && parentLoan.userEmail && parentLoan.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
-        if (matchLoanUid || matchLoanEmail) return true;
-      }
-      const matchDirectUid = targetUser.uid && p.userId && p.userId === targetUser.uid;
-      const matchDirectEmail = targetUser.email && p.userEmail && p.userEmail.toLowerCase().trim() === targetUser.email.toLowerCase().trim();
-      return matchDirectUid || matchDirectEmail;
-    });
+    const userContribs = allContributions.filter(c => isContribMatchUser(c, targetUser));
+    const userLoans = allLoans.filter(l => isLoanMatchUser(l, targetUser));
+    const userLoanPayments = allLoanPayments.filter(p => isPaymentMatchUser(p, targetUser, allLoans));
 
     // Header
     doc.setFontSize(22);
@@ -6582,66 +6740,101 @@ export default function App() {
     const totalInterestPaid = paidLoanPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
     const outstandingPrincipal = Math.max(0, totalSanctioned - totalLoanPaid);
 
+    const hasLoans = userLoans.length > 0 || totalSanctioned > 0;
+
     doc.setDrawColor(220);
     doc.line(20, 64, 190, 64);
     doc.setFont(undefined, 'bold');
     doc.setFontSize(10);
     doc.setTextColor(79, 70, 229);
     doc.text(`Total Savings: Rs. ${totalSaved.toLocaleString('en-IN')}`, 20, 72);
-    doc.setTextColor(30);
-    doc.text(`Total Loans Disbursed: Rs. ${totalSanctioned.toLocaleString('en-IN')}`, 120, 72);
-    doc.text(`Principal Repaid: Rs. ${totalLoanPaid.toLocaleString('en-IN')}`, 20, 80);
-    doc.text(`Interest Repaid: Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, 120, 80);
-    doc.setTextColor(outstandingPrincipal > 0 ? 180 : 30, outstandingPrincipal > 0 ? 30 : 30, outstandingPrincipal > 0 ? 30 : 30);
-    doc.text(`Outstanding Principal: Rs. ${outstandingPrincipal.toLocaleString('en-IN')}`, 20, 88);
+
+    let contribHeaderY = 82;
+    let contribTableStartY = 86;
+
+    if (hasLoans) {
+      doc.setTextColor(30);
+      doc.text(`Total Loans Disbursed: Rs. ${totalSanctioned.toLocaleString('en-IN')}`, 120, 72);
+      doc.text(`Principal Repaid: Rs. ${totalLoanPaid.toLocaleString('en-IN')}`, 20, 80);
+      doc.text(`Interest Repaid: Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, 120, 80);
+      doc.setTextColor(outstandingPrincipal > 0 ? 180 : 30, outstandingPrincipal > 0 ? 30 : 30, outstandingPrincipal > 0 ? 30 : 30);
+      doc.text(`Outstanding Principal: Rs. ${outstandingPrincipal.toLocaleString('en-IN')}`, 20, 88);
+      contribHeaderY = 100;
+      contribTableStartY = 104;
+    }
     doc.setFont(undefined, 'normal');
 
     // Contributions Table
     doc.setFont(undefined, 'bold');
     doc.setFontSize(11);
     doc.setTextColor(79, 70, 229);
-    doc.text("Contribution History", 20, 100);
+    doc.text("Contribution History", 20, contribHeaderY);
     doc.setFont(undefined, 'normal');
 
-    const contributionRows = userContribs
-      .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
-      .map((c, idx) => {
-        let monthName = 'N/A';
-        try {
-          if (c.year && c.month) {
-            monthName = format(new Date(c.year, c.month - 1), 'MMMM');
-          }
-        } catch (e) {
-          console.error("Error formatting date for contribution:", c);
-        }
-        
-        let paymentDateTime = 'N/A';
-        if (c.timestamp) {
-          try {
-            const date = c.timestamp.toDate ? c.timestamp.toDate() : new Date(c.timestamp);
-            paymentDateTime = format(date, 'MMM dd, yyyy p');
-          } catch (e) {
-            console.error("Error formatting timestamp:", e);
-          }
-        }
+    // Sort chronologically ascending to assign permanent chronological serial numbers (#1 for earliest, etc.)
+    const sortedContribsAsc = [...userContribs].sort((a, b) => {
+      const yearDiff = (a.year || 0) - (b.year || 0);
+      if (yearDiff !== 0) return yearDiff;
+      const monthDiff = (a.month || 0) - (b.month || 0);
+      if (monthDiff !== 0) return monthDiff;
+      const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : 0);
+      const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : 0);
+      return timeA - timeB;
+    });
 
-        return [
-          `#${idx + 1}`,
-          monthName,
-          c.year || 'N/A',
-          paymentDateTime,
-          (c.paymentMethod || 'N/A').toUpperCase(),
-          `Rs. ${(c.amount || 0).toLocaleString('en-IN')}`,
-          c.isAdvance ? 'PAID (ADVANCE)' : (c.status || 'N/A').toUpperCase()
-        ];
-      });
+    const contribWithSerial = sortedContribsAsc.map((c, idx) => ({
+      ...c,
+      serialNumber: idx + 1
+    }));
+
+    // Sort descending for display so the latest payment appears at the top of the report
+    const sortedContribsDesc = [...contribWithSerial].sort((a, b) => {
+      const yearDiff = (b.year || 0) - (a.year || 0);
+      if (yearDiff !== 0) return yearDiff;
+      const monthDiff = (b.month || 0) - (a.month || 0);
+      if (monthDiff !== 0) return monthDiff;
+      const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : 0);
+      const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : 0);
+      return timeB - timeA;
+    });
+
+    const contributionRows = sortedContribsDesc.map((c) => {
+      let monthName = 'N/A';
+      try {
+        if (c.year && c.month) {
+          monthName = format(new Date(c.year, c.month - 1), 'MMMM');
+        }
+      } catch (e) {
+        console.error("Error formatting date for contribution:", c);
+      }
+      
+      let paymentDateTime = 'N/A';
+      if (c.timestamp) {
+        try {
+          const date = c.timestamp.toDate ? c.timestamp.toDate() : new Date(c.timestamp);
+          paymentDateTime = format(date, 'MMM dd, yyyy p');
+        } catch (e) {
+          console.error("Error formatting timestamp:", e);
+        }
+      }
+
+      return [
+        `#${c.serialNumber}`,
+        monthName,
+        c.year || 'N/A',
+        paymentDateTime,
+        (c.paymentMethod || 'N/A').toUpperCase(),
+        `Rs. ${(c.amount || 0).toLocaleString('en-IN')}`,
+        c.isAdvance ? 'PAID (ADVANCE)' : (c.status || 'N/A').toUpperCase()
+      ];
+    });
 
     if (contributionRows.length === 0) {
       contributionRows.push(['-', 'No contributions recorded', '-', '-', '-', '-', '-']);
     }
 
     autoTable(doc, {
-      startY: 104,
+      startY: contribTableStartY,
       head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Payment Mode', 'Amount', 'Status']],
       body: contributionRows,
       theme: 'striped',
@@ -6702,42 +6895,67 @@ export default function App() {
       doc.text("Loan Repayment History", 20, finalY + 12);
       doc.setFont(undefined, 'normal');
 
-      const loanPaymentRows = userLoanPayments
-        .sort((a, b) => (b.year || 0) - (a.year || 0) || (b.month || 0) - (a.month || 0))
-        .map((p, idx) => {
-          let monthName = 'N/A';
+      // Sort chronologically ascending to assign permanent chronological serial numbers (#1 for earliest, etc.)
+      const sortedLoanPaymentsAsc = [...userLoanPayments].sort((a, b) => {
+        const yearDiff = (a.year || 0) - (b.year || 0);
+        if (yearDiff !== 0) return yearDiff;
+        const monthDiff = (a.month || 0) - (b.month || 0);
+        if (monthDiff !== 0) return monthDiff;
+        const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : 0);
+        const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : 0);
+        return timeA - timeB;
+      });
+
+      const loanPaymentsWithSerial = sortedLoanPaymentsAsc.map((p, idx) => ({
+        ...p,
+        serialNumber: idx + 1
+      }));
+
+      // Sort descending for display so the latest payment appears at the top of the report
+      const sortedLoanPaymentsDesc = [...loanPaymentsWithSerial].sort((a, b) => {
+        const yearDiff = (b.year || 0) - (a.year || 0);
+        if (yearDiff !== 0) return yearDiff;
+        const monthDiff = (b.month || 0) - (a.month || 0);
+        if (monthDiff !== 0) return monthDiff;
+        const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : 0);
+        const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : 0);
+        return timeB - timeA;
+      });
+
+      const loanPaymentRows = sortedLoanPaymentsDesc.map((p) => {
+        let monthName = 'N/A';
+        try {
+          if (p.year && p.month) {
+            monthName = format(new Date(p.year, p.month - 1), 'MMMM');
+          }
+        } catch (e) {
+          console.error("Error formatting date for loan payment:", p);
+        }
+
+        let paymentDateTime = 'N/A';
+        if (p.timestamp) {
           try {
-            if (p.year && p.month) {
-              monthName = format(new Date(p.year, p.month - 1), 'MMMM');
-            }
+            const date = p.timestamp.toDate ? p.timestamp.toDate() : new Date(p.timestamp);
+            paymentDateTime = format(date, 'MMM dd, yyyy p');
           } catch (e) {
-            console.error("Error formatting date for loan payment:", p);
+            console.error("Error formatting timestamp for loan payment:", e);
           }
+        }
 
-          let paymentDateTime = 'N/A';
-          if (p.timestamp) {
-            try {
-              const date = p.timestamp.toDate ? p.timestamp.toDate() : new Date(p.timestamp);
-              paymentDateTime = format(date, 'MMM dd, yyyy p');
-            } catch (e) {
-              console.error("Error formatting timestamp for loan payment:", e);
-            }
-          }
+        const totalInstallment = (p.amount || 0) + (p.interest || 0);
 
-          const totalInstallment = (p.amount || 0) + (p.interest || 0);
-
-          return [
-            `#${idx + 1}`,
-            monthName,
-            p.year || 'N/A',
-            paymentDateTime,
-            (p.paymentMethod || p.paymentMode || 'N/A').toUpperCase(),
-            `Rs. ${(p.amount || 0).toLocaleString('en-IN')}`,
-            `Rs. ${(p.interest || 0).toLocaleString('en-IN')}`,
-            `Rs. ${totalInstallment.toLocaleString('en-IN')}`,
-            (p.status || 'N/A').toUpperCase()
-          ];
-        });
+        return [
+          `#${p.serialNumber}`,
+          monthName,
+          p.year || 'N/A',
+          paymentDateTime,
+          (p.paymentMethod || p.paymentMode || 'N/A').toUpperCase(),
+          `Rs. ${(p.amount || 0).toLocaleString('en-IN')}`,
+          `Rs. ${(p.interest || 0).toLocaleString('en-IN')}`,
+          `Rs. ${totalInstallment.toLocaleString('en-IN')}`,
+          (p.status || 'N/A').toUpperCase()
+        ];
+      });
 
       autoTable(doc, {
         startY: finalY + 16,
@@ -8438,8 +8656,7 @@ ${scheduleHighlights}
 
               {(() => {
                 const myActiveLoans = loans.filter(l => 
-                  l.status === 'approved' &&
-                  ((user?.uid && l.userId === user.uid) || (user?.email && l.userEmail?.toLowerCase() === user.email?.toLowerCase()))
+                  l.status === 'approved' && isLoanMatchUser(l, user)
                 );
                 if (myActiveLoans.length === 0) return null;
 
@@ -9472,9 +9689,7 @@ ${scheduleHighlights}
                   <tbody className="divide-y divide-slate-100">
                     {sortedMembers.map((u, idx) => {
                       const userContribs = contributions.filter(c => 
-                        ((u.uid && c.userId === u.uid) || 
-                        (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) &&
-                        c.year >= 2026
+                        isContribMatchUser(c, u) && c.year >= 2026
                       );
                       const totalPaid = userContribs.reduce((acc, c) => acc + c.amount, 0);
                       const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear);
@@ -9483,7 +9698,8 @@ ${scheduleHighlights}
                         .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
                       const hasActiveLoan = Boolean(
                         (u.uid && activeLoanUserIdentifiers.has(u.uid)) ||
-                        (u.email && activeLoanUserIdentifiers.has(u.email.toLowerCase().trim()))
+                        (u.email && activeLoanUserIdentifiers.has(u.email.toLowerCase().trim())) ||
+                        (isPraneshMember(u) && (activeLoanUserIdentifiers.has(PRANESH_CANONICAL_UID) || activeLoanUserIdentifiers.has(PRANESH_CANONICAL_EMAIL)))
                       );
                       const memberAdvanceSummary = (u.uid && advanceSummaryMap.get(u.uid)) || 
                         ((u as any).id && advanceSummaryMap.get((u as any).id)) || 
@@ -9919,14 +10135,17 @@ ${scheduleHighlights}
               />
               {sortedMembers.map((u, idx) => {
                 const userContribs = contributions.filter(c => 
-                  ((u.uid && c.userId === u.uid) || 
-                  (u.email && c.userEmail?.toLowerCase().trim() === u.email.toLowerCase().trim())) &&
-                  c.year >= 2026
+                  isContribMatchUser(c, u) && c.year >= 2026
                 );
                 const totalPaid = userContribs.reduce((acc, c) => acc + c.amount, 0);
                 const paidThisMonth = userContribs.some(c => c.month === currentMonth && c.year === currentYear);
                 const hasPendingThisYear = Array.from({ length: currentMonth }, (_, i) => i + 1)
                   .some(m => !userContribs.some(c => c.month === m && c.year === currentYear && c.status === 'paid'));
+                const hasActiveLoan = Boolean(
+                  (u.uid && activeLoanUserIdentifiers.has(u.uid)) ||
+                  (u.email && activeLoanUserIdentifiers.has(u.email.toLowerCase().trim())) ||
+                  (isPraneshMember(u) && (activeLoanUserIdentifiers.has(PRANESH_CANONICAL_UID) || activeLoanUserIdentifiers.has(PRANESH_CANONICAL_EMAIL)))
+                );
                 const memberAdvanceSummary = (u.uid && advanceSummaryMap.get(u.uid)) || 
                   ((u as any).id && advanceSummaryMap.get((u as any).id)) || 
                   (u.email ? advanceSummaryMap.get(u.email.toLowerCase().trim()) : undefined) || 
@@ -9950,7 +10169,14 @@ ${scheduleHighlights}
                         </div>
                         <div className="min-w-0">
                           <h4 className="font-bold text-slate-900 truncate">{u.displayName || 'Unnamed'}</h4>
-                          <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                            {hasActiveLoan && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded-md border border-amber-200">
+                                Loan
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
@@ -10376,7 +10602,7 @@ ${scheduleHighlights}
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
                                   {loanList.map((l, idx) => {
-                                    const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                                    const targetUser = allUsers.find(u => isLoanMatchUser(l, u) || (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                                     const isOldestPending = l.id === oldestPendingLoanId;
                                     const payments = loanPayments.filter(p => p.loanId === l.id);
                                     const paidPayments = payments.filter(p => p.status === 'paid');
@@ -10405,7 +10631,7 @@ ${scheduleHighlights}
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                           <div className="flex flex-col">
-                                            <span className="text-sm font-semibold text-slate-900">{targetUser?.displayName || l.userEmail?.split('@')[0]}</span>
+                                            <span className="text-sm font-semibold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
                                             <span className="text-xs text-slate-500">{targetUser?.phoneNumber || l.userEmail}</span>
                                           </div>
                                         </td>
@@ -10530,7 +10756,7 @@ ${scheduleHighlights}
                               className="mb-1"
                             />
                             {loanList.map((l, idx) => {
-                              const targetUser = allUsers.find(u => (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                              const targetUser = allUsers.find(u => isLoanMatchUser(l, u) || (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
                               const isOldestPending = l.id === oldestPendingLoanId;
                               const payments = loanPayments.filter(p => p.loanId === l.id);
                               const paidPayments = payments.filter(p => p.status === 'paid');
@@ -10554,7 +10780,7 @@ ${scheduleHighlights}
                                   </div>
                                   <div className="flex items-center justify-between mb-4">
                                     <div className="flex flex-col">
-                                      <span className="text-sm font-bold text-slate-900">{targetUser?.displayName || l.userEmail?.split('@')[0]}</span>
+                                      <span className="text-sm font-bold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
                                       <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
                                         {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
                                       </span>
@@ -11995,7 +12221,7 @@ ${scheduleHighlights}
             {/* User Loan View (Only for members) */}
             {!isAdmin && (() => {
               const memberActiveOrClosedLoans = loans
-                .filter(l => (l.userId === user?.uid || (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase())) && (l.status === 'approved' || l.status === 'paid'))
+                .filter(l => isLoanMatchUser(l, user) && (l.status === 'approved' || l.status === 'paid'))
                 .sort((a, b) => {
                   const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
                   const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
@@ -12420,7 +12646,7 @@ ${scheduleHighlights}
                   <div className="space-y-6">
                     {(() => {
                       const userApplications = loans.filter(l => 
-                        l.userId === user?.uid || (user?.email && l.userEmail?.toLowerCase() === user.email.toLowerCase())
+                        isLoanMatchUser(l, user)
                       ).sort((a, b) => {
                       const dateA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
                       const dateB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
@@ -12641,12 +12867,13 @@ ${scheduleHighlights}
               // Member lookup and mapping for contributions
               const mappedContribs = monthlyPaidContributions.map((c, idx) => {
                 const mUser = allUsers.find(u => 
+                  isContribMatchUser(c, u) ||
                   (u.uid && c.userId && u.uid === c.userId) || 
                   (u.email && c.userEmail && u.email.toLowerCase().trim() === c.userEmail.toLowerCase().trim())
                 );
-                const memberName = mUser?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : 'Member');
                 const userPhone = mUser?.phoneNumber || (mUser as any)?.phone || '';
                 const userEmail = mUser?.email || c.userEmail || '';
+                const memberName = getSafeMemberDisplayName(mUser, userPhone, userEmail) || mUser?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : 'Member');
                 const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : null;
                 return {
                   sno: idx + 1,
@@ -12703,14 +12930,16 @@ ${scheduleHighlights}
               const mappedLoanPayments = monthlyPaidLoanPayments.map((p, idx) => {
                 const parentLoan = loans.find(l => l.id === p.loanId);
                 const borrower = allUsers.find(u => 
+                  isPaymentMatchUser(p, u, loans) ||
+                  (parentLoan && isLoanMatchUser(parentLoan, u)) ||
                   (u.uid && parentLoan?.userId && u.uid === parentLoan.userId) ||
                   (u.email && parentLoan?.userEmail && u.email.toLowerCase().trim() === parentLoan.userEmail.toLowerCase().trim()) ||
                   (u.uid && p.userId && u.uid === p.userId) ||
                   (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
                 );
-                const borrowerName = borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || 'Borrower';
                 const borrowerPhone = borrower?.phoneNumber || (borrower as any)?.phone || '';
                 const borrowerEmail = borrower?.email || parentLoan?.userEmail || p.userEmail || '';
+                const borrowerName = getSafeMemberDisplayName(borrower, borrowerPhone, borrowerEmail) || borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || 'Borrower';
                 const principal = p.amount || 0;
                 const interest = p.interest || 0;
                 const total = principal + interest;
@@ -13770,6 +13999,7 @@ ${scheduleHighlights}
                       <tbody className="divide-y divide-slate-100">
                         {sortedContributions.map((c, idx) => {
                           const targetUser = allUsers.find(u => 
+                            isContribMatchUser(c, u) ||
                             (c.userId && u.uid === c.userId) || 
                             (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
                           );
@@ -13787,7 +14017,7 @@ ${scheduleHighlights}
                               {isAdmin && (
                                 <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                   <span className="text-sm font-semibold text-slate-900 truncate">
-                                    {targetUser?.displayName || c.userEmail.split('@')[0]}
+                                    {getSafeMemberDisplayName(targetUser, null, c.userEmail) || targetUser?.displayName || (c as any).userName || c.userEmail.split('@')[0]}
                                   </span>
                                 </td>
                               )}
@@ -13894,12 +14124,13 @@ ${scheduleHighlights}
                   />
                   {sortedContributions.map((c, idx) => {
                     const member = allUsers.find(u => 
+                      isContribMatchUser(c, u) ||
                       (c.userId && u.uid === c.userId) || 
                       (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
                     );
-                    const memberName = member?.displayName || (c as any).userName || (c.userEmail ? c.userEmail.split('@')[0] : 'Member');
                     const memberPhone = member?.phoneNumber || (member as any)?.phone || '';
                     const memberEmail = member?.email || c.userEmail || '';
+                    const memberName = getSafeMemberDisplayName(member, memberPhone, memberEmail) || member?.displayName || (c as any).userName || (c.userEmail ? c.userEmail.split('@')[0] : 'Member');
                     const isPaid = c.status === 'paid';
                     const dateFormatted = c.timestamp?.toDate ? format(c.timestamp.toDate(), 'dd MMM yyyy, hh:mm a') : 'Just now';
                     const periodFormatted = format(new Date(c.year, c.month - 1), 'MMMM yyyy');
