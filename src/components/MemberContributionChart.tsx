@@ -14,7 +14,8 @@ import {
   FileDown,
   FileSpreadsheet,
   FileText,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { UserProfile, Contribution, Loan, LoanPayment } from '../types';
 import { cn } from '../lib/utils';
@@ -53,6 +54,7 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isExporting, setIsExporting] = useState<'pdf' | 'excel' | null>(null);
 
   // If no member explicitly selected yet, default to the first member
   const activeMember = useMemo(() => {
@@ -350,13 +352,14 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
           <div className="relative">
             <button
               type="button"
+              disabled={isExporting !== null}
               onClick={() => setShowExportMenu(!showExportMenu)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none disabled:opacity-60"
               title={`Export contribution and loan history for ${activeMember.displayName || activeMember.email}`}
             >
-              <FileDown className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Export History</span>
-              <span className="sm:hidden">Export</span>
+              {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export History'}</span>
+              <span className="sm:hidden">{isExporting ? 'Exporting...' : 'Export'}</span>
               <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showExportMenu && "rotate-180")} />
             </button>
             {showExportMenu && (
@@ -373,14 +376,22 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
                   <div className="py-1 space-y-1">
                     <button
                       type="button"
-                      onClick={() => {
+                      disabled={isExporting !== null}
+                      onClick={async () => {
                         setShowExportMenu(false);
-                        onExportPDF?.(activeMember);
+                        try {
+                          setIsExporting('pdf');
+                          await onExportPDF?.(activeMember);
+                        } catch (err) {
+                          console.error("PDF export error:", err);
+                        } finally {
+                          setIsExporting(null);
+                        }
                       }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left rounded-xl group cursor-pointer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors text-left rounded-xl group cursor-pointer disabled:opacity-50"
                     >
                       <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                        <FileText className="w-4 h-4" />
+                        {isExporting === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">Export as PDF</span>
@@ -389,14 +400,22 @@ export const MemberContributionChart: React.FC<MemberContributionChartProps> = (
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
+                      disabled={isExporting !== null}
+                      onClick={async () => {
                         setShowExportMenu(false);
-                        onExportExcel?.(activeMember);
+                        try {
+                          setIsExporting('excel');
+                          await onExportExcel?.(activeMember);
+                        } catch (err) {
+                          console.error("Excel export error:", err);
+                        } finally {
+                          setIsExporting(null);
+                        }
                       }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left rounded-xl group cursor-pointer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 hover:text-emerald-600 transition-colors text-left rounded-xl group cursor-pointer disabled:opacity-50"
                     >
                       <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors flex items-center justify-center shrink-0">
-                        <FileSpreadsheet className="w-4 h-4" />
+                        {isExporting === 'excel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className="font-bold text-slate-900 group-hover:text-emerald-600 transition-colors">Export as Excel (.xlsx)</span>

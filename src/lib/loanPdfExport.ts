@@ -58,11 +58,45 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
         (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
         (isPraneshMember(loan) && isPraneshMember(u))
       );
-      const memberName = getSafeMemberDisplayName(
+      const rawMemberName = getSafeMemberDisplayName(
         targetUser?.displayName || (loan as any).userName,
         targetUser?.phoneNumber || (targetUser as any)?.phone,
         loan.userEmail
       ) || 'Member';
+
+      // Determine member's chronological loan sequence number (Loan #1, Loan #2)
+      const userLoans = loans.filter(l => 
+        (loan.userId && l.userId === loan.userId) || 
+        (loan.userEmail && l.userEmail && l.userEmail.toLowerCase().trim() === loan.userEmail.toLowerCase().trim()) ||
+        (targetUser && ((l.userId && (l.userId === targetUser.uid || l.userId === targetUser.id)) || (l.userEmail && l.userEmail.toLowerCase().trim() === targetUser.email?.toLowerCase().trim())))
+      );
+      let memberName = rawMemberName;
+      if (userLoans.length > 1) {
+        const getSanctionTime = (l: Loan): number => {
+          const lAny = l as any;
+          if (lAny.disbursementDate) {
+            const d = new Date(lAny.disbursementDate).getTime();
+            if (!isNaN(d)) return d;
+          }
+          if (l.approvedAt?.toDate) return l.approvedAt.toDate().getTime();
+          if (l.approvedAt?.seconds) return l.approvedAt.seconds * 1000;
+          if (lAny.loanDate) {
+            const d = new Date(lAny.loanDate).getTime();
+            if (!isNaN(d)) return d;
+          }
+          if (lAny.date) {
+            const d = new Date(lAny.date).getTime();
+            if (!isNaN(d)) return d;
+          }
+          if (l.createdAt?.toDate) return l.createdAt.toDate().getTime();
+          if (l.createdAt?.seconds) return l.createdAt.seconds * 1000;
+          return 0;
+        };
+        const sortedUserLoans = [...userLoans].sort((a, b) => getSanctionTime(a) - getSanctionTime(b));
+        const seqIdx = sortedUserLoans.findIndex(l => l.id === loan.id);
+        const seqNum = seqIdx >= 0 ? seqIdx + 1 : 1;
+        memberName = `${rawMemberName} (Loan #${seqNum})`;
+      }
       const memberPhone = targetUser?.phoneNumber || (targetUser as any)?.phone || (loan as any).userPhone || '-';
 
       const payments = loanPayments.filter(p => isPaymentBelongingToLoan(p, loan));

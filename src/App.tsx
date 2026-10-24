@@ -485,6 +485,105 @@ export const isLoanRepaymentStartingInFuture = (loan: Loan, targetMonth: number,
   return (sYear > targetYear) || (sYear === targetYear && sMonth >= targetMonth);
 };
 
+/**
+ * Helper to determine a loan's member-relative chronological loan number (e.g. Loan #1, Loan #2)
+ * based on date of sanction/approval in ascending chronological order.
+ * First loan sanctioned = Loan #1, second loan sanctioned = Loan #2, etc.
+ */
+export const getMemberLoanSequenceInfo = (loan: Loan, allLoansList: Loan[] = [], allUsersList: UserProfile[] = []) => {
+  const targetUser = allUsersList.find(u => 
+    isLoanMatchUser(loan, u) || 
+    (loan.userId && (u.uid === loan.userId || u.id === loan.userId)) ||
+    (loan.userEmail && u.email && u.email.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
+  );
+  const memberLoans = allLoansList.filter(l => 
+    (targetUser && isLoanMatchUser(l, targetUser)) ||
+    (loan.userId && l.userId === loan.userId) ||
+    (loan.userEmail && l.userEmail && l.userEmail.toLowerCase().trim() === loan.userEmail.toLowerCase().trim())
+  );
+
+  // Sort chronologically ascending by sanction date
+  const sortedMemberLoans = [...memberLoans].sort((a, b) => {
+    const timeA = getLoanSanctionDate(a).getTime();
+    const timeB = getLoanSanctionDate(b).getTime();
+    return timeA - timeB;
+  });
+
+  const loanIndex = sortedMemberLoans.findIndex(l => l.id === loan.id);
+  const loanNumber = loanIndex >= 0 ? loanIndex + 1 : 1;
+  const totalMemberLoans = sortedMemberLoans.length;
+
+  return {
+    loanNumber,
+    totalMemberLoans,
+    hasMultipleLoans: totalMemberLoans > 1,
+    label: totalMemberLoans > 1 ? `Loan #${loanNumber}` : 'Loan'
+  };
+};
+
+/**
+ * Determines the chronological loan sequence number (#1, #2, etc.) for which a repayment was paid.
+ * For members having multiple loans, this provides the exact PayTo# attribution.
+ */
+export const getRepaymentPayToNumber = (
+  payment: LoanPayment,
+  memberSortedLoans: Loan[],
+  allLoansList: Loan[] = [],
+  allUsersList: UserProfile[] = []
+): number => {
+  if (!memberSortedLoans || memberSortedLoans.length <= 1) return 1;
+
+  // 1. Direct match on payment.loanId within member's chronologically sorted loans
+  if (payment.loanId) {
+    const directIdx = memberSortedLoans.findIndex(l => l.id === payment.loanId);
+    if (directIdx >= 0) {
+      return directIdx + 1;
+    }
+
+    // Try matching across all loans in case of different reference
+    const matchedLoan = allLoansList.find(l => l.id === payment.loanId);
+    if (matchedLoan) {
+      const idxInSorted = memberSortedLoans.findIndex(l => l.id === matchedLoan.id);
+      if (idxInSorted >= 0) return idxInSorted + 1;
+      const seq = getMemberLoanSequenceInfo(matchedLoan, allLoansList, allUsersList);
+      if (seq && seq.loanNumber) return seq.loanNumber;
+    }
+  }
+
+  // 2. Heuristic fallback when payment.loanId is absent or unmatched:
+  // Compare payment month/year to loan sanction dates
+  const payYear = payment.year || 2026;
+  const payMonth = payment.month || 1;
+
+  // Find loans that were sanctioned on or before this payment month/year
+  const eligibleLoans: { loan: Loan; index: number }[] = [];
+  memberSortedLoans.forEach((l, idx) => {
+    const sDate = getLoanSanctionDate(l);
+    const sYear = sDate.getFullYear();
+    const sMonth = sDate.getMonth() + 1;
+    // Check if loan sanction date is on or before payment cycle month
+    if (sYear < payYear || (sYear === payYear && sMonth <= payMonth)) {
+      eligibleLoans.push({ loan: l, index: idx });
+    }
+  });
+
+  if (eligibleLoans.length === 1) {
+    return eligibleLoans[0].index + 1;
+  }
+
+  if (eligibleLoans.length > 1) {
+    // If the latest eligible loan is active and earlier ones are closed/paid, attribute to latest
+    const activeEligible = eligibleLoans.filter(el => el.loan.status === 'approved');
+    if (activeEligible.length === 1) {
+      return activeEligible[0].index + 1;
+    }
+    // Otherwise return the highest eligible index (latest sanctioned)
+    return eligibleLoans[eligibleLoans.length - 1].index + 1;
+  }
+
+  return 1;
+};
+
 // --- Components ---
 
 function ErrorBoundary({ error }: { error: string }) {
@@ -4625,8 +4724,10 @@ export default function App() {
       // All loans associated with this member
       const userLoans = loans.filter(l => isLoanMatchUser(l, u));
       
-      // Sanctioned/Disbursed loans (approved or paid)
-      const sanctionedLoans = userLoans.filter(l => l.status === 'approved' || l.status === 'paid');
+      // Sanctioned/Disbursed loans (approved or paid) sorted chronologically ascending
+      const sanctionedLoans = userLoans
+        .filter(l => l.status === 'approved' || l.status === 'paid')
+        .sort((a, b) => getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime());
       const activeLoans = userLoans.filter(l => l.status === 'approved');
       const closedLoans = userLoans.filter(l => l.status === 'paid');
       const hasLoan = sanctionedLoans.length > 0;
@@ -4644,7 +4745,7 @@ export default function App() {
 
       const loanDetailsList: string[] = [];
 
-      // Consolidate loan by loan
+      // Consolidate loan by loan in chronological order
       sanctionedLoans.forEach((l, idx) => {
         const loanAmt = l.approvedAmount || l.amount || 0;
         totalSanctionedAmount += loanAmt;
@@ -4668,16 +4769,8 @@ export default function App() {
         }
 
         // Format approval/creation date
-        let dateStr = '';
-        if (l.approvedAt?.toDate) {
-          dateStr = format(l.approvedAt.toDate(), 'dd-MMM-yyyy');
-        } else if (l.approvedAt?.seconds) {
-          dateStr = format(new Date(l.approvedAt.seconds * 1000), 'dd-MMM-yyyy');
-        } else if (l.createdAt?.toDate) {
-          dateStr = format(l.createdAt.toDate(), 'dd-MMM-yyyy');
-        } else if (l.createdAt?.seconds) {
-          dateStr = format(new Date(l.createdAt.seconds * 1000), 'dd-MMM-yyyy');
-        }
+        const sanctionD = getLoanSanctionDate(l);
+        const dateStr = sanctionD ? format(sanctionD, 'dd-MMM-yyyy') : '';
 
         const statusTag = isSettled ? 'CLOSED' : 'ACTIVE';
         loanDetailsList.push(
@@ -5402,8 +5495,9 @@ export default function App() {
       wsSub['!cols'] = [{ wch: 8 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 18 }];
       XLSX.utils.book_append_sheet(wb, wsSub, "Contributions");
 
-      // Sheet 3: Loans Summary
-      const userLoansRows = userLoans.map((l, idx) => {
+      // Sheet 3: Loans Summary (sorted in chronological ascending order of sanction date)
+      const sortedUserLoansAsc = [...userLoans].sort((a, b) => getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime());
+      const userLoansRows = sortedUserLoansAsc.map((l, idx) => {
         const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
         const principalPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
         const interestPaid = lPayments.reduce((acc, p) => acc + (p.interest || 0), 0);
@@ -5411,10 +5505,8 @@ export default function App() {
         const isSettled = l.status === 'paid' || (approvedAmt > 0 && principalPaid >= approvedAmt);
         const remainingBal = isSettled ? 0 : Math.max(0, approvedAmt - principalPaid);
 
-        let approvedDate = 'N/A';
-        if (l.approvedAt?.toDate) approvedDate = format(l.approvedAt.toDate(), 'yyyy-MM-dd');
-        else if (l.approvedAt?.seconds) approvedDate = format(new Date(l.approvedAt.seconds * 1000), 'yyyy-MM-dd');
-        else if (l.createdAt?.toDate) approvedDate = format(l.createdAt.toDate(), 'yyyy-MM-dd');
+        const sanctionD = getLoanSanctionDate(l);
+        const approvedDate = sanctionD ? format(sanctionD, 'yyyy-MM-dd') : 'N/A';
 
         return [
           idx + 1,
@@ -5441,13 +5533,20 @@ export default function App() {
       XLSX.utils.book_append_sheet(wb, loansWs, "Loans Summary");
 
       // Sheet 4: Loan Repayments
+      const sortedUserLoans = [...userLoans].sort((a, b) => {
+        return getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime();
+      });
+
       const userPaymentsRows = userLoanPayments.sort((a,b) => (b.year||0) - (a.year||0) || (b.month||0) - (a.month||0)).map((p, idx) => {
         let paymentDate = 'N/A';
         if (p.timestamp?.toDate) paymentDate = format(p.timestamp.toDate(), 'yyyy-MM-dd HH:mm');
         else if (p.timestamp?.seconds) paymentDate = format(new Date(p.timestamp.seconds * 1000), 'yyyy-MM-dd HH:mm');
 
+        const payToNum = getRepaymentPayToNumber(p, sortedUserLoans, loans, allUsers);
+
         return [
           idx + 1,
+          `#${payToNum}`,
           p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
           p.year || 'N/A',
           p.amount || 0,
@@ -5460,14 +5559,14 @@ export default function App() {
       });
 
       if (userPaymentsRows.length > 0) {
-        userPaymentsRows.push(['Total Repaid', '', '', totalPrincipalPaid, totalInterestPaid, totalRepaid, '', '', '']);
+        userPaymentsRows.push(['Total Repaid', '', '', '', totalPrincipalPaid, totalInterestPaid, totalRepaid, '', '', '']);
       } else {
-        userPaymentsRows.push(['No Payments', '-', '-', 0, 0, 0, '-', 'N/A', '-']);
+        userPaymentsRows.push(['No Payments', '-', '-', '-', 0, 0, 0, '-', 'N/A', '-']);
       }
 
-      const repayHeaders = ['Installment #', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Installment (₹)', 'Payment Method', 'Status', 'Payment Date & Time'];
+      const repayHeaders = ['Installment #', 'Loan#', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Installment (₹)', 'Payment Method', 'Status', 'Payment Date & Time'];
       const paymentsWs = buildUserStatementSheet("MEMBER LOAN REPAYMENT HISTORY", repayHeaders, userPaymentsRows);
-      paymentsWs['!cols'] = [{ wch: 12 }, { wch: 14 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 20 }];
+      paymentsWs['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 20 }];
       XLSX.utils.book_append_sheet(wb, paymentsWs, "Loan Repayments");
 
       const safeName = (targetUser.displayName || targetUser.email.split('@')[0] || 'Member').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -5783,7 +5882,19 @@ export default function App() {
         (u.uid && p.userId && u.uid === p.userId) ||
         (u.email && p.userEmail && u.email.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
       );
-      const borrowerName = borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || `Borrower ${idx + 1}`;
+      const rawBorrowerName = borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || `Borrower ${idx + 1}`;
+      const borrowerLoans = loans.filter(l => 
+        (borrower && isLoanMatchUser(l, borrower)) ||
+        (parentLoan && isLoanMatchUser(l, parentLoan)) ||
+        (p.userId && l.userId === p.userId) ||
+        (p.userEmail && l.userEmail && l.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
+      );
+      let borrowerName = rawBorrowerName;
+      if (borrowerLoans.length > 1) {
+        const sortedBorrowerLoans = [...borrowerLoans].sort((a, b) => getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime());
+        const payToNum = getRepaymentPayToNumber(p, sortedBorrowerLoans, loans, allUsers);
+        borrowerName = `${rawBorrowerName} (Loan #${payToNum})`;
+      }
       const principal = p.amount || 0;
       const interest = p.interest || 0;
       const total = principal + interest;
@@ -6854,12 +6965,18 @@ export default function App() {
       doc.text("Sanctioned Loans Portfolio", 20, finalY + 12);
       doc.setFont(undefined, 'normal');
 
-      const loanSummaryRows = userLoans.map((l, idx) => {
+      // Sort member's loans in chronological ascending order so earliest sanctioned loan is Loan #1, subsequent is Loan #2, etc.
+      const sortedUserLoans = [...userLoans].sort((a, b) => {
+        return getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime();
+      });
+
+      const loanSummaryRows = sortedUserLoans.map((l, idx) => {
         const lPayments = paidLoanPayments.filter(p => p.loanId === l.id);
         const pPaid = lPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
         const sanctionedAmt = l.approvedAmount || l.amount || 0;
         const bal = Math.max(0, sanctionedAmt - pPaid);
-        const dateStr = l.approvedAt?.toDate ? format(l.approvedAt.toDate(), 'yyyy-MM-dd') : (l.createdAt?.toDate ? format(l.createdAt.toDate(), 'yyyy-MM-dd') : 'N/A');
+        const sanctionD = getLoanSanctionDate(l);
+        const dateStr = sanctionD ? format(sanctionD, 'yyyy-MM-dd') : 'N/A';
         return [
           `Loan #${idx + 1}`,
           dateStr,
@@ -6894,6 +7011,11 @@ export default function App() {
       doc.setTextColor(16, 185, 129); // Emerald-600
       doc.text("Loan Repayment History", 20, finalY + 12);
       doc.setFont(undefined, 'normal');
+
+      // Sort member's loans in chronological ascending order so earliest sanctioned loan is Loan #1, subsequent is Loan #2, etc.
+      const sortedUserLoans = [...userLoans].sort((a, b) => {
+        return getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime();
+      });
 
       // Sort chronologically ascending to assign permanent chronological serial numbers (#1 for earliest, etc.)
       const sortedLoanPaymentsAsc = [...userLoanPayments].sort((a, b) => {
@@ -6943,9 +7065,11 @@ export default function App() {
         }
 
         const totalInstallment = (p.amount || 0) + (p.interest || 0);
+        const payToNum = getRepaymentPayToNumber(p, sortedUserLoans, allLoans, allUsers);
 
         return [
           `#${p.serialNumber}`,
+          `#${payToNum}`,
           monthName,
           p.year || 'N/A',
           paymentDateTime,
@@ -6959,10 +7083,15 @@ export default function App() {
 
       autoTable(doc, {
         startY: finalY + 16,
-        head: [['#', 'Month', 'Year', 'Payment Date & Time', 'Mode', 'Principal', 'Interest', 'Total Paid', 'Status']],
+        head: [['#', 'Loan#', 'Month', 'Year', 'Payment Date & Time', 'Mode', 'Principal', 'Interest', 'Total Paid', 'Status']],
         body: loanPaymentRows,
         theme: 'striped',
-        headStyles: { fillColor: [16, 185, 129] } // Emerald-600
+        headStyles: { fillColor: [16, 185, 129] }, // Emerald-600
+        styles: { fontSize: 8.5, cellPadding: 1.8 },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 10 },
+          1: { halign: 'center', cellWidth: 16, fontStyle: 'bold' }
+        }
       });
     }
 
@@ -10603,6 +10732,7 @@ ${scheduleHighlights}
                                 <tbody className="divide-y divide-slate-100">
                                   {loanList.map((l, idx) => {
                                     const targetUser = allUsers.find(u => isLoanMatchUser(l, u) || (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                                    const loanSeq = getMemberLoanSequenceInfo(l, loans, allUsers);
                                     const isOldestPending = l.id === oldestPendingLoanId;
                                     const payments = loanPayments.filter(p => p.loanId === l.id);
                                     const paidPayments = payments.filter(p => p.status === 'paid');
@@ -10631,7 +10761,14 @@ ${scheduleHighlights}
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                           <div className="flex flex-col">
-                                            <span className="text-sm font-semibold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <span className="text-sm font-semibold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
+                                              {loanSeq.hasMultipleLoans && (
+                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                  {loanSeq.label}
+                                                </span>
+                                              )}
+                                            </div>
                                             <span className="text-xs text-slate-500">{targetUser?.phoneNumber || l.userEmail}</span>
                                           </div>
                                         </td>
@@ -10757,6 +10894,7 @@ ${scheduleHighlights}
                             />
                             {loanList.map((l, idx) => {
                               const targetUser = allUsers.find(u => isLoanMatchUser(l, u) || (l.userId && u.uid === l.userId) || (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()));
+                              const loanSeq = getMemberLoanSequenceInfo(l, loans, allUsers);
                               const isOldestPending = l.id === oldestPendingLoanId;
                               const payments = loanPayments.filter(p => p.loanId === l.id);
                               const paidPayments = payments.filter(p => p.status === 'paid');
@@ -10780,7 +10918,14 @@ ${scheduleHighlights}
                                   </div>
                                   <div className="flex items-center justify-between mb-4">
                                     <div className="flex flex-col">
-                                      <span className="text-sm font-bold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-sm font-bold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
+                                        {loanSeq.hasMultipleLoans && (
+                                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                            {loanSeq.label}
+                                          </span>
+                                        )}
+                                      </div>
                                       <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
                                         {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
                                       </span>
@@ -11201,6 +11346,7 @@ ${scheduleHighlights}
                                       (l.userId && u.uid === l.userId) || 
                                       (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
                                     );
+                                    const loanSeq = getMemberLoanSequenceInfo(l, loans, allUsers);
                                     
                                     // Calculate current installment interest based on actual remaining principal and base 5000
                                     const principal = Math.min(5000, remainingPrincipal);
@@ -11224,7 +11370,14 @@ ${scheduleHighlights}
                                                 {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
                                               </div>
                                               <div className="min-w-0">
-                                                <h4 className="font-bold text-slate-900 text-sm truncate">{targetUser?.displayName || l.userEmail}</h4>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  <h4 className="font-bold text-slate-900 text-sm truncate">{targetUser?.displayName || l.userEmail}</h4>
+                                                  {loanSeq.hasMultipleLoans && (
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                                      {loanSeq.label}
+                                                    </span>
+                                                  )}
+                                                </div>
                                                 <p className="text-xs text-slate-500 truncate">
                                                   {targetUser?.phoneNumber || l.userEmail || '-'}
                                                 </p>
@@ -11545,6 +11698,7 @@ ${scheduleHighlights}
                                 (l.userId && u.uid === l.userId) || 
                                 (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
                               );
+                              const loanSeq = getMemberLoanSequenceInfo(l, loans, allUsers);
                               
                               const principal = l.approvedAmount! / (l.installments || 10);
                               const interest = remainingPrincipal * 0.005;
@@ -11573,7 +11727,14 @@ ${scheduleHighlights}
                                           {targetUser?.displayName ? targetUser.displayName[0].toUpperCase() : '?'}
                                         </div>
                                         <div className="min-w-0">
-                                          <h4 className="font-bold text-slate-900 text-sm truncate">{targetUser?.displayName || l.userEmail}</h4>
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <h4 className="font-bold text-slate-900 text-sm truncate">{targetUser?.displayName || l.userEmail}</h4>
+                                            {loanSeq.hasMultipleLoans && (
+                                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                                {loanSeq.label}
+                                              </span>
+                                            )}
+                                          </div>
                                           <p className="text-xs text-slate-500 truncate">
                                             {targetUser?.phoneNumber || l.userEmail || '-'}
                                           </p>
@@ -12223,8 +12384,8 @@ ${scheduleHighlights}
               const memberActiveOrClosedLoans = loans
                 .filter(l => isLoanMatchUser(l, user) && (l.status === 'approved' || l.status === 'paid'))
                 .sort((a, b) => {
-                  const timeA = a.approvedAt?.toDate ? a.approvedAt.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
-                  const timeB = b.approvedAt?.toDate ? b.approvedAt.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
+                  const timeA = getLoanSanctionDate(a).getTime();
+                  const timeB = getLoanSanctionDate(b).getTime();
                   return timeA - timeB;
                 });
               const hasActiveOrClosedLoan = memberActiveOrClosedLoans.length > 0;

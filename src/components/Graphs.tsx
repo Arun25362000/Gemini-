@@ -625,6 +625,22 @@ const Graphs: React.FC<GraphsProps> = ({
 
   const totalYearCollectionsPaid = totalYearSubscriptionsPaid + totalYearLoansPaid;
 
+  const totalBorrowedSum = React.useMemo(() => {
+    return memberLoans.reduce((sum, d) => sum + (d.borrowed || 0), 0);
+  }, [memberLoans]);
+
+  const totalRepaidSum = React.useMemo(() => {
+    return memberLoans.reduce((sum, d) => sum + (d.totalRepaid || 0), 0);
+  }, [memberLoans]);
+
+  const totalOutstandingSum = React.useMemo(() => {
+    return memberLoans.reduce((sum, d) => sum + (d.balancePrincipal || 0), 0);
+  }, [memberLoans]);
+
+  const totalDisbursedFiltered = React.useMemo(() => {
+    return filteredMemberLoansByMonth.reduce((sum, d) => sum + (d.amount || 0), 0);
+  }, [filteredMemberLoansByMonth]);
+
   return (
     <div className={cn("space-y-8 pb-12", isAndroid && "space-y-4 pb-8 px-1")}>
       <div className={cn("grid grid-cols-1 lg:grid-cols-2 gap-8", isAndroid && "gap-4")}>
@@ -1133,6 +1149,765 @@ const Graphs: React.FC<GraphsProps> = ({
                     </span>
                     <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
                       Total Repayments: ₹{totalRepaymentsSum.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Graph Card #3: Member-wise Borrowed vs Repaid */}
+        {(isAdmin || memberLoans.length > 0) && (
+          <div 
+            id="graph-card-memberwise-borrowed-repaid"
+            className={cn(
+              "bg-gradient-to-b from-sky-50/40 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-sky-200/90 shadow-sm hover:shadow-md hover:border-sky-300/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-sky-600 text-xs font-black text-white rounded-bl-2xl shadow-xs z-10 select-none">
+              #3
+            </div>
+
+            <div 
+              onClick={() => toggleGraph('memberwise-borrowed-repaid')}
+              className={cn(
+                "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
+                !collapsedGraphs['memberwise-borrowed-repaid'] ? "mb-6" : "mb-0"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-sky-600 shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-slate-900 group-hover:text-sky-600 transition-colors">
+                      Member-wise Borrowed vs Repaid ({selectedYear})
+                    </h3>
+                    <span className="text-slate-400 group-hover:text-sky-600 transition-colors">
+                      {collapsedGraphs['memberwise-borrowed-repaid'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Individual member audit comparing total loan principal sanctioned vs total repayments collected (principal + interest)
+                  </p>
+                </div>
+              </div>
+
+              {/* Header KPI Badges & Excel Export */}
+              <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-sky-50 text-sky-800 rounded-xl border border-sky-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-sky-600" />
+                  <span>Borrowed: ₹{totalBorrowedSum.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                  <span>Repaid: ₹{totalRepaidSum.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-rose-50 text-rose-800 rounded-xl border border-rose-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-rose-600" />
+                  <span>Outstanding: ₹{totalOutstandingSum.toLocaleString('en-IN')}</span>
+                </div>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    disabled={exportingGraph === 'memberwise-borrowed-repaid'}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (exportingGraph) return;
+                      try {
+                        setExportingGraph('memberwise-borrowed-repaid');
+                        if (collapsedGraphs['memberwise-borrowed-repaid']) {
+                          setCollapsedGraphs(prev => ({ ...prev, 'memberwise-borrowed-repaid': false }));
+                          await new Promise(r => setTimeout(r, 300));
+                        } else {
+                          await new Promise(r => setTimeout(r, 60));
+                        }
+                        const chartImg = await captureChartImage('graph-card-memberwise-borrowed-repaid');
+                        await exportGraphMemberwiseBorrowedRepaidExcel({
+                          data: memberLoans,
+                          selectedYear,
+                          chartImage: chartImg,
+                          notify
+                        });
+                      } catch (err: any) {
+                        console.error('Failed to export Memberwise Borrowed vs Repaid graph:', err);
+                        notify?.('error', 'Failed to export Excel report');
+                      } finally {
+                        setExportingGraph(null);
+                      }
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer",
+                      exportingGraph === 'memberwise-borrowed-repaid'
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
+                        : "bg-sky-600 hover:bg-sky-700 text-white shadow-sky-200 active:scale-95"
+                    )}
+                    title="Export this chart and member loan records to Excel"
+                  >
+                    {exportingGraph === 'memberwise-borrowed-repaid' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                    )}
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {!collapsedGraphs['memberwise-borrowed-repaid'] && (
+              <div className="space-y-4">
+                {/* Responsive BarChart Container */}
+                <div className="w-full overflow-x-auto overflow-y-hidden pb-2 pt-2 scrollbar-thin scrollbar-thumb-slate-200">
+                  <div style={{ minWidth: `${getDynamicChartWidth(memberLoans.length)}px`, height: isAndroid ? 340 : 400 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={memberLoans}
+                        margin={{ top: 28, right: 16, left: -10, bottom: 8 }}
+                        barGap={4}
+                      >
+                        <defs>
+                          <linearGradient id="borrowedGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#0284c7" stopOpacity={0.9} />
+                          </linearGradient>
+                          <linearGradient id="memberRepaidGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#34d399" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
+                          </linearGradient>
+                        </defs>
+
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        
+                        <XAxis 
+                          dataKey="displayNameWithActive" 
+                          stroke="#64748b" 
+                          tick={{ fontSize: isAndroid ? 11 : 12, fill: '#334155', fontWeight: 600 }}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1' }}
+                        />
+                        
+                        <YAxis 
+                          stroke="#64748b" 
+                          tick={{ fontSize: isAndroid ? 10 : 11, fill: '#64748b' }}
+                          tickFormatter={(val) => formatBarAmountValue(val)}
+                          domain={[0, 'auto']}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1' }}
+                        />
+
+                        <Tooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const d = payload[0].payload;
+                              return (
+                                <div className="bg-white/95 backdrop-blur-xs p-3.5 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2 min-w-[240px]">
+                                  <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center justify-between">
+                                    <span className="truncate max-w-[150px]">{d.name}</span>
+                                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-sky-100 text-sky-800 border border-sky-200">
+                                      {d.totalLoans} loan(s)
+                                    </span>
+                                  </div>
+
+                                  <div className="space-y-1 pt-1">
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="flex items-center gap-1.5 font-semibold text-slate-600">
+                                        <span className="w-2.5 h-2.5 rounded-sm bg-sky-600 inline-block" />
+                                        Total Borrowed:
+                                      </span>
+                                      <span className="font-bold text-sky-700 text-sm">
+                                        ₹{d.borrowed.toLocaleString('en-IN')}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 pl-4">
+                                      {d.activeLoans} active, {d.closedLoans} closed loan(s)
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-4 pt-1">
+                                      <span className="flex items-center gap-1.5 font-semibold text-slate-600">
+                                        <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
+                                        Total Repaid:
+                                      </span>
+                                      <span className="font-bold text-emerald-700 text-sm">
+                                        ₹{d.totalRepaid.toLocaleString('en-IN')}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 pl-4">
+                                      Principal: ₹{d.repaidPrincipal.toLocaleString('en-IN')} • Interest: ₹{d.interestPaid.toLocaleString('en-IN')}
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-4 pt-1 border-t border-slate-100">
+                                      <span className="flex items-center gap-1.5 font-semibold text-slate-600">
+                                        <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" />
+                                        Outstanding Due:
+                                      </span>
+                                      <span className="font-bold text-rose-700 text-sm">
+                                        ₹{d.balancePrincipal.toLocaleString('en-IN')}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }} 
+                        />
+
+                        <Legend 
+                          wrapperStyle={{ paddingTop: '16px' }}
+                          formatter={(value) => <span className="text-xs font-bold text-slate-700">{value}</span>}
+                        />
+
+                        <Bar 
+                          dataKey="borrowed" 
+                          name="Total Borrowed (₹)" 
+                          fill="url(#borrowedGradient)" 
+                          radius={[6, 6, 0, 0]} 
+                          maxBarSize={36}
+                        >
+                          <LabelList 
+                            dataKey="borrowed" 
+                            position="top" 
+                            formatter={(val: any) => formatBarAmountValue(val)} 
+                            style={{ fontSize: '10px', fontWeight: 800, fill: '#0284c7' }} 
+                          />
+                        </Bar>
+
+                        <Bar 
+                          dataKey="totalRepaid" 
+                          name="Total Repaid (₹)" 
+                          fill="url(#memberRepaidGradient)" 
+                          radius={[6, 6, 0, 0]} 
+                          maxBarSize={36}
+                        >
+                          <LabelList 
+                            dataKey="totalRepaid" 
+                            position="top" 
+                            formatter={(val: any) => formatBarAmountValue(val)} 
+                            style={{ fontSize: '10px', fontWeight: 800, fill: '#059669' }} 
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Bottom Reassurance Strip */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                    <span className="font-semibold text-slate-700">
+                      Member-level audit comparing disbursed principal with total repayments collected.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] font-bold">
+                    <span className="text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-md">
+                      Total Borrowed: ₹{totalBorrowedSum.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                      Total Repaid: ₹{totalRepaidSum.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                      Net Outstanding: ₹{totalOutstandingSum.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Graph Card #4: Member-wise Loan Disbursements by Month (Admin Only) */}
+        {isAdmin && (
+          <div 
+            id="graph-card-member-disbursements"
+            className={cn(
+              "bg-gradient-to-b from-violet-50/40 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-violet-200/90 shadow-sm hover:shadow-md hover:border-violet-300/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-violet-600 text-xs font-black text-white rounded-bl-2xl shadow-xs z-10 select-none">
+              #4
+            </div>
+
+            <div 
+              onClick={() => toggleGraph('member-disbursements')}
+              className={cn(
+                "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
+                !collapsedGraphs['member-disbursements'] ? "mb-6" : "mb-0"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-violet-50 border border-violet-100 flex items-center justify-center text-violet-600 shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-slate-900 group-hover:text-violet-600 transition-colors">
+                      Member-wise Loan Disbursements by Month ({selectedYear})
+                    </h3>
+                    <span className="text-slate-400 group-hover:text-violet-600 transition-colors">
+                      {collapsedGraphs['member-disbursements'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Chronological loan disbursements by month with active and closed loan portfolio breakdown
+                  </p>
+                </div>
+              </div>
+
+              {/* Header KPI Badges & Excel Export */}
+              <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-violet-50 text-violet-800 rounded-xl border border-violet-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-violet-600" />
+                  <span>Disbursed: ₹{totalDisbursedFiltered.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-50 text-slate-800 rounded-xl border border-slate-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-slate-600" />
+                  <span>Loans: {filteredMemberLoansByMonth.length}</span>
+                </div>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    disabled={exportingGraph === 'member-disbursements'}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (exportingGraph) return;
+                      try {
+                        setExportingGraph('member-disbursements');
+                        if (collapsedGraphs['member-disbursements']) {
+                          setCollapsedGraphs(prev => ({ ...prev, 'member-disbursements': false }));
+                          await new Promise(r => setTimeout(r, 300));
+                        } else {
+                          await new Promise(r => setTimeout(r, 60));
+                        }
+                        const chartImg = await captureChartImage('graph-card-member-disbursements');
+                        await exportGraphMemberDisbursementsExcel({
+                          data: filteredMemberLoansByMonth,
+                          selectedYear,
+                          selectedMonthFilter: selectedLoanMonthFilter,
+                          chartImage: chartImg,
+                          notify
+                        });
+                      } catch (err: any) {
+                        console.error('Failed to export Member Disbursements graph:', err);
+                        notify?.('error', 'Failed to export Excel report');
+                      } finally {
+                        setExportingGraph(null);
+                      }
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer",
+                      exportingGraph === 'member-disbursements'
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
+                        : "bg-violet-600 hover:bg-violet-700 text-white shadow-violet-200 active:scale-95"
+                    )}
+                    title="Export this chart and monthly disbursement records to Excel"
+                  >
+                    {exportingGraph === 'member-disbursements' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                    )}
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {!collapsedGraphs['member-disbursements'] && (
+              <div className="space-y-4">
+                {/* Month Filter Pills */}
+                {availableLoanMonths.length > 0 && (
+                  <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLoanMonthFilter('all')}
+                      className={cn(
+                        "px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer",
+                        selectedLoanMonthFilter === 'all'
+                          ? "bg-violet-600 text-white shadow-xs"
+                          : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                      )}
+                    >
+                      All Months ({memberLoansByMonth.length})
+                    </button>
+                    {loansGroupedByMonth.map(g => (
+                      <button
+                        key={g.monthLabel}
+                        type="button"
+                        onClick={() => setSelectedLoanMonthFilter(g.monthLabel)}
+                        className={cn(
+                          "px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5",
+                          selectedLoanMonthFilter === g.monthLabel
+                            ? "bg-violet-600 text-white shadow-xs"
+                            : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        )}
+                      >
+                        <span>{g.monthLabel}</span>
+                        <span className={cn(
+                          "text-[10px] px-1.5 py-0.2 rounded-full",
+                          selectedLoanMonthFilter === g.monthLabel ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+                        )}>
+                          {g.members.length}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Responsive BarChart Container */}
+                <div className="w-full overflow-x-auto overflow-y-hidden pb-2 pt-2 scrollbar-thin scrollbar-thumb-slate-200">
+                  <div style={{ minWidth: `${getDynamicChartWidth(filteredMemberLoansByMonth.length)}px`, height: isAndroid ? 340 : 400 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={filteredMemberLoansByMonth}
+                        margin={{ top: 28, right: 16, left: -10, bottom: 8 }}
+                        barGap={4}
+                      >
+                        <defs>
+                          <linearGradient id="disbursedActiveGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.9} />
+                          </linearGradient>
+                          <linearGradient id="disbursedClosedGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#34d399" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
+                          </linearGradient>
+                        </defs>
+
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        
+                        <XAxis 
+                          dataKey="displayNameWithMonth" 
+                          stroke="#64748b" 
+                          tick={{ fontSize: isAndroid ? 11 : 12, fill: '#334155', fontWeight: 600 }}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1' }}
+                        />
+                        
+                        <YAxis 
+                          stroke="#64748b" 
+                          tick={{ fontSize: isAndroid ? 10 : 11, fill: '#64748b' }}
+                          tickFormatter={(val) => formatBarAmountValue(val)}
+                          domain={[0, 'auto']}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1' }}
+                        />
+
+                        <Tooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const d = payload[0].payload;
+                              const isPaid = d.status === 'paid';
+                              return (
+                                <div className="bg-white/95 backdrop-blur-xs p-3.5 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2 min-w-[220px]">
+                                  <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center justify-between">
+                                    <span>{d.memberName}</span>
+                                    <span className={cn(
+                                      "text-[10px] font-extrabold px-1.5 py-0.5 rounded-md border",
+                                      isPaid ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-violet-50 text-violet-800 border-violet-200"
+                                    )}>
+                                      {isPaid ? "Closed / Repaid" : "Active Loan"}
+                                    </span>
+                                  </div>
+
+                                  <div className="space-y-1 pt-1">
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="font-semibold text-slate-600">Disbursal Month:</span>
+                                      <span className="font-bold text-slate-900">{d.monthLabel}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="font-semibold text-slate-600">Disbursed Principal:</span>
+                                      <span className="font-bold text-violet-700 text-sm">₹{d.amount.toLocaleString('en-IN')}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }} 
+                        />
+
+                        <Bar 
+                          dataKey="amount" 
+                          name="Disbursed Principal (₹)" 
+                          radius={[6, 6, 0, 0]} 
+                          maxBarSize={42}
+                        >
+                          {filteredMemberLoansByMonth.map((entry, index) => (
+                            <Cell 
+                              key={`cell-disbursed-${entry.uniqueKey || index}`} 
+                              fill={entry.status === 'paid' ? 'url(#disbursedClosedGradient)' : 'url(#disbursedActiveGradient)'} 
+                            />
+                          ))}
+                          <LabelList 
+                            dataKey="amount" 
+                            position="top" 
+                            formatter={(val: any) => formatBarAmountValue(val)} 
+                            style={{ fontSize: '10px', fontWeight: 800, fill: '#7c3aed' }} 
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Bottom Reassurance Strip */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-violet-600" />
+                      <span className="font-semibold text-slate-700">Active Loan Disbursed</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+                      <span className="font-semibold text-slate-700">Closed / Repaid Loan</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] font-bold">
+                    <span className="text-violet-700 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-md">
+                      Filtered Total: ₹{totalDisbursedFiltered.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md">
+                      Total Loans: {filteredMemberLoansByMonth.length}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Graph Card #5: Financial Health & Liquidity Overview (Admin Only) */}
+        {isAdmin && (
+          <div 
+            id="graph-card-financial-health"
+            className={cn(
+              "bg-gradient-to-b from-slate-50/50 via-white to-white p-6 sm:p-7 rounded-3xl border-2 border-slate-200/90 shadow-sm hover:shadow-md hover:border-slate-300/90 lg:col-span-2 relative overflow-hidden transition-all",
+              isAndroid && "p-4 overflow-hidden"
+            )}
+          >
+            {/* Top-Right Index Badge */}
+            <div className="absolute top-0 right-0 px-3.5 py-1.5 bg-slate-800 text-xs font-black text-white rounded-bl-2xl shadow-xs z-10 select-none">
+              #5
+            </div>
+
+            <div 
+              onClick={() => toggleGraph('financial-health')}
+              className={cn(
+                "flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer group select-none transition-colors pr-10 sm:pr-12",
+                !collapsedGraphs['financial-health'] ? "mb-6" : "mb-0"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-800 shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-black text-slate-900 group-hover:text-slate-800 transition-colors">
+                      Financial Health & Liquidity Overview ({selectedYear})
+                    </h3>
+                    <span className="text-slate-400 group-hover:text-slate-800 transition-colors">
+                      {collapsedGraphs['financial-health'] ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Consolidated capital reserves, loan deployment, principal recovery, and liquid balance audit
+                  </p>
+                </div>
+              </div>
+
+              {/* Header KPI Badges & Excel Export */}
+              <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-800 rounded-xl border border-indigo-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-indigo-600" />
+                  <span>Group Funds: ₹{financialHealthData.totalGroupFunds.toLocaleString('en-IN')}</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-cyan-50 text-cyan-800 rounded-xl border border-cyan-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-cyan-600" />
+                  <span>Available: ₹{financialHealthData.availableBalance.toLocaleString('en-IN')}</span>
+                </div>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    disabled={exportingGraph === 'financial-health'}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (exportingGraph) return;
+                      try {
+                        setExportingGraph('financial-health');
+                        if (collapsedGraphs['financial-health']) {
+                          setCollapsedGraphs(prev => ({ ...prev, 'financial-health': false }));
+                          await new Promise(r => setTimeout(r, 300));
+                        } else {
+                          await new Promise(r => setTimeout(r, 60));
+                        }
+                        const chartImg = await captureChartImage('graph-card-financial-health');
+                        await exportGraphFinancialHealthExcel({
+                          data: financialHealthData,
+                          selectedYear,
+                          chartImage: chartImg,
+                          notify
+                        });
+                      } catch (err: any) {
+                        console.error('Failed to export Financial Health graph:', err);
+                        notify?.('error', 'Failed to export Excel report');
+                      } finally {
+                        setExportingGraph(null);
+                      }
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer",
+                      exportingGraph === 'financial-health'
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
+                        : "bg-slate-800 hover:bg-slate-900 text-white shadow-slate-200 active:scale-95"
+                    )}
+                    title="Export this chart and financial health metrics to Excel"
+                  >
+                    {exportingGraph === 'financial-health' ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                    )}
+                    <span className="hidden sm:inline">Excel</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {!collapsedGraphs['financial-health'] && (
+              <div className="space-y-4">
+                {/* Responsive BarChart Container */}
+                <div className="w-full overflow-x-auto overflow-y-hidden pb-2 pt-2 scrollbar-thin scrollbar-thumb-slate-200">
+                  <div style={{ minWidth: isAndroid ? '380px' : '100%', height: isAndroid ? 340 : 380 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={financialHealthData.chartData}
+                        margin={{ top: 28, right: 16, left: -10, bottom: 8 }}
+                      >
+                        <defs>
+                          <linearGradient id="healthTotalFundsGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#6366f1" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#4338ca" stopOpacity={0.9} />
+                          </linearGradient>
+                          <linearGradient id="healthLoansSanctionedGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#a855f7" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#7e22ce" stopOpacity={0.9} />
+                          </linearGradient>
+                          <linearGradient id="healthLoansRepaidGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#34d399" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
+                          </linearGradient>
+                          <linearGradient id="healthOutstandingGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#fb7185" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#e11d48" stopOpacity={0.9} />
+                          </linearGradient>
+                          <linearGradient id="healthAvailableGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#0284c7" stopOpacity={0.9} />
+                          </linearGradient>
+                        </defs>
+
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        
+                        <XAxis 
+                          dataKey="category" 
+                          stroke="#64748b" 
+                          tick={{ fontSize: isAndroid ? 10 : 11, fill: '#334155', fontWeight: 600 }}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1' }}
+                        />
+                        
+                        <YAxis 
+                          stroke="#64748b" 
+                          tick={{ fontSize: isAndroid ? 10 : 11, fill: '#64748b' }}
+                          tickFormatter={(val) => formatBarAmountValue(val)}
+                          domain={[0, 'auto']}
+                          tickLine={false}
+                          axisLine={{ stroke: '#cbd5e1' }}
+                        />
+
+                        <Tooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const d = payload[0].payload;
+                              return (
+                                <div className="bg-white/95 backdrop-blur-xs p-3.5 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2 min-w-[220px]">
+                                  <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center justify-between">
+                                    <span>{d.category}</span>
+                                    <span className="text-[10px] text-slate-400 font-normal">{d.subtitle}</span>
+                                  </div>
+
+                                  <div className="space-y-1 pt-1">
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="font-semibold text-slate-600">Net Amount:</span>
+                                      <span className="font-bold text-slate-900 text-sm">₹{d.totalAmount.toLocaleString('en-IN')}</span>
+                                    </div>
+                                    {d.interestAmount > 0 && (
+                                      <div className="text-[10px] text-slate-400 pt-0.5">
+                                        Base: ₹{d.baseAmount.toLocaleString('en-IN')} • Interest: ₹{d.interestAmount.toLocaleString('en-IN')}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }} 
+                        />
+
+                        <Bar 
+                          dataKey="totalAmount" 
+                          name="Total Amount (₹)" 
+                          radius={[6, 6, 0, 0]} 
+                          maxBarSize={56}
+                        >
+                          {financialHealthData.chartData.map((entry, index) => (
+                            <Cell 
+                              key={`cell-health-${entry.key || index}`} 
+                              fill={entry.fill} 
+                            />
+                          ))}
+                          <LabelList 
+                            dataKey="totalAmount" 
+                            position="top" 
+                            formatter={(val: any) => formatBarAmountValue(val)} 
+                            style={{ fontSize: '10px', fontWeight: 800, fill: '#334155' }} 
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Bottom Reassurance Strip */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-slate-800 animate-pulse" />
+                    <span className="font-semibold text-slate-700">
+                      Unrestricted liquidity pool: Available balance equals total group savings minus current outstanding borrowings.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] font-bold">
+                    <span className="text-cyan-700 bg-cyan-50 border border-cyan-200 px-2 py-0.5 rounded-md">
+                      Net Liquidity: ₹{financialHealthData.availableBalance.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                      Active Borrowings: ₹{financialHealthData.outstandingLoans.toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>

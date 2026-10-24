@@ -326,7 +326,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
   // Build active loans list:
   // 1. Shows ONLY members having active loans (closed loans like Shwetha JV are completely excluded)
   // 2. Active loans are NOT clubbed with closed loans or with each other
-  // 3. For members with multiple active loans, numbered as Active 1, Active 2 based on date of issue in descending order
+  // 3. For members with multiple active loans, numbered as Active 1, Active 2 based on date of sanction in chronological ascending order
   const activeLoanItems = useMemo<ActiveLoanItem[]>(() => {
     interface RawActiveLoan {
       loan: Loan;
@@ -434,9 +434,9 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     });
 
     sortedMemberGroups.forEach(memberLoans => {
-      // Sort this member's active loans in descending order of sanction / issue date
-      // (newest date = Active 1, older date = Active 2, etc.)
-      memberLoans.sort((a, b) => b.sanctionDate.getTime() - a.sanctionDate.getTime());
+      // Sort this member's active loans in chronological ascending order of sanction / issue date
+      // (earlier sanctioned = Active 1, later sanctioned = Active 2, etc.)
+      memberLoans.sort((a, b) => a.sanctionDate.getTime() - b.sanctionDate.getTime());
 
       const memberActiveCount = memberLoans.length;
 
