@@ -462,7 +462,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
         const isStartsNextMonth = !explicitPaidThisMonth && isSanctionedFutureOrCurrent;
         return {
           loanId: ml.loan.id!,
-          label: memberActiveCount > 1 ? `Active ${idx + 1}` : 'Active Loan',
+          label: memberActiveCount > 1 ? `L#${idx + 1}` : 'L#1',
           amount: ml.principalAmount,
           dateStr: format(ml.sanctionDate, 'dd MMM yyyy'),
           isPaidThisMonth,
@@ -472,10 +472,8 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
       memberLoans.forEach((item, idx) => {
         const activeLoanNumber = idx + 1;
-        const activeLabel = memberActiveCount > 1 ? `Active ${activeLoanNumber}` : 'Active';
-        const dropdownTitle = memberActiveCount > 1
-          ? `${item.resolvedName} (Active ${activeLoanNumber})`
-          : item.resolvedName;
+        const activeLabel = `L#${activeLoanNumber}`;
+        const dropdownTitle = `${item.resolvedName} (${activeLabel})`;
 
         const totalInstallments = item.loan.installments || Math.ceil(item.principalAmount / 5000) || 10;
         const repaymentProgress = item.principalAmount > 0
@@ -663,7 +661,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                   ? "bg-indigo-100/90 text-indigo-700 border-indigo-300/90"
                   : "bg-purple-100/80 text-purple-700 border-purple-300/80"
               )}>
-                {hasMultipleActiveLoans ? `${activeItem.activeLabel} of ${activeItem.memberActiveLoansCount}` : 'Active Loan'}
+                {hasMultipleActiveLoans ? `${activeItem.activeLabel} of ${activeItem.memberActiveLoansCount}` : activeItem.activeLabel}
               </span>
             </div>
             {/* Real-time Paid/Due counts */}
@@ -720,7 +718,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                       )}
                       {sibling.isStartsNextMonth && (
                         <span className={cn("text-[8.5px] font-bold px-1.5 py-0.5 rounded-full border", isCurrent ? "bg-blue-700 text-white border-blue-800" : "bg-blue-100 text-blue-800 border-blue-200")}>
-                          StartNextmonth
+                          Next Mo
                         </span>
                       )}
                       <span className={cn("text-[10px]", isCurrent ? "text-white/90 font-semibold" : "text-slate-500 font-medium")}>
@@ -785,15 +783,8 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                   {activeItem.isPaidThisMonth ? "✓" : activeItem.borrowerInitial}
                 </div>
                 <div className="truncate text-left flex-1 min-w-0">
-                  <div className="flex items-center gap-1 min-w-0">
-                    <span className="font-bold text-slate-800 text-xs truncate">
-                      {activeItem.dropdownTitle}
-                    </span>
-                    {activeItem.isStartsNextMonth && (
-                      <span className="text-[8px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 px-1 py-0.2 rounded shrink-0 whitespace-nowrap">
-                        StartNextmonth
-                      </span>
-                    )}
+                  <div className="font-bold text-slate-800 text-xs truncate">
+                    {activeItem.dropdownTitle}
                   </div>
                   <div className="text-[10px] text-slate-400 font-normal">
                     ₹{activeItem.principalAmount.toLocaleString('en-IN')}
@@ -835,14 +826,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                       )}
                     >
                       <div className="truncate flex-1 min-w-0 pr-1">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="font-bold truncate">{item.dropdownTitle}</span>
-                          {item.isStartsNextMonth && (
-                            <span className="text-[8px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 px-1 py-0.2 rounded shrink-0 whitespace-nowrap">
-                              StartNextmonth
-                            </span>
-                          )}
-                        </div>
+                        <span className="font-bold truncate block">{item.dropdownTitle}</span>
                         <div className="text-[10px] text-slate-400">₹{item.principalAmount.toLocaleString('en-IN')}</div>
                       </div>
                       {item.isPaidThisMonth ? (
@@ -850,8 +834,8 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                           Paid
                         </span>
                       ) : item.isStartsNextMonth ? (
-                        <span className="text-[8px] bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.5 rounded-full font-bold shrink-0 whitespace-nowrap">
-                          StartNextmonth
+                        <span className="text-[9px] bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.5 rounded-full font-bold shrink-0 whitespace-nowrap">
+                          Next Mo
                         </span>
                       ) : null}
                     </button>

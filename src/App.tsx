@@ -108,6 +108,7 @@ import {
   Filter,
   Scale,
   BarChart2,
+  BarChart3,
   Calculator,
   Archive,
   MapPin,
@@ -122,6 +123,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
+import MemberContributionChart from './components/MemberContributionChart';
 import { ReportsTab } from './components/ReportsTab';
 import { MonthWiseLoanBreakdown } from './components/MonthWiseLoanBreakdown';
 import { MobileQuickSort } from './components/MobileQuickSort';
@@ -517,7 +519,8 @@ export const getMemberLoanSequenceInfo = (loan: Loan, allLoansList: Loan[] = [],
     loanNumber,
     totalMemberLoans,
     hasMultipleLoans: totalMemberLoans > 1,
-    label: totalMemberLoans > 1 ? `Loan #${loanNumber}` : 'Loan'
+    label: `L#${loanNumber}`,
+    fullLabel: `L#${loanNumber}`
   };
 };
 
@@ -784,6 +787,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online' | 'advance'>('all');
   const [isMemberActionsCollapsed, setIsMemberActionsCollapsed] = useState<boolean>(false);
+  const [isMemberTimelineCollapsed, setIsMemberTimelineCollapsed] = useState<boolean>(false);
+  const [selectedTimelineMember, setSelectedTimelineMember] = useState<UserProfile | null>(null);
   const [isMemberDetailsCollapsed, setIsMemberDetailsCollapsed] = useState<boolean>(false);
   const [showAdvanceSummaryModal, setShowAdvanceSummaryModal] = useState<boolean>(false);
   const [showMyAdvanceModal, setShowMyAdvanceModal] = useState<boolean>(false);
@@ -4774,7 +4779,7 @@ export default function App() {
 
         const statusTag = isSettled ? 'CLOSED' : 'ACTIVE';
         loanDetailsList.push(
-          `Loan #${idx + 1}: ₹${loanAmt.toLocaleString('en-IN')}${dateStr ? ` (${dateStr})` : ''} - ${statusTag} [Principal Paid: ₹${lPrincipalPaid.toLocaleString('en-IN')}, Balance: ₹${lRemainingBal.toLocaleString('en-IN')}, Interest: ₹${lInterestPaid.toLocaleString('en-IN')}]`
+          `L#${idx + 1}: ₹${loanAmt.toLocaleString('en-IN')}${dateStr ? ` (${dateStr})` : ''} - ${statusTag} [Principal Paid: ₹${lPrincipalPaid.toLocaleString('en-IN')}, Balance: ₹${lRemainingBal.toLocaleString('en-IN')}, Interest: ₹${lInterestPaid.toLocaleString('en-IN')}]`
         );
       });
 
@@ -5509,7 +5514,7 @@ export default function App() {
         const approvedDate = sanctionD ? format(sanctionD, 'yyyy-MM-dd') : 'N/A';
 
         return [
-          idx + 1,
+          `L#${idx + 1}`,
           approvedAmt,
           `${l.interestRate ?? 1}%`,
           l.installments || 10,
@@ -5527,7 +5532,7 @@ export default function App() {
         userLoansRows.push(['No Loans', 0, '-', '-', 'N/A', 0, 0, 0, '-']);
       }
 
-      const loanHeaders = ['Loan #', 'Sanctioned Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)', 'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Principal (₹)', 'Sanction Date'];
+      const loanHeaders = ['L#', 'Sanctioned Amount (₹)', 'Interest Rate (%)', 'Tenure (Months)', 'Status', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Pending Principal (₹)', 'Sanction Date'];
       const loansWs = buildUserStatementSheet("MEMBER SANCTIONED LOANS PORTFOLIO", loanHeaders, userLoansRows);
       loansWs['!cols'] = [{ wch: 8 }, { wch: 22 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 16 }];
       XLSX.utils.book_append_sheet(wb, loansWs, "Loans Summary");
@@ -5546,7 +5551,7 @@ export default function App() {
 
         return [
           idx + 1,
-          `#${payToNum}`,
+          `L#${payToNum}`,
           p.month ? format(new Date(p.year || 2026, p.month - 1), 'MMMM') : 'N/A',
           p.year || 'N/A',
           p.amount || 0,
@@ -5564,7 +5569,7 @@ export default function App() {
         userPaymentsRows.push(['No Payments', '-', '-', '-', 0, 0, 0, '-', 'N/A', '-']);
       }
 
-      const repayHeaders = ['Installment #', 'Loan#', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Installment (₹)', 'Payment Method', 'Status', 'Payment Date & Time'];
+      const repayHeaders = ['Installment #', 'L#', 'Month', 'Year', 'Principal Paid (₹)', 'Interest Paid (₹)', 'Total Installment (₹)', 'Payment Method', 'Status', 'Payment Date & Time'];
       const paymentsWs = buildUserStatementSheet("MEMBER LOAN REPAYMENT HISTORY", repayHeaders, userPaymentsRows);
       paymentsWs['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 20 }];
       XLSX.utils.book_append_sheet(wb, paymentsWs, "Loan Repayments");
@@ -5889,12 +5894,9 @@ export default function App() {
         (p.userId && l.userId === p.userId) ||
         (p.userEmail && l.userEmail && l.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
       );
-      let borrowerName = rawBorrowerName;
-      if (borrowerLoans.length > 1) {
-        const sortedBorrowerLoans = [...borrowerLoans].sort((a, b) => getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime());
-        const payToNum = getRepaymentPayToNumber(p, sortedBorrowerLoans, loans, allUsers);
-        borrowerName = `${rawBorrowerName} (Loan #${payToNum})`;
-      }
+      const sortedBorrowerLoans = [...borrowerLoans].sort((a, b) => getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime());
+      const payToNum = getRepaymentPayToNumber(p, sortedBorrowerLoans, loans, allUsers);
+      const borrowerName = `${rawBorrowerName} (L#${payToNum})`;
       const principal = p.amount || 0;
       const interest = p.interest || 0;
       const total = principal + interest;
@@ -6978,7 +6980,7 @@ export default function App() {
         const sanctionD = getLoanSanctionDate(l);
         const dateStr = sanctionD ? format(sanctionD, 'yyyy-MM-dd') : 'N/A';
         return [
-          `Loan #${idx + 1}`,
+          `L#${idx + 1}`,
           dateStr,
           `Rs. ${sanctionedAmt.toLocaleString('en-IN')}`,
           `${l.interestRate ?? 1}%`,
@@ -6991,7 +6993,7 @@ export default function App() {
 
       autoTable(doc, {
         startY: finalY + 16,
-        head: [['Loan #', 'Sanctioned Date', 'Sanctioned Amount', 'Interest', 'Tenure', 'Principal Paid', 'Pending Balance', 'Status']],
+        head: [['L#', 'Sanctioned Date', 'Sanctioned Amount', 'Interest', 'Tenure', 'Principal Paid', 'Pending Balance', 'Status']],
         body: loanSummaryRows,
         theme: 'grid',
         headStyles: { fillColor: [79, 70, 229] }
@@ -7069,7 +7071,7 @@ export default function App() {
 
         return [
           `#${p.serialNumber}`,
-          `#${payToNum}`,
+          `L#${payToNum}`,
           monthName,
           p.year || 'N/A',
           paymentDateTime,
@@ -7083,7 +7085,7 @@ export default function App() {
 
       autoTable(doc, {
         startY: finalY + 16,
-        head: [['#', 'Loan#', 'Month', 'Year', 'Payment Date & Time', 'Mode', 'Principal', 'Interest', 'Total Paid', 'Status']],
+        head: [['#', 'L#', 'Month', 'Year', 'Payment Date & Time', 'Mode', 'Principal', 'Interest', 'Total Paid', 'Status']],
         body: loanPaymentRows,
         theme: 'striped',
         headStyles: { fillColor: [16, 185, 129] }, // Emerald-600
@@ -9708,6 +9710,47 @@ ${scheduleHighlights}
               </div>
             </div>
 
+            {/* Member Performance Timeline & Audit */}
+            <div className="space-y-3">
+              <div 
+                onClick={() => setIsMemberTimelineCollapsed(!isMemberTimelineCollapsed)}
+                className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white hover:from-indigo-100 hover:to-indigo-50/60 border-2 border-indigo-200/90 rounded-2xl cursor-pointer select-none group transition-all shadow-xs"
+                title={isMemberTimelineCollapsed ? "Click to expand" : "Click to collapse"}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0 group-hover:scale-105 transition-transform">
+                    <BarChart3 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-slate-900 text-sm sm:text-base group-hover:text-indigo-600 transition-colors flex items-center gap-2">
+                        Member Performance Timeline &amp; Audit
+                        <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberTimelineCollapsed && "-rotate-90")} />
+                      </h4>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium mt-0.5">
+                      12-month rolling contribution history, consistency rate, loan dues &amp; audit statements for each member
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {!isMemberTimelineCollapsed && (
+                <MemberContributionChart
+                  selectedMember={selectedTimelineMember || (allUsers.length > 0 ? allUsers[0] : null)}
+                  members={allUsers.filter(u => !(u.email || '').toLowerCase().includes('admin@unnati.in') && (u.email || '').toLowerCase() !== 'unnati.finance2026@gmail.com')}
+                  contributions={contributions}
+                  loans={loans}
+                  loanPayments={loanPayments}
+                  onSelectMember={(m) => setSelectedTimelineMember(m)}
+                  onExportPDF={(m) => generateMemberStatement(m)}
+                  onExportExcel={(m) => exportMemberStatementToExcel(m)}
+                  currentMonth={selectedMonth}
+                  currentYear={selectedYear}
+                />
+              )}
+            </div>
+
             {/* Section 2: Member Details */}
             <div className="space-y-4">
               <div 
@@ -10763,11 +10806,9 @@ ${scheduleHighlights}
                                           <div className="flex flex-col">
                                             <div className="flex items-center gap-1.5 flex-wrap">
                                               <span className="text-sm font-semibold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
-                                              {loanSeq.hasMultipleLoans && (
-                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                                  {loanSeq.label}
-                                                </span>
-                                              )}
+                                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                {loanSeq.label}
+                                              </span>
                                             </div>
                                             <span className="text-xs text-slate-500">{targetUser?.phoneNumber || l.userEmail}</span>
                                           </div>
@@ -10920,11 +10961,9 @@ ${scheduleHighlights}
                                     <div className="flex flex-col">
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="text-sm font-bold text-slate-900">{getSafeMemberDisplayName(targetUser, l.phoneNumber, l.userEmail) || targetUser?.displayName || l.userName || l.userEmail?.split('@')[0]}</span>
-                                        {loanSeq.hasMultipleLoans && (
                                           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                                             {loanSeq.label}
                                           </span>
-                                        )}
                                       </div>
                                       <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest">
                                         {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
@@ -11372,11 +11411,9 @@ ${scheduleHighlights}
                                               <div className="min-w-0">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                   <h4 className="font-bold text-slate-900 text-sm truncate">{targetUser?.displayName || l.userEmail}</h4>
-                                                  {loanSeq.hasMultipleLoans && (
                                                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
                                                       {loanSeq.label}
                                                     </span>
-                                                  )}
                                                 </div>
                                                 <p className="text-xs text-slate-500 truncate">
                                                   {targetUser?.phoneNumber || l.userEmail || '-'}
@@ -11729,11 +11766,9 @@ ${scheduleHighlights}
                                         <div className="min-w-0">
                                           <div className="flex items-center gap-1.5 flex-wrap">
                                             <h4 className="font-bold text-slate-900 text-sm truncate">{targetUser?.displayName || l.userEmail}</h4>
-                                            {loanSeq.hasMultipleLoans && (
                                               <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
                                                 {loanSeq.label}
                                               </span>
-                                            )}
                                           </div>
                                           <p className="text-xs text-slate-500 truncate">
                                             {targetUser?.phoneNumber || l.userEmail || '-'}

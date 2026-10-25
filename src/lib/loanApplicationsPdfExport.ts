@@ -193,29 +193,26 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
     const rawName = targetUser?.displayName || (l.userEmail ? l.userEmail.split('@')[0] : 'Member');
     const rawMemberName = getSafeMemberDisplayName(rawName, rawPhone, l.userEmail || targetUser?.email);
 
-    // Determine member's chronological loan sequence number (Loan #1, Loan #2)
+    // Determine member's chronological loan sequence number (L#1, L#2, etc.)
     const userLoans = loans.filter(other => 
       (l.userId && other.userId === l.userId) || 
       (l.userEmail && other.userEmail && other.userEmail.toLowerCase().trim() === l.userEmail.toLowerCase().trim()) ||
       (targetUser && ((other.userId && (other.userId === targetUser.uid || other.userId === targetUser.id)) || (other.userEmail && other.userEmail.toLowerCase().trim() === targetUser.email?.toLowerCase().trim())))
     );
-    let memberName = rawMemberName;
-    if (userLoans.length > 1) {
-      const parseD = (item: Loan) => {
-        const itemAny = item as any;
-        const dates = [
-          item.approvedAt?.toDate ? item.approvedAt.toDate() : (item.approvedAt?.seconds ? new Date(item.approvedAt.seconds * 1000) : null),
-          item.createdAt?.toDate ? item.createdAt.toDate() : (item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000) : null),
-          itemAny.loanDate ? new Date(itemAny.loanDate) : null,
-          itemAny.date ? new Date(itemAny.date) : null
-        ].filter(Boolean) as Date[];
-        return dates.length > 0 ? Math.max(...dates.map(d => d.getTime())) : 0;
-      };
-      const sortedUserLoans = [...userLoans].sort((a, b) => parseD(a) - parseD(b));
-      const seqIdx = sortedUserLoans.findIndex(item => item.id === l.id);
-      const seqNum = seqIdx >= 0 ? seqIdx + 1 : 1;
-      memberName = `${rawMemberName} (Loan #${seqNum})`;
-    }
+    const parseD = (item: Loan) => {
+      const itemAny = item as any;
+      const dates = [
+        item.approvedAt?.toDate ? item.approvedAt.toDate() : (item.approvedAt?.seconds ? new Date(item.approvedAt.seconds * 1000) : null),
+        item.createdAt?.toDate ? item.createdAt.toDate() : (item.createdAt?.seconds ? new Date(item.createdAt.seconds * 1000) : null),
+        itemAny.loanDate ? new Date(itemAny.loanDate) : null,
+        itemAny.date ? new Date(itemAny.date) : null
+      ].filter(Boolean) as Date[];
+      return dates.length > 0 ? Math.max(...dates.map(d => d.getTime())) : 0;
+    };
+    const sortedUserLoans = [...userLoans].sort((a, b) => parseD(a) - parseD(b));
+    const seqIdx = sortedUserLoans.findIndex(item => item.id === l.id);
+    const seqNum = seqIdx >= 0 ? seqIdx + 1 : 1;
+    const memberName = `${rawMemberName} (L#${seqNum})`;
 
     // Format application / sanction date
     let dateStr = '-';

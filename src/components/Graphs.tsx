@@ -275,15 +275,16 @@ const Graphs: React.FC<GraphsProps> = ({
         };
       });
 
-    const withLoans = list.filter(d => isAdmin ? (d.borrowed > 0 || d.totalRepaid > 0) : (d.email === userEmail.toLowerCase() && (d.borrowed > 0 || d.totalRepaid > 0)));
-    if (withLoans.length > 0) {
-      return withLoans.sort((a, b) => b.borrowed - a.borrowed);
+    // Filter to show ONLY members having loans (borrowed or repaid)
+    const withLoans = list.filter(d => (d.borrowed > 0 || d.totalRepaid > 0));
+
+    if (isAdmin) {
+      return withLoans.sort((a, b) => (b.borrowed || 0) - (a.borrowed || 0) || a.name.localeCompare(b.name));
     }
-    // If no active/closed loans recorded in selectedYear yet, show trust members for admin only
-    return isAdmin ? list.slice(0, 15) : [];
+    return withLoans.filter(d => d.email === userEmail.toLowerCase());
   }, [allUsers, loans, loanPayments, selectedYear, isAdmin, userEmail]);
 
-  // 3. Member-wise Loan Disbursements by Month Data (for Admin)
+  // 3. Member-wise Loan Disbursements by Month Data (for Admin) - Shows ONLY members with loan disbursements
   const memberLoansByMonth = React.useMemo(() => {
     const list: {
       id: string;
@@ -330,34 +331,8 @@ const Graphs: React.FC<GraphsProps> = ({
       });
     });
 
-    if (list.length === 0) {
-      // Baseline entries so the disbursement chart is always rendered and snapshot-ready
-      const defaultMembers = allUsers
-        .filter(u => u.email?.toLowerCase() !== 'unnati.finance2026@gmail.com')
-        .slice(0, 6);
-
-      defaultMembers.forEach((u, idx) => {
-        const m = (idx % 12) + 1;
-        const memberName = (u.displayName || `Member ${idx + 1}`).split(/[@(]/)[0].trim();
-        list.push({
-          id: `baseline-${idx}`,
-          memberId: u.uid || `mem-${idx}`,
-          memberName,
-          email: u.email || '',
-          amount: 0,
-          month: m,
-          year: selectedYear,
-          monthLabel: `${MONTH_NAMES[m]} ${selectedYear}`,
-          date: new Date(selectedYear, m - 1, 1),
-          status: 'approved',
-          displayNameWithMonth: `${memberName} (${MONTH_NAMES[m]} '${String(selectedYear).slice(-2)})`,
-          uniqueKey: `baseline-${idx}-${memberName}`
-        });
-      });
-    }
-
-    return list.sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [sanctionedLoansInYear, allUsers, selectedYear]);
+    return list.sort((a, b) => (b.amount - a.amount) || a.date.getTime() - b.date.getTime() || a.memberName.localeCompare(b.memberName));
+  }, [sanctionedLoansInYear, allUsers]);
 
   // Grouped by Month for Summary Filter Pills
   const loansGroupedByMonth = React.useMemo(() => {
@@ -375,6 +350,7 @@ const Graphs: React.FC<GraphsProps> = ({
     }> = {};
 
     memberLoansByMonth.forEach(item => {
+      if (item.amount <= 0 || item.month <= 0) return;
       const key = `${item.year}-${String(item.month).padStart(2, '0')}`;
       if (!groups[key]) {
         groups[key] = {
@@ -1266,11 +1242,11 @@ const Graphs: React.FC<GraphsProps> = ({
               <div className="space-y-4">
                 {/* Responsive BarChart Container */}
                 <div className="w-full overflow-x-auto overflow-y-hidden pb-2 pt-2 scrollbar-thin scrollbar-thumb-slate-200">
-                  <div style={{ minWidth: `${getDynamicChartWidth(memberLoans.length)}px`, height: isAndroid ? 340 : 400 }}>
+                  <div style={{ minWidth: `${getDynamicChartWidth(memberLoans.length)}px`, height: isAndroid ? 370 : 430 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={memberLoans}
-                        margin={{ top: 28, right: 16, left: -10, bottom: 8 }}
+                        margin={{ top: 28, right: 16, left: -10, bottom: 45 }}
                         barGap={4}
                       >
                         <defs>
@@ -1289,9 +1265,13 @@ const Graphs: React.FC<GraphsProps> = ({
                         <XAxis 
                           dataKey="displayNameWithActive" 
                           stroke="#64748b" 
-                          tick={{ fontSize: isAndroid ? 11 : 12, fill: '#334155', fontWeight: 600 }}
+                          tick={{ fontSize: isAndroid ? 10 : 11, fill: '#334155', fontWeight: 600 }}
                           tickLine={false}
                           axisLine={{ stroke: '#cbd5e1' }}
+                          interval={0}
+                          angle={-35}
+                          textAnchor="end"
+                          height={65}
                         />
                         
                         <YAxis 
@@ -1568,11 +1548,11 @@ const Graphs: React.FC<GraphsProps> = ({
 
                 {/* Responsive BarChart Container */}
                 <div className="w-full overflow-x-auto overflow-y-hidden pb-2 pt-2 scrollbar-thin scrollbar-thumb-slate-200">
-                  <div style={{ minWidth: `${getDynamicChartWidth(filteredMemberLoansByMonth.length)}px`, height: isAndroid ? 340 : 400 }}>
+                  <div style={{ minWidth: `${getDynamicChartWidth(filteredMemberLoansByMonth.length)}px`, height: isAndroid ? 370 : 430 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={filteredMemberLoansByMonth}
-                        margin={{ top: 28, right: 16, left: -10, bottom: 8 }}
+                        margin={{ top: 28, right: 16, left: -10, bottom: 45 }}
                         barGap={4}
                       >
                         <defs>
@@ -1591,9 +1571,13 @@ const Graphs: React.FC<GraphsProps> = ({
                         <XAxis 
                           dataKey="displayNameWithMonth" 
                           stroke="#64748b" 
-                          tick={{ fontSize: isAndroid ? 11 : 12, fill: '#334155', fontWeight: 600 }}
+                          tick={{ fontSize: isAndroid ? 10 : 11, fill: '#334155', fontWeight: 600 }}
                           tickLine={false}
                           axisLine={{ stroke: '#cbd5e1' }}
+                          interval={0}
+                          angle={-35}
+                          textAnchor="end"
+                          height={65}
                         />
                         
                         <YAxis 
@@ -1736,6 +1720,11 @@ const Graphs: React.FC<GraphsProps> = ({
                   <span>Group Funds: ₹{financialHealthData.totalGroupFunds.toLocaleString('en-IN')}</span>
                 </div>
 
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 rounded-xl border border-amber-300 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span>Interest Received: ₹{financialHealthData.paidInterestInYear.toLocaleString('en-IN')}</span>
+                </div>
+
                 <div className="flex items-center gap-1.5 px-3 py-1 bg-cyan-50 text-cyan-800 rounded-xl border border-cyan-300 text-xs font-bold shadow-2xs">
                   <span className="w-2 h-2 rounded-full bg-cyan-600" />
                   <span>Available: ₹{financialHealthData.availableBalance.toLocaleString('en-IN')}</span>
@@ -1804,6 +1793,10 @@ const Graphs: React.FC<GraphsProps> = ({
                             <stop offset="0%" stopColor="#6366f1" stopOpacity={0.95} />
                             <stop offset="100%" stopColor="#4338ca" stopOpacity={0.9} />
                           </linearGradient>
+                          <linearGradient id="healthInterestGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#fbbf24" stopOpacity={0.95} />
+                            <stop offset="100%" stopColor="#d97706" stopOpacity={0.9} />
+                          </linearGradient>
                           <linearGradient id="healthLoansSanctionedGradient" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#a855f7" stopOpacity={0.95} />
                             <stop offset="100%" stopColor="#7e22ce" stopOpacity={0.9} />
@@ -1846,20 +1839,33 @@ const Graphs: React.FC<GraphsProps> = ({
                             if (active && payload && payload.length) {
                               const d = payload[0].payload;
                               return (
-                                <div className="bg-white/95 backdrop-blur-xs p-3.5 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2 min-w-[220px]">
+                                <div className="bg-white/95 backdrop-blur-xs p-3.5 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2 min-w-[240px]">
                                   <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center justify-between">
                                     <span>{d.category}</span>
                                     <span className="text-[10px] text-slate-400 font-normal">{d.subtitle}</span>
                                   </div>
 
-                                  <div className="space-y-1 pt-1">
+                                  <div className="space-y-1.5 pt-1">
                                     <div className="flex items-center justify-between gap-4">
-                                      <span className="font-semibold text-slate-600">Net Amount:</span>
+                                      <span className="font-semibold text-slate-600">Total Bar Amount:</span>
                                       <span className="font-bold text-slate-900 text-sm">₹{d.totalAmount.toLocaleString('en-IN')}</span>
                                     </div>
                                     {d.interestAmount > 0 && (
-                                      <div className="text-[10px] text-slate-400 pt-0.5">
-                                        Base: ₹{d.baseAmount.toLocaleString('en-IN')} • Interest: ₹{d.interestAmount.toLocaleString('en-IN')}
+                                      <div className="pt-1.5 border-t border-slate-100 space-y-1">
+                                        <div className="flex items-center justify-between gap-4 text-[11px]">
+                                          <span className="flex items-center gap-1.5 text-indigo-700 font-semibold">
+                                            <span className="w-2 h-2 rounded-full bg-indigo-600" />
+                                            Member Contributions:
+                                          </span>
+                                          <span className="font-bold text-indigo-900">₹{d.baseAmount.toLocaleString('en-IN')}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-4 text-[11px]">
+                                          <span className="flex items-center gap-1.5 text-amber-700 font-semibold">
+                                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                            Interest Received (0.5%):
+                                          </span>
+                                          <span className="font-bold text-amber-900">+₹{d.interestAmount.toLocaleString('en-IN')}</span>
+                                        </div>
                                       </div>
                                     )}
                                   </div>
@@ -1870,16 +1876,34 @@ const Graphs: React.FC<GraphsProps> = ({
                           }} 
                         />
 
+                        {/* Base bar: Subscriptions / Principal */}
                         <Bar 
-                          dataKey="totalAmount" 
-                          name="Total Amount (₹)" 
+                          dataKey="baseAmount" 
+                          name="Base / Principal (₹)" 
+                          stackId="healthStack"
+                          radius={[4, 4, 0, 0]} 
+                          maxBarSize={56}
+                        >
+                          {financialHealthData.chartData.map((entry, index) => (
+                            <Cell 
+                              key={`cell-health-base-${entry.key || index}`} 
+                              fill={entry.fill} 
+                            />
+                          ))}
+                        </Bar>
+
+                        {/* Stacked top bar: Interest portion for Total Group Funds in distinct warm amber */}
+                        <Bar 
+                          dataKey="interestAmount" 
+                          name="Interest Received (₹)" 
+                          stackId="healthStack"
                           radius={[6, 6, 0, 0]} 
                           maxBarSize={56}
                         >
                           {financialHealthData.chartData.map((entry, index) => (
                             <Cell 
-                              key={`cell-health-${entry.key || index}`} 
-                              fill={entry.fill} 
+                              key={`cell-health-interest-${entry.key || index}`} 
+                              fill={entry.interestAmount > 0 ? "url(#healthInterestGradient)" : "transparent"} 
                             />
                           ))}
                           <LabelList 

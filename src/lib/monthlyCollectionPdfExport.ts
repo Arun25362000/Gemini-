@@ -422,40 +422,37 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
     const borrowerPhone = borrower?.phoneNumber || (borrower as any)?.phone || '';
     const borrowerName = getSafeMemberDisplayName(rawBorrowerName, borrowerPhone, parentLoan?.userEmail || p.userEmail || borrower?.email);
 
-    // Annotate with Loan# if borrower has multiple loans
+    // Annotate with L# for all borrowers (L#1, L#2, etc.) irrespective of loan count
     const borrowerLoans = loans.filter(l =>
       (borrower && ((l.userId && (l.userId === borrower.uid || l.userId === borrower.id)) || (l.userEmail && borrower.email && l.userEmail.toLowerCase().trim() === borrower.email.toLowerCase().trim()))) ||
       (parentLoan && ((l.userId && l.userId === parentLoan.userId) || (l.userEmail && parentLoan.userEmail && l.userEmail.toLowerCase().trim() === parentLoan.userEmail.toLowerCase().trim()))) ||
       (p.userId && l.userId === p.userId) ||
       (p.userEmail && l.userEmail && l.userEmail.toLowerCase().trim() === p.userEmail.toLowerCase().trim())
     );
-    let borrowerDisplayName = borrowerName;
-    if (borrowerLoans.length > 1) {
-      const getSanctionTime = (l: Loan): number => {
-        const lAny = l as any;
-        if (lAny.disbursementDate) {
-          const d = new Date(lAny.disbursementDate).getTime();
-          if (!isNaN(d)) return d;
-        }
-        if (l.approvedAt?.toDate) return l.approvedAt.toDate().getTime();
-        if (l.approvedAt?.seconds) return l.approvedAt.seconds * 1000;
-        if (lAny.loanDate) {
-          const d = new Date(lAny.loanDate).getTime();
-          if (!isNaN(d)) return d;
-        }
-        if (lAny.date) {
-          const d = new Date(lAny.date).getTime();
-          if (!isNaN(d)) return d;
-        }
-        if (l.createdAt?.toDate) return l.createdAt.toDate().getTime();
-        if (l.createdAt?.seconds) return l.createdAt.seconds * 1000;
-        return 0;
-      };
-      const sortedBorrowerLoans = [...borrowerLoans].sort((a, b) => getSanctionTime(a) - getSanctionTime(b));
-      const payToIdx = p.loanId ? sortedBorrowerLoans.findIndex(l => l.id === p.loanId) : -1;
-      const payToNum = payToIdx >= 0 ? payToIdx + 1 : 1;
-      borrowerDisplayName = `${borrowerName} (Loan #${payToNum})`;
-    }
+    const getSanctionTime = (l: Loan): number => {
+      const lAny = l as any;
+      if (lAny.disbursementDate) {
+        const d = new Date(lAny.disbursementDate).getTime();
+        if (!isNaN(d)) return d;
+      }
+      if (l.approvedAt?.toDate) return l.approvedAt.toDate().getTime();
+      if (l.approvedAt?.seconds) return l.approvedAt.seconds * 1000;
+      if (lAny.loanDate) {
+        const d = new Date(lAny.loanDate).getTime();
+        if (!isNaN(d)) return d;
+      }
+      if (lAny.date) {
+        const d = new Date(lAny.date).getTime();
+        if (!isNaN(d)) return d;
+      }
+      if (l.createdAt?.toDate) return l.createdAt.toDate().getTime();
+      if (l.createdAt?.seconds) return l.createdAt.seconds * 1000;
+      return 0;
+    };
+    const sortedBorrowerLoans = [...borrowerLoans].sort((a, b) => getSanctionTime(a) - getSanctionTime(b));
+    const payToIdx = p.loanId ? sortedBorrowerLoans.findIndex(l => l.id === p.loanId) : -1;
+    const payToNum = payToIdx >= 0 ? payToIdx + 1 : 1;
+    const borrowerDisplayName = `${borrowerName} (L#${payToNum})`;
 
     const principal = p.amount || 0;
     const interest = p.interest || 0;
