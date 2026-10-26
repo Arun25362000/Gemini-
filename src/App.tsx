@@ -51,6 +51,17 @@ import { generateMonthlyCollectionPdfDoc } from './lib/monthlyCollectionPdfExpor
 import { generateMemberDetailsPdfDoc } from './lib/memberDetailsPdfExport';
 import { generateLoanProjectionPdfDoc } from './lib/loanProjectionPdfExport';
 import { generateLoanApplicationsPdfDoc } from './lib/loanApplicationsPdfExport';
+import { 
+  generatePaymentReceiptPdfDoc, 
+  downloadPaymentReceiptPdf, 
+  quickPrintPaymentReceiptPdf, 
+  numberToIndianWords 
+} from './lib/contributionReceiptPdfExport';
+import {
+  generateLoanReceiptPdfDoc,
+  downloadLoanReceiptPdf,
+  quickPrintLoanReceiptPdf
+} from './lib/loanReceiptPdfExport';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
 import { 
@@ -793,6 +804,20 @@ export default function App() {
   const [showAdvanceSummaryModal, setShowAdvanceSummaryModal] = useState<boolean>(false);
   const [showMyAdvanceModal, setShowMyAdvanceModal] = useState<boolean>(false);
   const [advanceSummarySearch, setAdvanceSummarySearch] = useState<string>('');
+  const [selectedReceiptContribution, setSelectedReceiptContribution] = useState<Contribution | null>(null);
+  const [selectedReceiptLoanPayment, setSelectedReceiptLoanPayment] = useState<{
+    payment: LoanPayment;
+    loan: Loan;
+    installmentNum?: number;
+    installmentMonth?: number;
+    installmentYear?: number;
+    installmentDate?: Date;
+    principal?: number;
+    interest?: number;
+    total?: number;
+    paidPaymentsInMonth?: LoanPayment[];
+  } | null>(null);
+  const [isExportingReceiptPdf, setIsExportingReceiptPdf] = useState<boolean>(false);
   const [memberActionMenu, setMemberActionMenu] = useState<{
     memberKey: string;
     member: UserProfile;
@@ -805,8 +830,25 @@ export default function App() {
   useEffect(() => {
     if (!memberActionMenu) return;
 
-    const updatePosition = () => {
-      const btn = document.querySelector(`[data-member-action-btn="${memberActionMenu.memberKey}"]`);
+    const getActiveBtn = () => {
+      const btns = Array.from(document.querySelectorAll<HTMLElement>(`[data-member-action-btn="${memberActionMenu.memberKey}"]`));
+      return btns.find(b => {
+        const r = b.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      }) || btns[0] || null;
+    };
+
+    const updatePosition = (e?: Event) => {
+      // If the scroll event came from inside the dropdown menu itself, DO NOT reposition or close!
+      if (e && e.target) {
+        const target = e.target as Node;
+        const menuEl = document.getElementById('member-action-dropdown-portal');
+        if (menuEl && (menuEl === target || menuEl.contains(target))) {
+          return;
+        }
+      }
+
+      const btn = getActiveBtn();
       if (btn) {
         const rect = btn.getBoundingClientRect();
         // If button is completely scrolled out of viewport, close menu
@@ -820,7 +862,7 @@ export default function App() {
           if (!prev || prev.memberKey !== memberActionMenu.memberKey) return null;
           return {
             ...prev,
-            x: Math.max(12, window.innerWidth - rect.right),
+            x: Math.max(12, Math.min(window.innerWidth - 250, window.innerWidth - rect.right)),
             y: openUpwards ? rect.top - 6 : rect.bottom + 6,
             openUpwards
           };
@@ -832,10 +874,11 @@ export default function App() {
 
     const handlePointerDownOutside = (e: MouseEvent | TouchEvent) => {
       const menuEl = document.getElementById('member-action-dropdown-portal');
-      const btnEl = document.querySelector(`[data-member-action-btn="${memberActionMenu.memberKey}"]`);
+      const btns = Array.from(document.querySelectorAll<HTMLElement>(`[data-member-action-btn="${memberActionMenu.memberKey}"]`));
+      const target = e.target as Node;
       if (
-        menuEl && !menuEl.contains(e.target as Node) &&
-        btnEl && !btnEl.contains(e.target as Node)
+        menuEl && !menuEl.contains(target) &&
+        !btns.some(b => b.contains(target))
       ) {
         setMemberActionMenu(null);
       }
@@ -844,7 +887,7 @@ export default function App() {
     window.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
     document.addEventListener('mousedown', handlePointerDownOutside, true);
-    document.addEventListener('touchstart', handlePointerDownOutside, true);
+    document.addEventListener('touchstart', handlePointerDownOutside, { capture: true, passive: true });
 
     return () => {
       window.removeEventListener('scroll', updatePosition, true);
@@ -7293,6 +7336,150 @@ export default function App() {
     }
   };
 
+  const handleDownloadReceipt = async (c: Contribution, targetMember?: UserProfile | null) => {
+    try {
+      setIsExportingReceiptPdf(true);
+      const member = targetMember || allUsers.find(u => 
+        isContribMatchUser(c, u) ||
+        (c.userId && u.uid === c.userId) || 
+        (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const { doc, fileName, receiptNumber } = generatePaymentReceiptPdfDoc({
+        contribution: c,
+        member,
+        allContributions: contributions,
+      });
+
+      if (isMobileApp) {
+        const base64Data = doc.output('datauristring').split(',')[1];
+        const res = await downloadFileMobile(fileName, base64Data);
+        if (res.success) {
+          notify('success', `Payment Receipt #${receiptNumber} saved: ${fileName}`);
+        } else {
+          doc.save(fileName);
+          notify('success', `Payment Receipt #${receiptNumber} downloaded!`);
+        }
+      } else {
+        doc.save(fileName);
+        notify('success', `Payment Receipt #${receiptNumber} downloaded!`);
+      }
+    } catch (err: any) {
+      console.error('Failed to export Payment Receipt PDF:', err);
+      notify('error', `Failed to generate Receipt: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingReceiptPdf(false);
+    }
+  };
+
+  const handlePrintReceipt = (c: Contribution, targetMember?: UserProfile | null) => {
+    try {
+      const member = targetMember || allUsers.find(u => 
+        isContribMatchUser(c, u) ||
+        (c.userId && u.uid === c.userId) || 
+        (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const { doc, receiptNumber } = generatePaymentReceiptPdfDoc({
+        contribution: c,
+        member,
+        allContributions: contributions,
+      });
+
+      quickPrintPaymentReceiptPdf(doc);
+      notify('info', `Opening print preview for Receipt #${receiptNumber}...`);
+    } catch (err: any) {
+      console.error('Failed to print Payment Receipt PDF:', err);
+      notify('error', `Failed to print Receipt: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleDownloadLoanReceipt = async (
+    options: {
+      payment: LoanPayment;
+      loan: Loan;
+      installmentNum?: number;
+      installmentMonth?: number;
+      installmentYear?: number;
+      installmentDate?: Date;
+      principal?: number;
+      interest?: number;
+      total?: number;
+      paidPaymentsInMonth?: LoanPayment[];
+    },
+    targetMember?: UserProfile | null
+  ) => {
+    try {
+      setIsExportingReceiptPdf(true);
+      const borrower = targetMember || allUsers.find(u => 
+        (options.loan.userId && u.uid === options.loan.userId) || 
+        (options.loan.userEmail && u.email.toLowerCase() === options.loan.userEmail.toLowerCase()) ||
+        (options.payment.userId && u.uid === options.payment.userId) ||
+        (options.payment.userEmail && u.email.toLowerCase() === options.payment.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const { doc, fileName, receiptNumber } = generateLoanReceiptPdfDoc({
+        ...options,
+        borrower,
+      });
+
+      if (isMobileApp) {
+        const base64Data = doc.output('datauristring').split(',')[1];
+        const res = await downloadFileMobile(fileName, base64Data);
+        if (res.success) {
+          notify('success', `Loan Installment Receipt #${receiptNumber} saved: ${fileName}`);
+        } else {
+          doc.save(fileName);
+          notify('success', `Loan Installment Receipt #${receiptNumber} downloaded!`);
+        }
+      } else {
+        doc.save(fileName);
+        notify('success', `Loan Installment Receipt #${receiptNumber} downloaded!`);
+      }
+    } catch (err: any) {
+      console.error('Failed to export Loan Receipt PDF:', err);
+      notify('error', `Failed to generate Loan Receipt: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingReceiptPdf(false);
+    }
+  };
+
+  const handlePrintLoanReceipt = (
+    options: {
+      payment: LoanPayment;
+      loan: Loan;
+      installmentNum?: number;
+      installmentMonth?: number;
+      installmentYear?: number;
+      installmentDate?: Date;
+      principal?: number;
+      interest?: number;
+      total?: number;
+      paidPaymentsInMonth?: LoanPayment[];
+    },
+    targetMember?: UserProfile | null
+  ) => {
+    try {
+      const borrower = targetMember || allUsers.find(u => 
+        (options.loan.userId && u.uid === options.loan.userId) || 
+        (options.loan.userEmail && u.email.toLowerCase() === options.loan.userEmail.toLowerCase()) ||
+        (options.payment.userId && u.uid === options.payment.userId) ||
+        (options.payment.userEmail && u.email.toLowerCase() === options.payment.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const { doc, receiptNumber } = generateLoanReceiptPdfDoc({
+        ...options,
+        borrower,
+      });
+
+      quickPrintLoanReceiptPdf(doc);
+      notify('info', `Opening print preview for Loan Receipt #${receiptNumber}...`);
+    } catch (err: any) {
+      console.error('Failed to print Loan Receipt PDF:', err);
+      notify('error', `Failed to print Loan Receipt: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
   const [isExportingMonthlyPdf, setIsExportingMonthlyPdf] = useState(false);
 
   const exportMonthlyCollectionPdf = async (printDirectly: boolean = false) => {
@@ -10009,7 +10196,7 @@ ${scheduleHighlights}
                                           setMemberActionMenu({
                                             memberKey,
                                             member: u,
-                                            x: Math.max(12, window.innerWidth - rect.right),
+                                            x: Math.max(12, Math.min(window.innerWidth - 250, window.innerWidth - rect.right)),
                                             y: openUpwards ? rect.top - 6 : rect.bottom + 6,
                                             openUpwards,
                                           });
@@ -10057,12 +10244,14 @@ ${scheduleHighlights}
                   ...(memberActionMenu.openUpwards
                     ? { bottom: `${window.innerHeight - memberActionMenu.y}px` }
                     : { top: `${memberActionMenu.y}px` }),
+                  maxHeight: `${Math.max(200, Math.min(360, memberActionMenu.openUpwards ? memberActionMenu.y - 12 : window.innerHeight - memberActionMenu.y - 12))}px`,
                   zIndex: 9999,
                 }}
-                className="w-60 bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-1.5 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100 text-left max-h-80 overflow-y-auto overscroll-contain select-none pointer-events-auto"
+                className="w-60 max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-2xl border border-slate-200/90 py-1.5 animate-in fade-in zoom-in-95 duration-150 divide-y divide-slate-100 text-left overflow-y-auto overscroll-contain select-none pointer-events-auto touch-pan-y"
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
               >
                   {/* Statement Group - PDF & WhatsApp Statement */}
                   <div className="px-1.5 py-1 space-y-0.5">
@@ -10515,7 +10704,7 @@ ${scheduleHighlights}
                                   setMemberActionMenu({
                                     memberKey,
                                     member: u,
-                                    x: Math.max(12, window.innerWidth - rect.right),
+                                    x: Math.max(12, Math.min(window.innerWidth - 250, window.innerWidth - rect.right)),
                                     y: openUpwards ? rect.top - 6 : rect.bottom + 6,
                                     openUpwards,
                                   });
@@ -11614,6 +11803,56 @@ ${scheduleHighlights}
                                                             </p>
                                                           </div>
 
+                                                          <div className="bg-white/80 backdrop-blur-xs px-2 py-1 rounded-xl border border-slate-200/80 text-center flex flex-col items-center justify-center min-w-[85px]">
+                                                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Receipt</p>
+                                                            {isPaid && (payment || displayPayment) ? (
+                                                              <div className="inline-flex items-center rounded-lg shadow-2xs border border-indigo-200/90 overflow-hidden bg-white">
+                                                                <button 
+                                                                  type="button"
+                                                                  onClick={() => setSelectedReceiptLoanPayment({
+                                                                    payment: (payment || displayPayment)!,
+                                                                    loan: l,
+                                                                    installmentNum,
+                                                                    installmentMonth,
+                                                                    installmentYear,
+                                                                    installmentDate,
+                                                                    principal: principalToDisplay,
+                                                                    interest: interestToDisplay,
+                                                                    total,
+                                                                    paidPaymentsInMonth: item.paidPaymentsInMonth
+                                                                  })}
+                                                                  className="px-2 py-0.5 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                                                                  title="View & Print Loan Installment Receipt"
+                                                                >
+                                                                  <FileText className="w-3 h-3 text-indigo-600" />
+                                                                  <span>Receipt</span>
+                                                                </button>
+                                                                <button 
+                                                                  type="button"
+                                                                  onClick={() => handleDownloadLoanReceipt({
+                                                                    payment: (payment || displayPayment)!,
+                                                                    loan: l,
+                                                                    installmentNum,
+                                                                    installmentMonth,
+                                                                    installmentYear,
+                                                                    installmentDate,
+                                                                    principal: principalToDisplay,
+                                                                    interest: interestToDisplay,
+                                                                    total,
+                                                                    paidPaymentsInMonth: item.paidPaymentsInMonth
+                                                                  }, targetUser)}
+                                                                  disabled={isExportingReceiptPdf}
+                                                                  className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100 border-l border-indigo-200/90 transition-all cursor-pointer disabled:opacity-50"
+                                                                  title="Direct Download PDF Receipt"
+                                                                >
+                                                                  <FileDown className="w-3 h-3" />
+                                                                </button>
+                                                              </div>
+                                                            ) : (
+                                                              <span className="text-[10px] font-semibold text-slate-300">-</span>
+                                                            )}
+                                                          </div>
+
                                                           <div className="bg-white/80 backdrop-blur-xs px-2.5 py-1 rounded-xl border border-slate-200/80 text-center min-w-[85px]">
                                                             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Paid On</p>
                                                             <p className="text-xs font-bold text-slate-700 truncate">
@@ -11969,6 +12208,55 @@ ${scheduleHighlights}
                                                   )}>
                                                     {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
                                                   </span>
+                                                </div>
+                                                <div className="pt-1.5 border-t border-slate-100">
+                                                  <span className="text-[9.5px] font-bold text-slate-400 uppercase block mb-0.5">Receipt</span>
+                                                  {isPaid && (payment || displayPayment) ? (
+                                                    <div className="inline-flex items-center rounded-lg shadow-2xs border border-indigo-200/90 overflow-hidden bg-white">
+                                                      <button 
+                                                        type="button"
+                                                        onClick={() => setSelectedReceiptLoanPayment({
+                                                          payment: (payment || displayPayment)!,
+                                                          loan: l,
+                                                          installmentNum,
+                                                          installmentMonth,
+                                                          installmentYear,
+                                                          installmentDate,
+                                                          principal: principalToDisplay,
+                                                          interest: interestToDisplay,
+                                                          total,
+                                                          paidPaymentsInMonth: item.paidPaymentsInMonth
+                                                        })}
+                                                        className="px-2 py-0.5 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 text-[10.5px] font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                                                        title="View & Print Loan Installment Receipt"
+                                                      >
+                                                        <FileText className="w-3 h-3 text-indigo-600" />
+                                                        <span>Receipt</span>
+                                                      </button>
+                                                      <button 
+                                                        type="button"
+                                                        onClick={() => handleDownloadLoanReceipt({
+                                                          payment: (payment || displayPayment)!,
+                                                          loan: l,
+                                                          installmentNum,
+                                                          installmentMonth,
+                                                          installmentYear,
+                                                          installmentDate,
+                                                          principal: principalToDisplay,
+                                                          interest: interestToDisplay,
+                                                          total,
+                                                          paidPaymentsInMonth: item.paidPaymentsInMonth
+                                                        }, targetUser)}
+                                                        disabled={isExportingReceiptPdf}
+                                                        className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100 border-l border-indigo-200/90 transition-all cursor-pointer disabled:opacity-50"
+                                                        title="Direct Download PDF Receipt"
+                                                      >
+                                                        <FileDown className="w-3 h-3" />
+                                                      </button>
+                                                    </div>
+                                                  ) : (
+                                                    <span className="text-[10px] font-semibold text-slate-300">-</span>
+                                                  )}
                                                 </div>
                                                 <div className="pt-1.5 border-t border-slate-100">
                                                   <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Paid On</span>
@@ -12705,7 +12993,7 @@ ${scheduleHighlights}
                                                       </div>
                                                     </div>
 
-                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3.5 bg-white/90 backdrop-blur-xs rounded-2xl border border-slate-200/80 text-xs shadow-2xs">
+                                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 p-3.5 bg-white/90 backdrop-blur-xs rounded-2xl border border-slate-200/80 text-xs shadow-2xs">
                                                       <div>
                                                         <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Principal</p>
                                                         <p className="font-black text-slate-900 text-xs sm:text-sm">₹{principalToDisplay.toLocaleString('en-IN')}</p>
@@ -12722,6 +13010,55 @@ ${scheduleHighlights}
                                                         )}>
                                                           {displayPayment?.paymentMode || (isPaid || isPending ? (displayPayment?.paymentMethod || 'Online') : '-')}
                                                         </p>
+                                                      </div>
+                                                      <div>
+                                                        <p className="text-[9.5px] font-extrabold text-slate-500 uppercase mb-0.5">Receipt</p>
+                                                        {isPaid && (payment || displayPayment) ? (
+                                                          <div className="inline-flex items-center rounded-lg shadow-2xs border border-indigo-200/90 overflow-hidden bg-white mt-0.5">
+                                                            <button 
+                                                              type="button"
+                                                              onClick={() => setSelectedReceiptLoanPayment({
+                                                                payment: (payment || displayPayment)!,
+                                                                loan: l,
+                                                                installmentNum,
+                                                                installmentMonth,
+                                                                installmentYear,
+                                                                installmentDate,
+                                                                principal: principalToDisplay,
+                                                                interest: interest,
+                                                                total,
+                                                                paidPaymentsInMonth: item.paidPaymentsInMonth
+                                                              })}
+                                                              className="px-2 py-0.5 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                                                              title="View & Print Loan Installment Receipt"
+                                                            >
+                                                              <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                                              <span>Receipt</span>
+                                                            </button>
+                                                            <button 
+                                                              type="button"
+                                                              onClick={() => handleDownloadLoanReceipt({
+                                                                payment: (payment || displayPayment)!,
+                                                                loan: l,
+                                                                installmentNum,
+                                                                installmentMonth,
+                                                                installmentYear,
+                                                                installmentDate,
+                                                                principal: principalToDisplay,
+                                                                interest: interest,
+                                                                total,
+                                                                paidPaymentsInMonth: item.paidPaymentsInMonth
+                                                              })}
+                                                              disabled={isExportingReceiptPdf}
+                                                              className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100 border-l border-indigo-200/90 transition-all cursor-pointer disabled:opacity-50"
+                                                              title="Direct Download PDF Receipt"
+                                                            >
+                                                              <FileDown className="w-3.5 h-3.5" />
+                                                            </button>
+                                                          </div>
+                                                        ) : (
+                                                          <span className="text-[11px] font-semibold text-slate-300">-</span>
+                                                        )}
                                                       </div>
                                                       <div>
                                                         <p className="text-[9.5px] font-extrabold text-slate-500 uppercase">Paid On</p>
@@ -14189,7 +14526,9 @@ ${scheduleHighlights}
                               )}
                             </div>
                           </th>
-                          {isAdmin && <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>}
+                          <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right select-none">
+                            {isAdmin ? 'Receipt / Actions' : 'Receipt'}
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -14264,34 +14603,64 @@ ${scheduleHighlights}
                                   {c.timestamp?.toDate ? format(c.timestamp.toDate(), 'MMM dd, yyyy') : 'Just now'}
                                 </span>
                               </td>
-                              {isAdmin && (
-                                <td className="px-3 sm:px-3.5 py-3 text-right">
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    {c.status === 'pending' && (
+                              <td className="px-3 sm:px-3.5 py-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {c.status === 'paid' ? (
+                                    <div className="inline-flex items-center rounded-lg shadow-2xs border border-indigo-200/90 overflow-hidden bg-white">
                                       <button 
-                                        onClick={() => updateStatus(c.id!, 'paid')}
-                                        className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all shadow-sm shadow-emerald-100"
-                                        title="Approve Payment"
+                                        type="button"
+                                        onClick={() => setSelectedReceiptContribution(c)}
+                                        className="px-2.5 py-1 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                                        title="View & Print Payment Receipt"
                                       >
-                                        Approve
+                                        <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                        <span>Receipt</span>
                                       </button>
-                                    )}
+                                      <button 
+                                        type="button"
+                                        onClick={() => handleDownloadReceipt(c, targetUser)}
+                                        disabled={isExportingReceiptPdf}
+                                        className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100 border-l border-indigo-200/90 transition-all cursor-pointer disabled:opacity-50"
+                                        title="Direct Download PDF Receipt"
+                                      >
+                                        <FileDown className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    isAdmin ? null : (
+                                      <span className="text-[11px] font-semibold text-slate-400 italic">
+                                        Receipt on approval
+                                      </span>
+                                    )
+                                  )}
+                                  {isAdmin && c.status === 'pending' && (
                                     <button 
+                                      type="button"
+                                      onClick={() => updateStatus(c.id!, 'paid')}
+                                      className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all shadow-sm shadow-emerald-100 cursor-pointer"
+                                      title="Approve Payment"
+                                    >
+                                      Approve
+                                    </button>
+                                  )}
+                                  {isAdmin && (
+                                    <button 
+                                      type="button"
                                       onClick={() => setDeletingId(c.id!)}
-                                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
                                       title="Delete"
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
-                                  </div>
-                                </td>
-                              )}
+                                  )}
+                                </div>
+                              </td>
                             </motion.tr>
                           );
                         })}
                         {sortedContributions.length === 0 && (
                           <tr>
-                            <td colSpan={isAdmin ? (appliedFilter.month === 'all' || appliedFilter.year === 'all' ? 6 : 5) : 5} className="px-6 py-12 text-center text-slate-400 italic">
+                            <td colSpan={isAdmin ? (appliedFilter.month === 'all' || appliedFilter.year === 'all' ? 7 : 6) : 6} className="px-6 py-12 text-center text-slate-400 italic">
                               No records found for {appliedFilter.year === 'all' 
                                 ? (appliedFilter.month === 'all' ? 'any recorded year' : `all years in ${format(new Date(2024, (appliedFilter.month as number) - 1), 'MMMM')}`)
                                 : (appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, (appliedFilter.month as number) - 1), 'MMMM yyyy'))}.
@@ -14397,26 +14766,57 @@ ${scheduleHighlights}
                             </div>
                           </div>
 
-                          {isAdmin && (
-                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                              {c.status === 'pending' && (
+                          <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-100">
+                            {isPaid ? (
+                              <div className="flex items-center gap-1.5">
                                 <button 
-                                  onClick={() => updateStatus(c.id!, 'paid')}
-                                  className="px-3.5 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-xs active:scale-95 flex items-center gap-1.5"
-                                  title="Approve Payment"
+                                  type="button"
+                                  onClick={() => setSelectedReceiptContribution(c)}
+                                  className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                                  title="View & Print Payment Receipt"
                                 >
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span>Receipt</span>
                                 </button>
-                              )}
-                              <button 
-                                onClick={() => setDeletingId(c.id!)}
-                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-95"
-                                title="Delete Record"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-500" />
-                              </button>
-                            </div>
-                          )}
+                                <button 
+                                  type="button"
+                                  onClick={() => handleDownloadReceipt(c, member)}
+                                  disabled={isExportingReceiptPdf}
+                                  className="p-1.5 bg-white text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 border border-indigo-200/90 rounded-xl transition-all active:scale-95 shadow-2xs cursor-pointer disabled:opacity-50"
+                                  title="Direct Download PDF Receipt"
+                                >
+                                  <FileDown className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10.5px] font-medium text-slate-400 italic">
+                                Receipt on approval
+                              </span>
+                            )}
+
+                            {isAdmin && (
+                              <div className="flex items-center gap-2 ml-auto">
+                                {c.status === 'pending' && (
+                                  <button 
+                                    type="button"
+                                    onClick={() => updateStatus(c.id!, 'paid')}
+                                    className="px-3.5 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                                    title="Approve Payment"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                                  </button>
+                                )}
+                                <button 
+                                  type="button"
+                                  onClick={() => setDeletingId(c.id!)}
+                                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-95 cursor-pointer"
+                                  title="Delete Record"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-500" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </motion.div>
                     );
@@ -16905,6 +17305,15 @@ ${scheduleHighlights}
                               ₹{c.amount.toLocaleString('en-IN')}
                             </span>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceiptContribution(c)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-xl text-xs font-bold transition-all shadow-2xs active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                            title="View & Print Payment Receipt"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>Receipt</span>
+                          </button>
                         </div>
                       </div>
                     );
@@ -16937,6 +17346,496 @@ ${scheduleHighlights}
             </motion.div>
           </div>
         )}
+
+        {/* Member Payment Receipt Preview & Print Modal */}
+        {selectedReceiptContribution && (() => {
+          const c = selectedReceiptContribution;
+          const targetMember = allUsers.find(u => 
+            isContribMatchUser(c, u) ||
+            (c.userId && u.uid === c.userId) || 
+            (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
+          ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+          const rawName = targetMember?.displayName || (c as any).userName || c.userEmail?.split('@')[0] || 'Member';
+          const memberPhone = targetMember?.phoneNumber || (targetMember as any)?.phone || '-';
+          const memberEmail = targetMember?.email || c.userEmail || '-';
+          const memberName = getSafeMemberDisplayName(targetMember || rawName, memberPhone, memberEmail) || rawName || 'Member';
+
+          // Determine advance details
+          let isAdvance = Boolean(c.isAdvance || (c.coveredMonths && c.coveredMonths.length > 1));
+          let coveredList = c.coveredMonths && c.coveredMonths.length > 0 ? [...c.coveredMonths] : [];
+          if (coveredList.length === 0 && c.transactionGroupId) {
+            const group = contributions.filter(item => item.transactionGroupId === c.transactionGroupId);
+            if (group.length > 1) {
+              isAdvance = true;
+              coveredList = group
+                .sort((a, b) => (a.year * 100 + a.month) - (b.year * 100 + b.month))
+                .map(item => ({ month: item.month, year: item.year, amount: item.amount }));
+            }
+          }
+          if (coveredList.length === 0) {
+            coveredList = [{ month: c.month, year: c.year, amount: c.amount }];
+          }
+
+          const totalAmount = coveredList.reduce((sum, item) => sum + (item.amount || 0), 0);
+          const amountInWords = numberToIndianWords(totalAmount);
+
+          const uniqueIdSuffix = (c.id || Math.random().toString(36).substring(2, 7)).slice(-6).toUpperCase();
+          const receiptNumber = isAdvance
+            ? `UT-ADV-${c.year}-${String(c.month).padStart(2, '0')}-${uniqueIdSuffix}`
+            : `UT-REC-${c.year}-${String(c.month).padStart(2, '0')}-${uniqueIdSuffix}`;
+
+          const paymentDate = c.timestamp?.toDate ? format(c.timestamp.toDate(), 'dd MMMM yyyy, hh:mm a') : 'Recent';
+          const periodText = isAdvance && coveredList.length > 1
+            ? `${format(new Date(coveredList[0].year, coveredList[0].month - 1), 'MMMM yyyy')} — ${format(new Date(coveredList[coveredList.length - 1].year, coveredList[coveredList.length - 1].month - 1), 'MMMM yyyy')} (${coveredList.length} Months)`
+            : format(new Date(c.year, c.month - 1), 'MMMM yyyy');
+
+          return (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+              <motion.div 
+                key="receipt-modal-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedReceiptContribution(null)}
+                className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+              />
+              <motion.div 
+                key="receipt-modal-content"
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="relative bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200/90 my-auto z-10 flex flex-col max-h-[92vh] overflow-hidden"
+              >
+                {/* Modal Top Header */}
+                <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white border-b border-slate-100 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
+                          Payment Receipt
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                          <CheckCircle2 className="w-2.5 h-2.5" /> Official
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono font-semibold mt-0.5">
+                        {receiptNumber}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setSelectedReceiptContribution(null)}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Printable / Visual Receipt Content */}
+                <div className="p-4 sm:p-6 overflow-y-auto space-y-4 bg-slate-50/40">
+                  <div className="bg-white rounded-2xl p-5 sm:p-6 border-2 border-indigo-200 shadow-sm relative overflow-hidden">
+                    {/* Watermark / Background stamp */}
+                    <div className="absolute right-3 top-3 sm:right-6 sm:top-6 opacity-10 pointer-events-none select-none">
+                      <Shield className="w-32 h-32 text-indigo-900" />
+                    </div>
+
+                    {/* Receipt Header */}
+                    <div className="text-center pb-4 border-b border-dashed border-slate-200 relative">
+                      <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-wide uppercase">
+                        UNNATI TRUST (R)
+                      </h2>
+                      <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider mt-0.5">
+                        Registration No: TRUST/BLR/2026 • Bangalore, Karnataka
+                      </p>
+                      <div className="inline-block mt-2 px-3 py-1 rounded-full bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
+                        {isAdvance ? 'Advance Contribution Receipt' : 'Monthly Contribution Receipt'}
+                      </div>
+                    </div>
+
+                    {/* Meta Grid */}
+                    <div className="grid grid-cols-2 gap-3 py-3.5 border-b border-slate-100 text-xs">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Receipt Number</span>
+                        <span className="font-mono font-bold text-slate-800 text-xs sm:text-sm">{receiptNumber}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Payment Date & Time</span>
+                        <span className="font-semibold text-slate-700 text-xs sm:text-sm">{paymentDate}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Payment Mode</span>
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded text-[10.5px] font-extrabold uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {c.paymentMethod || 'Online'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Verification Status</span>
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded text-[10.5px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3" /> Paid & Verified
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Member Details */}
+                    <div className="py-3.5 border-b border-slate-100 text-xs bg-slate-50/70 -mx-5 sm:-mx-6 px-5 sm:px-6">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Received With Thanks From</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <span className="text-sm sm:text-base font-black text-slate-900">{memberName}</span>
+                        <span className="text-xs font-medium text-slate-600">
+                          {memberPhone && memberPhone !== '-' ? `Ph: ${memberPhone}` : ''}
+                          {memberPhone && memberPhone !== '-' && memberEmail && memberEmail !== '-' ? ' • ' : ''}
+                          {memberEmail && memberEmail !== '-' ? memberEmail : ''}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Particulars & Breakdown */}
+                    <div className="py-3.5 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Particulars</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Amount</span>
+                      </div>
+
+                      {isAdvance && coveredList.length > 1 ? (
+                        <div className="space-y-1.5 border border-slate-200 rounded-xl p-2.5 bg-slate-50/50">
+                          <div className="text-[11px] font-bold text-indigo-900 pb-1 border-b border-slate-200 flex items-center justify-between">
+                            <span>Pre-Paid Coverage: {periodText}</span>
+                            <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.2 rounded font-extrabold">{coveredList.length} Months</span>
+                          </div>
+                          {coveredList.map((m, idx) => (
+                            <div key={`rec-breakdown-${idx}`} className="flex items-center justify-between text-xs py-0.5">
+                              <span className="text-slate-700 font-medium">
+                                {idx + 1}. {format(new Date(m.year, m.month - 1), 'MMMM yyyy')} Contribution
+                              </span>
+                              <span className="font-mono font-bold text-slate-900">
+                                ₹{(m.amount || 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-slate-50 border border-slate-200">
+                          <span className="text-slate-800 font-semibold">
+                            Monthly Subscription ({periodText})
+                          </span>
+                          <span className="font-mono font-bold text-slate-900 text-sm">
+                            ₹{totalAmount.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Total and Words */}
+                    <div className="pt-3 border-t-2 border-slate-900/80 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase text-slate-900">Total Amount Received</span>
+                        <span className="text-xl sm:text-2xl font-black text-emerald-700 font-mono">
+                          ₹{totalAmount.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">In Words</span>
+                        <span className="font-bold text-emerald-900">{amountInWords}</span>
+                      </div>
+                    </div>
+
+                    {/* Electronic Verification Note */}
+                    <div className="mt-4 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>This is a computer-generated receipt valid without physical signature.</span>
+                      <span className="font-mono text-[9px] text-slate-300">UT-AUTH-E-VERIFY</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Action Footer */}
+                <div className="p-3.5 sm:p-5 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
+                  <p className="text-xs text-slate-500 font-medium hidden sm:block">
+                    Download A4 print-ready PDF or print directly
+                  </p>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handlePrintReceipt(c, targetMember)}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-300 transition-all cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center gap-1.5"
+                    >
+                      <Printer className="w-4 h-4 text-slate-600" />
+                      <span>Print</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadReceipt(c, targetMember)}
+                      disabled={isExportingReceiptPdf}
+                      className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <FileDown className="w-4 h-4" />
+                      <span>{isExportingReceiptPdf ? 'Generating...' : 'Download PDF'}</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+
+        {/* Loan Installment Repayment Receipt Preview & Print Modal */}
+        {selectedReceiptLoanPayment && (() => {
+          const {
+            payment: p,
+            loan: l,
+            installmentNum = p?.installmentNum || 1,
+            installmentMonth = p?.month || 1,
+            installmentYear = p?.year || 2026,
+            installmentDate = new Date(installmentYear, installmentMonth - 1, 10),
+            principal = p?.amount || 0,
+            interest = p?.interest || 0,
+            total = (principal + interest),
+            paidPaymentsInMonth = []
+          } = selectedReceiptLoanPayment;
+
+          const targetMember = allUsers.find(u => 
+            (l.userId && u.uid === l.userId) || 
+            (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase()) ||
+            (p.userId && u.uid === p.userId) ||
+            (p.userEmail && u.email.toLowerCase() === p.userEmail.toLowerCase())
+          ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+          const rawName = targetMember?.displayName || l.userName || (p as any)?.userName || l.userEmail?.split('@')[0] || 'Borrower';
+          const memberPhone = targetMember?.phoneNumber || (targetMember as any)?.phone || l.phoneNumber || '-';
+          const memberEmail = targetMember?.email || l.userEmail || p.userEmail || '-';
+          const memberName = getSafeMemberDisplayName(targetMember || rawName, memberPhone, memberEmail) || rawName || 'Borrower';
+
+          const periodText = `${format(installmentDate, 'MMMM')} ${installmentYear}`;
+          const amountInWords = numberToIndianWords(total);
+
+          const uniqueIdSuffix = (p?.id || l?.id || Math.random().toString(36).substring(2, 7)).slice(-6).toUpperCase();
+          const receiptNumber = `UT-EMI-${installmentYear}-${String(installmentMonth).padStart(2, '0')}-${uniqueIdSuffix}`;
+          const loanRef = l.id ? `UT-LN-${l.id.slice(-6).toUpperCase()}` : 'UT-LN-PRIMARY';
+
+          let paymentDate = 'Recent';
+          if (p?.timestamp?.toDate) {
+            paymentDate = format(p.timestamp.toDate(), 'dd MMMM yyyy, hh:mm a');
+          } else if (p?.approvedAt?.toDate) {
+            paymentDate = format(p.approvedAt.toDate(), 'dd MMMM yyyy, hh:mm a');
+          }
+
+          const paymentMode = p.paymentMode || p.paymentMethod || 'Online';
+
+          return (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+              <motion.div 
+                key="loan-receipt-modal-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedReceiptLoanPayment(null)}
+                className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+              />
+              <motion.div 
+                key="loan-receipt-modal-content"
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="relative bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200/90 my-auto z-10 flex flex-col max-h-[92vh] overflow-hidden"
+              >
+                {/* Modal Top Header */}
+                <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-50/90 via-sky-50/50 to-white border-b border-slate-100 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
+                          Loan Installment Receipt
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                          <CheckCircle2 className="w-2.5 h-2.5" /> Official
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono font-semibold mt-0.5">
+                        {receiptNumber}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setSelectedReceiptLoanPayment(null)}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Printable / Visual Receipt Content */}
+                <div className="p-4 sm:p-6 overflow-y-auto space-y-4 bg-slate-50/40">
+                  <div className="bg-white rounded-2xl p-5 sm:p-6 border-2 border-indigo-200 shadow-sm relative overflow-hidden">
+                    {/* Watermark / Background stamp */}
+                    <div className="absolute right-3 top-3 sm:right-6 sm:top-6 opacity-10 pointer-events-none select-none">
+                      <Shield className="w-32 h-32 text-indigo-900" />
+                    </div>
+
+                    {/* Receipt Header */}
+                    <div className="text-center pb-4 border-b border-dashed border-slate-200 relative">
+                      <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-wide uppercase">
+                        UNNATI TRUST (R)
+                      </h2>
+                      <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider mt-0.5">
+                        Registration No: TRUST/BLR/2026 • Bangalore, Karnataka
+                      </p>
+                      <div className="inline-block mt-2 px-3 py-1 rounded-full bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
+                        Loan Installment Repayment Receipt
+                      </div>
+                    </div>
+
+                    {/* Meta Grid */}
+                    <div className="grid grid-cols-2 gap-3 py-3.5 border-b border-slate-100 text-xs">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Receipt Number</span>
+                        <span className="font-mono font-bold text-slate-800 text-xs sm:text-sm">{receiptNumber}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Loan Reference ID</span>
+                        <span className="font-mono font-bold text-indigo-700 text-xs sm:text-sm">{loanRef}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Installment Schedule</span>
+                        <span className="font-semibold text-slate-800 text-xs sm:text-sm">Installment #{installmentNum} ({periodText})</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Payment Date & Time</span>
+                        <span className="font-semibold text-slate-700 text-xs sm:text-sm">{paymentDate}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Payment Mode</span>
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded text-[10.5px] font-extrabold uppercase bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {paymentMode}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Verification Status</span>
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded text-[10.5px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3" /> Paid & Cleared
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Borrower Details */}
+                    <div className="py-3.5 border-b border-slate-100 text-xs bg-slate-50/70 -mx-5 sm:-mx-6 px-5 sm:px-6">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Received With Thanks From</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <span className="text-sm sm:text-base font-black text-slate-900">{memberName}</span>
+                        <span className="text-xs font-medium text-slate-600">
+                          {memberPhone && memberPhone !== '-' ? `Ph: ${memberPhone}` : ''}
+                          {memberPhone && memberPhone !== '-' && memberEmail && memberEmail !== '-' ? ' • ' : ''}
+                          {memberEmail && memberEmail !== '-' ? memberEmail : ''}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Particulars & Breakdown */}
+                    <div className="py-3.5 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Particulars</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Amount</span>
+                      </div>
+
+                      {paidPaymentsInMonth && paidPaymentsInMonth.length > 1 ? (
+                        <div className="space-y-1.5 border border-slate-200 rounded-xl p-2.5 bg-slate-50/50">
+                          <div className="text-[11px] font-bold text-indigo-900 pb-1 border-b border-slate-200 flex items-center justify-between">
+                            <span>Installment Breakdown ({periodText})</span>
+                            <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.2 rounded font-extrabold">{paidPaymentsInMonth.length} Payments</span>
+                          </div>
+                          {paidPaymentsInMonth.map((pm, idx) => (
+                            <div key={`loan-rec-breakdown-${idx}`} className="flex items-center justify-between text-xs py-0.5">
+                              <span className="text-slate-700 font-medium">
+                                {idx + 1}. Part Repayment {pm.paymentMode ? `(${pm.paymentMode})` : ''}
+                              </span>
+                              <span className="font-mono font-bold text-slate-900">
+                                ₹{((pm.amount || 0) + (pm.interest || 0)).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-800 font-semibold">
+                              1. Principal Repayment (Installment #{installmentNum})
+                            </span>
+                            <span className="font-mono font-bold text-slate-900 text-sm">
+                              ₹{principal.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/80">
+                            <span className="text-indigo-800 font-semibold">
+                              2. Monthly Loan Interest (0.5% rate)
+                            </span>
+                            <span className="font-mono font-bold text-indigo-900 text-sm">
+                              ₹{interest.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Total and Words */}
+                    <div className="pt-3 border-t-2 border-slate-900/80 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase text-slate-900">Total Installment Received</span>
+                        <span className="text-xl sm:text-2xl font-black text-emerald-700 font-mono">
+                          ₹{total.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">In Words</span>
+                        <span className="font-bold text-emerald-900">{amountInWords}</span>
+                      </div>
+                    </div>
+
+                    {/* Electronic Verification Note */}
+                    <div className="mt-4 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>This is an official computer-generated receipt valid without physical signature.</span>
+                      <span className="font-mono text-[9px] text-slate-300">UT-EMI-E-VERIFY</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Action Footer */}
+                <div className="p-3.5 sm:p-5 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
+                  <p className="text-xs text-slate-500 font-medium hidden sm:block">
+                    Download A4 print-ready PDF or print directly
+                  </p>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handlePrintLoanReceipt(selectedReceiptLoanPayment, targetMember)}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-300 transition-all cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center gap-1.5"
+                    >
+                      <Printer className="w-4 h-4 text-slate-600" />
+                      <span>Print</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadLoanReceipt(selectedReceiptLoanPayment, targetMember)}
+                      disabled={isExportingReceiptPdf}
+                      className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <FileDown className="w-4 h-4" />
+                      <span>{isExportingReceiptPdf ? 'Generating...' : 'Download PDF'}</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
 
         {isAdding && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
