@@ -60,7 +60,9 @@ import {
 import {
   generateLoanReceiptPdfDoc,
   downloadLoanReceiptPdf,
-  quickPrintLoanReceiptPdf
+  quickPrintLoanReceiptPdf,
+  generateCumulativeLoanReceiptPdfDoc,
+  downloadCumulativeLoanReceiptPdf
 } from './lib/loanReceiptPdfExport';
 import { read, utils } from 'xlsx-js-style';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -816,6 +818,12 @@ export default function App() {
     interest?: number;
     total?: number;
     paidPaymentsInMonth?: LoanPayment[];
+  } | null>(null);
+  const [selectedCumulativeLoanReceipt, setSelectedCumulativeLoanReceipt] = useState<{
+    loan: Loan;
+    paidPayments: LoanPayment[];
+    totalTenure: number;
+    targetUser?: UserProfile | null;
   } | null>(null);
   const [isExportingReceiptPdf, setIsExportingReceiptPdf] = useState<boolean>(false);
   const [memberActionMenu, setMemberActionMenu] = useState<{
@@ -7480,6 +7488,78 @@ export default function App() {
     }
   };
 
+  const handleDownloadCumulativeLoanReceipt = async (
+    options: {
+      loan: Loan;
+      paidPayments: LoanPayment[];
+      totalTenure?: number;
+      borrower?: UserProfile | null;
+    }
+  ) => {
+    try {
+      setIsExportingReceiptPdf(true);
+      const targetMember = options.borrower || allUsers.find(u => 
+        (options.loan.userId && u.uid === options.loan.userId) || 
+        (options.loan.userEmail && u.email.toLowerCase() === options.loan.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const { doc, fileName, receiptNumber } = generateCumulativeLoanReceiptPdfDoc({
+        loan: options.loan,
+        paidPayments: options.paidPayments,
+        totalTenure: options.totalTenure || options.loan.installments || 10,
+        borrower: targetMember
+      });
+
+      if (isMobileApp) {
+        const base64Data = doc.output('datauristring').split(',')[1];
+        const res = await downloadFileMobile(fileName, base64Data);
+        if (res.success) {
+          notify('success', `All-Payments Receipt #${receiptNumber} saved: ${fileName}`);
+        } else {
+          doc.save(fileName);
+          notify('success', `All-Payments Receipt #${receiptNumber} downloaded!`);
+        }
+      } else {
+        doc.save(fileName);
+        notify('success', `All-Payments Receipt #${receiptNumber} downloaded!`);
+      }
+    } catch (err: any) {
+      console.error('Failed to export Cumulative Loan Receipt PDF:', err);
+      notify('error', `Failed to generate All-Payments Receipt: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setIsExportingReceiptPdf(false);
+    }
+  };
+
+  const handlePrintCumulativeLoanReceipt = (
+    options: {
+      loan: Loan;
+      paidPayments: LoanPayment[];
+      totalTenure?: number;
+      borrower?: UserProfile | null;
+    }
+  ) => {
+    try {
+      const targetMember = options.borrower || allUsers.find(u => 
+        (options.loan.userId && u.uid === options.loan.userId) || 
+        (options.loan.userEmail && u.email.toLowerCase() === options.loan.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const { doc, receiptNumber } = generateCumulativeLoanReceiptPdfDoc({
+        loan: options.loan,
+        paidPayments: options.paidPayments,
+        totalTenure: options.totalTenure || options.loan.installments || 10,
+        borrower: targetMember
+      });
+
+      quickPrintLoanReceiptPdf(doc);
+      notify('info', `Opening print preview for All-Payments Receipt #${receiptNumber}...`);
+    } catch (err: any) {
+      console.error('Failed to print Cumulative Loan Receipt PDF:', err);
+      notify('error', `Failed to print All-Payments Receipt: ${err?.message || 'Unknown error'}`);
+    }
+  };
+
   const [isExportingMonthlyPdf, setIsExportingMonthlyPdf] = useState(false);
 
   const exportMonthlyCollectionPdf = async (printDirectly: boolean = false) => {
@@ -11710,6 +11790,47 @@ ${scheduleHighlights}
                                                     </div>
                                                   </div>
                                                   <div className="flex items-center gap-2">
+                                                    <div className="inline-flex items-center rounded-xl shadow-2xs border border-indigo-200/90 overflow-hidden bg-white shrink-0">
+                                                      <button 
+                                                        type="button"
+                                                        disabled={paidPayments.length === 0}
+                                                        onClick={() => setSelectedCumulativeLoanReceipt({
+                                                          loan: l,
+                                                          paidPayments,
+                                                          totalTenure,
+                                                          targetUser
+                                                        })}
+                                                        className={cn(
+                                                          "px-2.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95",
+                                                          paidPayments.length > 0
+                                                            ? "bg-indigo-50/90 hover:bg-indigo-100 text-indigo-700 font-extrabold"
+                                                            : "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
+                                                        )}
+                                                        title={paidPayments.length > 0 ? "View & Print Consolidated Receipt for all paid installments" : "No installment payments recorded yet"}
+                                                      >
+                                                        <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                                        <span>Receipt</span>
+                                                      </button>
+                                                      <button 
+                                                        type="button"
+                                                        disabled={paidPayments.length === 0 || isExportingReceiptPdf}
+                                                        onClick={() => handleDownloadCumulativeLoanReceipt({
+                                                          loan: l,
+                                                          paidPayments,
+                                                          totalTenure,
+                                                          borrower: targetUser
+                                                        })}
+                                                        className={cn(
+                                                          "px-2 py-1.5 border-l border-indigo-200/90 transition-all cursor-pointer active:scale-95 flex items-center justify-center",
+                                                          paidPayments.length > 0
+                                                            ? "bg-indigo-100/70 hover:bg-indigo-200 text-indigo-800"
+                                                            : "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
+                                                        )}
+                                                        title={paidPayments.length > 0 ? "Direct Download All-Payments Receipt PDF" : "No installment payments recorded yet"}
+                                                      >
+                                                        <FileDown className="w-3.5 h-3.5" />
+                                                      </button>
+                                                    </div>
                                                     <span className="text-xs font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-2xs">
                                                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                                                       {paidPayments.length} / {totalTenure} Paid
@@ -12106,10 +12227,53 @@ ${scheduleHighlights}
                                             </p>
                                           </div>
                                         </div>
-                                        <span className="text-[11px] font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1 rounded-xl flex items-center gap-1 shadow-2xs">
-                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                          {paidPayments.length} / {totalTenure} Paid
-                                        </span>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <div className="inline-flex items-center rounded-xl shadow-2xs border border-indigo-200/90 overflow-hidden bg-white shrink-0">
+                                            <button 
+                                              type="button"
+                                              disabled={paidPayments.length === 0}
+                                              onClick={() => setSelectedCumulativeLoanReceipt({
+                                                loan: l,
+                                                paidPayments,
+                                                totalTenure,
+                                                targetUser
+                                              })}
+                                              className={cn(
+                                                "px-2 py-1 text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95",
+                                                paidPayments.length > 0
+                                                  ? "bg-indigo-50/90 hover:bg-indigo-100 text-indigo-700 font-extrabold"
+                                                  : "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
+                                              )}
+                                              title={paidPayments.length > 0 ? "View & Print Consolidated Receipt for all paid installments" : "No installment payments recorded yet"}
+                                            >
+                                              <FileText className="w-3 h-3 text-indigo-600" />
+                                              <span>Receipt</span>
+                                            </button>
+                                            <button 
+                                              type="button"
+                                              disabled={paidPayments.length === 0 || isExportingReceiptPdf}
+                                              onClick={() => handleDownloadCumulativeLoanReceipt({
+                                                loan: l,
+                                                paidPayments,
+                                                totalTenure,
+                                                borrower: targetUser
+                                              })}
+                                              className={cn(
+                                                "px-1.5 py-1 border-l border-indigo-200/90 transition-all cursor-pointer active:scale-95 flex items-center justify-center",
+                                                paidPayments.length > 0
+                                                  ? "bg-indigo-100/70 hover:bg-indigo-200 text-indigo-800"
+                                                  : "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
+                                              )}
+                                              title={paidPayments.length > 0 ? "Direct Download All-Payments Receipt PDF" : "No installment payments recorded yet"}
+                                            >
+                                              <FileDown className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                          <span className="text-[11px] font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1 rounded-xl flex items-center gap-1 shadow-2xs">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                            {paidPayments.length} / {totalTenure} Paid
+                                          </span>
+                                        </div>
                                       </div>
 
                                       <div className="mt-3 space-y-3">
@@ -12900,6 +13064,50 @@ ${scheduleHighlights}
                                       </div>
 
                                       <div className="flex items-center gap-2.5 sm:gap-3">
+                                        <div 
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="inline-flex items-center rounded-xl shadow-2xs border border-indigo-200/90 overflow-hidden bg-white shrink-0"
+                                        >
+                                          <button 
+                                            type="button"
+                                            disabled={paidPayments.length === 0}
+                                            onClick={() => setSelectedCumulativeLoanReceipt({
+                                              loan: l,
+                                              paidPayments,
+                                              totalTenure,
+                                              targetUser: profile
+                                            })}
+                                            className={cn(
+                                              "px-2.5 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95",
+                                              paidPayments.length > 0
+                                                ? "bg-indigo-50/90 hover:bg-indigo-100 text-indigo-700 font-extrabold"
+                                                : "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
+                                            )}
+                                            title={paidPayments.length > 0 ? "View & Print Consolidated Receipt for all paid installments" : "No installment payments recorded yet"}
+                                          >
+                                            <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                                            <span>Receipt</span>
+                                          </button>
+                                          <button 
+                                            type="button"
+                                            disabled={paidPayments.length === 0 || isExportingReceiptPdf}
+                                            onClick={() => handleDownloadCumulativeLoanReceipt({
+                                              loan: l,
+                                              paidPayments,
+                                              totalTenure,
+                                              borrower: profile
+                                            })}
+                                            className={cn(
+                                              "px-2 py-1.5 border-l border-indigo-200/90 transition-all cursor-pointer active:scale-95 flex items-center justify-center",
+                                              paidPayments.length > 0
+                                                ? "bg-indigo-100/70 hover:bg-indigo-200 text-indigo-800"
+                                                : "bg-slate-100 text-slate-400 cursor-not-allowed opacity-60"
+                                            )}
+                                            title={paidPayments.length > 0 ? "Direct Download All-Payments Receipt PDF" : "No installment payments recorded yet"}
+                                          >
+                                            <FileDown className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
                                         <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100/80 px-3 py-1.5 rounded-xl text-xs font-black border border-emerald-300 shadow-2xs shrink-0">
                                           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                                           <span>{paidPayments.length} / {totalTenure} Paid</span>
@@ -17824,6 +18032,331 @@ ${scheduleHighlights}
                     <button
                       type="button"
                       onClick={() => handleDownloadLoanReceipt(selectedReceiptLoanPayment, targetMember)}
+                      disabled={isExportingReceiptPdf}
+                      className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <FileDown className="w-4 h-4" />
+                      <span>{isExportingReceiptPdf ? 'Generating...' : 'Download PDF'}</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+
+        {/* Consolidated All-Installments Loan Receipt Preview & Print Modal */}
+        {selectedCumulativeLoanReceipt && (() => {
+          const {
+            loan: l,
+            paidPayments = [],
+            totalTenure = l.installments || 10,
+            targetUser: passedTargetUser
+          } = selectedCumulativeLoanReceipt;
+
+          const targetMember = passedTargetUser || allUsers.find(u => 
+            (l.userId && u.uid === l.userId) || 
+            (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
+          ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+          const rawName = targetMember?.displayName || l.userName || l.userEmail?.split('@')[0] || 'Borrower';
+          const memberPhone = targetMember?.phoneNumber || (targetMember as any)?.phone || l.phoneNumber || '-';
+          const memberEmail = targetMember?.email || l.userEmail || '-';
+          const memberName = getSafeMemberDisplayName(targetMember || rawName, memberPhone, memberEmail) || rawName || 'Borrower';
+
+          const sortedPayments = [...paidPayments].sort((a, b) => {
+            const valA = (a.year || 0) * 100 + (a.month || 0);
+            const valB = (b.year || 0) * 100 + (b.month || 0);
+            if (valA !== valB) return valA - valB;
+            const timeA = a.timestamp?.seconds || (a.timestamp?.toDate ? a.timestamp.toDate().getTime() : 0);
+            const timeB = b.timestamp?.seconds || (b.timestamp?.toDate ? b.timestamp.toDate().getTime() : 0);
+            return timeA - timeB;
+          });
+
+          const totalPrincipalPaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+          const totalInterestPaid = sortedPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
+          const grandTotalPaid = totalPrincipalPaid + totalInterestPaid;
+          const approvedLoanAmount = l.approvedAmount || l.amount || 0;
+          const remainingPrincipal = Math.max(0, approvedLoanAmount - totalPrincipalPaid);
+
+          let periodSpanText = '-';
+          if (sortedPayments.length > 0) {
+            const firstP = sortedPayments[0];
+            const lastP = sortedPayments[sortedPayments.length - 1];
+            const firstDate = new Date(firstP.year, firstP.month - 1);
+            const lastDate = new Date(lastP.year, lastP.month - 1);
+            const firstStr = format(firstDate, 'MMMM yyyy');
+            const lastStr = format(lastDate, 'MMMM yyyy');
+            periodSpanText = sortedPayments.length === 1 ? firstStr : `${firstStr} — ${lastStr} (${sortedPayments.length} Payments)`;
+          }
+
+          const uniqueIdSuffix = (l.id || Math.random().toString(36).substring(2, 7)).slice(-6).toUpperCase();
+          const receiptNumber = `UT-CUM-EMI-${uniqueIdSuffix}-${format(new Date(), 'yyyyMMdd')}`;
+          const loanRef = l.id ? `UT-LN-${l.id.slice(-6).toUpperCase()}` : 'UT-LN-PRIMARY';
+          const amountInWords = numberToIndianWords(grandTotalPaid);
+
+          return (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+              <motion.div 
+                key="cum-loan-receipt-modal-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedCumulativeLoanReceipt(null)}
+                className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
+              />
+              <motion.div 
+                key="cum-loan-receipt-modal-content"
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200/90 my-auto z-10 flex flex-col max-h-[92vh] overflow-hidden"
+              >
+                {/* Modal Top Header */}
+                <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-50/90 via-sky-50/50 to-white border-b border-slate-100 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200 shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
+                          Consolidated Repayment Receipt
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                          <CheckCircle2 className="w-2.5 h-2.5" /> All Payments
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono font-semibold mt-0.5">
+                        {receiptNumber}
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setSelectedCumulativeLoanReceipt(null)}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Printable / Visual Receipt Content */}
+                <div className="p-4 sm:p-6 overflow-y-auto space-y-4 bg-slate-50/40">
+                  <div className="bg-white rounded-2xl p-5 sm:p-6 border-2 border-indigo-200 shadow-sm relative overflow-hidden">
+                    {/* Watermark / Background stamp */}
+                    <div className="absolute right-3 top-3 sm:right-6 sm:top-6 opacity-10 pointer-events-none select-none">
+                      <Shield className="w-32 h-32 text-indigo-900" />
+                    </div>
+
+                    {/* Receipt Header */}
+                    <div className="text-center pb-4 border-b border-dashed border-slate-200 relative">
+                      <h2 className="text-lg sm:text-xl font-black text-slate-900 tracking-wide uppercase">
+                        UNNATI TRUST (R)
+                      </h2>
+                      <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider mt-0.5">
+                        Registration No: TRUST/BLR/2026 • Bangalore, Karnataka
+                      </p>
+                      <div className="inline-block mt-2 px-3.5 py-1 rounded-full bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
+                        Consolidated Loan Repayments Receipt (All Paid to Date)
+                      </div>
+                    </div>
+
+                    {/* Meta Grid */}
+                    <div className="grid grid-cols-2 gap-3 py-3.5 border-b border-slate-100 text-xs">
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Receipt Number</span>
+                        <span className="font-mono font-bold text-slate-800 text-xs sm:text-sm">{receiptNumber}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Loan Reference ID</span>
+                        <span className="font-mono font-bold text-indigo-700 text-xs sm:text-sm">{loanRef}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Original Loan Amount</span>
+                        <span className="font-bold text-slate-800 text-xs sm:text-sm">₹{approvedLoanAmount.toLocaleString('en-IN')} (0.5% Rate)</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Repayment Progress</span>
+                        <span className="font-semibold text-emerald-700 text-xs sm:text-sm">{sortedPayments.length} / {totalTenure} Installments Paid</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Period Span Covered</span>
+                        <span className="font-semibold text-slate-700 text-xs sm:text-sm">{periodSpanText}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Verification Status</span>
+                        <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded text-[10.5px] font-extrabold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3" /> Verified & Cleared
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Borrower Details */}
+                    <div className="py-3.5 border-b border-slate-100 text-xs bg-slate-50/70 -mx-5 sm:-mx-6 px-5 sm:px-6">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Received With Thanks From</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <span className="text-sm sm:text-base font-black text-slate-900">{memberName}</span>
+                        <span className="text-xs font-medium text-slate-600">
+                          {memberPhone && memberPhone !== '-' ? `Ph: ${memberPhone}` : ''}
+                          {memberPhone && memberPhone !== '-' && memberEmail && memberEmail !== '-' ? ' • ' : ''}
+                          {memberEmail && memberEmail !== '-' ? memberEmail : ''}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Itemized Paid Payments Table */}
+                    <div className="py-3.5 space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Itemized Installment Ledger</span>
+                        <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                          {sortedPayments.length} Cleared Transactions
+                        </span>
+                      </div>
+
+                      <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
+                        <div className="max-h-56 overflow-y-auto">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead className="bg-slate-900 text-white text-[10px] uppercase font-bold sticky top-0 shadow-2xs">
+                              <tr>
+                                <th className="py-2 px-2.5 text-center">#</th>
+                                <th className="py-2 px-2.5">Period / Month</th>
+                                <th className="py-2 px-2.5 text-right">Principal</th>
+                                <th className="py-2 px-2.5 text-right">Interest</th>
+                                <th className="py-2 px-2.5 text-right">Total Paid</th>
+                                <th className="py-2 px-2.5 text-center">Mode</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 bg-white">
+                              {sortedPayments.map((p, idx) => {
+                                const pMonthName = format(new Date(p.year, p.month - 1), 'MMMM yyyy');
+                                const pPrincipal = p.amount || 0;
+                                const pInterest = p.interest || 0;
+                                const pTotal = pPrincipal + pInterest;
+                                const pMode = p.paymentMode || p.paymentMethod || 'Online';
+                                return (
+                                  <tr key={`cum-rec-row-${idx}`} className="hover:bg-indigo-50/30 transition-colors">
+                                    <td className="py-2 px-2.5 text-center font-bold text-slate-500 font-mono">
+                                      #{idx + 1}
+                                    </td>
+                                    <td className="py-2 px-2.5 font-bold text-slate-900">
+                                      {pMonthName}
+                                    </td>
+                                    <td className="py-2 px-2.5 text-right font-mono font-medium text-slate-800">
+                                      ₹{pPrincipal.toLocaleString('en-IN')}
+                                    </td>
+                                    <td className="py-2 px-2.5 text-right font-mono font-medium text-indigo-700">
+                                      ₹{pInterest.toLocaleString('en-IN')}
+                                    </td>
+                                    <td className="py-2 px-2.5 text-right font-mono font-black text-slate-900">
+                                      ₹{pTotal.toLocaleString('en-IN')}
+                                    </td>
+                                    <td className="py-2 px-2.5 text-center">
+                                      <span className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase",
+                                        pMode.toLowerCase() === 'cash' ? "bg-amber-100 text-amber-800" : "bg-indigo-100 text-indigo-800"
+                                      )}>
+                                        {pMode}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Table Summary Footer */}
+                        <div className="bg-slate-100/90 p-2.5 border-t border-slate-200 grid grid-cols-3 gap-2 text-center text-xs">
+                          <div>
+                            <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block">Total Principal</span>
+                            <span className="font-mono font-black text-slate-900">₹{totalPrincipalPaid.toLocaleString('en-IN')}</span>
+                          </div>
+                          <div>
+                            <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block">Total Interest</span>
+                            <span className="font-mono font-black text-indigo-700">₹{totalInterestPaid.toLocaleString('en-IN')}</span>
+                          </div>
+                          <div>
+                            <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block">Grand Total Paid</span>
+                            <span className="font-mono font-black text-emerald-700">₹{grandTotalPaid.toLocaleString('en-IN')}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Outstanding Balance Banner */}
+                    <div className="p-3 bg-indigo-50/70 border border-indigo-200/90 rounded-xl flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-[10px] font-bold text-indigo-900 uppercase tracking-wider block">Remaining Loan Balance</span>
+                        <span className="text-[11px] text-indigo-700 font-medium">
+                          Original ₹{approvedLoanAmount.toLocaleString('en-IN')} − Repaid ₹{totalPrincipalPaid.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className={cn(
+                          "text-base sm:text-lg font-black font-mono",
+                          remainingPrincipal === 0 ? "text-emerald-700" : "text-indigo-900"
+                        )}>
+                          ₹{remainingPrincipal.toLocaleString('en-IN')}
+                        </span>
+                        {remainingPrincipal === 0 && (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded block mt-0.5">
+                            Fully Paid
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Total and Words */}
+                    <div className="pt-3 border-t-2 border-slate-900/80 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black uppercase text-slate-900">Total Repayments Received</span>
+                        <span className="text-xl sm:text-2xl font-black text-emerald-700 font-mono">
+                          ₹{grandTotalPaid.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">In Words</span>
+                        <span className="font-bold text-emerald-900">{amountInWords}</span>
+                      </div>
+                    </div>
+
+                    {/* Electronic Verification Note */}
+                    <div className="mt-4 pt-3 border-t border-dashed border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>This is an official computer-generated consolidated receipt valid without physical signature.</span>
+                      <span className="font-mono text-[9px] text-slate-300">UT-CUM-E-VERIFY</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Action Footer */}
+                <div className="p-3.5 sm:p-5 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
+                  <p className="text-xs text-slate-500 font-medium hidden sm:block">
+                    Download A4 print-ready PDF statement or print directly
+                  </p>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handlePrintCumulativeLoanReceipt({
+                        loan: l,
+                        paidPayments,
+                        totalTenure,
+                        borrower: targetMember
+                      })}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-300 transition-all cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center gap-1.5"
+                    >
+                      <Printer className="w-4 h-4 text-slate-600" />
+                      <span>Print</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadCumulativeLoanReceipt({
+                        loan: l,
+                        paidPayments,
+                        totalTenure,
+                        borrower: targetMember
+                      })}
                       disabled={isExportingReceiptPdf}
                       className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
