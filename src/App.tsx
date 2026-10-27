@@ -132,7 +132,9 @@ import {
   Share2,
   Smartphone,
   Info,
-  Eye
+  Eye,
+  Activity,
+  XCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -7319,7 +7321,7 @@ export default function App() {
       });
 
       if (printDirectly) {
-        quickPrintLoanPdf(doc);
+        quickPrintLoanPdf(doc, fileName, 'Loan Portfolio');
         notify('info', 'Opening print preview for Loan Portfolio...');
       } else {
         if (isMobileApp) {
@@ -7388,13 +7390,13 @@ export default function App() {
         (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
       ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
 
-      const { doc, receiptNumber } = generatePaymentReceiptPdfDoc({
+      const { doc, receiptNumber, fileName } = generatePaymentReceiptPdfDoc({
         contribution: c,
         member,
         allContributions: contributions,
       });
 
-      quickPrintPaymentReceiptPdf(doc);
+      quickPrintPaymentReceiptPdf(doc, fileName, `Payment Receipt #${receiptNumber}`);
       notify('info', `Opening print preview for Receipt #${receiptNumber}...`);
     } catch (err: any) {
       console.error('Failed to print Payment Receipt PDF:', err);
@@ -7475,12 +7477,12 @@ export default function App() {
         (options.payment.userEmail && u.email.toLowerCase() === options.payment.userEmail.toLowerCase())
       ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
 
-      const { doc, receiptNumber } = generateLoanReceiptPdfDoc({
+      const { doc, receiptNumber, fileName } = generateLoanReceiptPdfDoc({
         ...options,
         borrower,
       });
 
-      quickPrintLoanReceiptPdf(doc);
+      quickPrintLoanReceiptPdf(doc, fileName, `Loan Receipt #${receiptNumber}`);
       notify('info', `Opening print preview for Loan Receipt #${receiptNumber}...`);
     } catch (err: any) {
       console.error('Failed to print Loan Receipt PDF:', err);
@@ -7545,14 +7547,14 @@ export default function App() {
         (options.loan.userEmail && u.email.toLowerCase() === options.loan.userEmail.toLowerCase())
       ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
 
-      const { doc, receiptNumber } = generateCumulativeLoanReceiptPdfDoc({
+      const { doc, receiptNumber, fileName } = generateCumulativeLoanReceiptPdfDoc({
         loan: options.loan,
         paidPayments: options.paidPayments,
         totalTenure: options.totalTenure || options.loan.installments || 10,
         borrower: targetMember
       });
 
-      quickPrintLoanReceiptPdf(doc);
+      quickPrintLoanReceiptPdf(doc, fileName, `All-Payments Receipt #${receiptNumber}`);
       notify('info', `Opening print preview for All-Payments Receipt #${receiptNumber}...`);
     } catch (err: any) {
       console.error('Failed to print Cumulative Loan Receipt PDF:', err);
@@ -7575,7 +7577,7 @@ export default function App() {
       });
 
       if (printDirectly) {
-        quickPrintLoanPdf(doc);
+        quickPrintLoanPdf(doc, fileName, `${meta.monthLabel} Collection Statement`);
         notify('info', `Opening print preview for ${meta.monthLabel} Collection Statement...`);
       } else {
         if (isMobileApp) {
@@ -7615,7 +7617,7 @@ export default function App() {
       });
 
       if (printDirectly) {
-        quickPrintLoanPdf(doc);
+        quickPrintLoanPdf(doc, fileName, 'Member Details Directory');
         notify('info', 'Opening print preview for Member Details...');
       } else {
         if (isMobileApp) {
@@ -7650,7 +7652,7 @@ export default function App() {
       });
 
       if (printDirectly) {
-        quickPrintLoanPdf(doc);
+        quickPrintLoanPdf(doc, fileName, `Loan EMI Projection (₹${loanProjection.principal.toLocaleString('en-IN')})`);
         notify('info', `Opening print preview for Loan Projection (₹${loanProjection.principal.toLocaleString('en-IN')})...`);
       } else {
         if (isMobileApp) {
@@ -7764,7 +7766,7 @@ ${scheduleHighlights}
       });
 
       if (printDirectly) {
-        quickPrintLoanPdf(doc);
+        quickPrintLoanPdf(doc, fileName, 'Loan Applications Statement');
         notify('info', 'Opening print preview for Loan Applications Statement...');
       } else {
         if (isMobileApp) {
@@ -11096,15 +11098,27 @@ ${scheduleHighlights}
                                           </p>
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
-                                          <span className={cn(
-                                            "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold",
-                                            l.status === 'approved' ? "bg-emerald-50 text-emerald-600" : 
-                                            l.status === 'pending' ? "bg-amber-50 text-amber-600" : 
-                                            l.status === 'paid' ? "bg-indigo-50 text-indigo-600" :
-                                            "bg-red-50 text-red-600"
-                                          )}>
-                                            {l.status === 'approved' ? 'Approved' : l.status === 'paid' ? 'COMPLETED' : l.status.toUpperCase()}
-                                          </span>
+                                          {l.status === 'pending' ? (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
+                                              <Clock className="w-3 h-3 text-amber-600 animate-pulse shrink-0" />
+                                              <span>Pending Review</span>
+                                            </span>
+                                          ) : l.status === 'approved' ? (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/90 shadow-2xs">
+                                              <Activity className="w-3 h-3 text-indigo-600 shrink-0" />
+                                              <span>Active (Servicing)</span>
+                                            </span>
+                                          ) : l.status === 'paid' ? (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs">
+                                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                              <span>Completed</span>
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90 shadow-2xs">
+                                              <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                                              <span>{l.status === 'declined' ? 'Declined' : l.status.toUpperCase()}</span>
+                                            </span>
+                                          )}
                                         </td>
                                         <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                           <span className="text-xs text-slate-500">
@@ -11238,15 +11252,27 @@ ${scheduleHighlights}
                                         {l.createdAt?.toDate ? format(l.createdAt.toDate(), 'MMM dd, yyyy') : 'Just now'}
                                       </span>
                                     </div>
-                                    <span className={cn(
-                                      "px-2.5 py-1 rounded-full text-[10px] font-bold",
-                                      l.status === 'approved' ? "bg-emerald-50 text-emerald-600" : 
-                                      l.status === 'pending' ? "bg-amber-50 text-amber-600" : 
-                                      l.status === 'paid' ? "bg-indigo-50 text-indigo-600" :
-                                      "bg-red-50 text-red-600"
-                                    )}>
-                                      {l.status === 'approved' ? 'Approved' : l.status === 'paid' ? 'COMPLETED' : l.status.toUpperCase()}
-                                    </span>
+                                    {l.status === 'pending' ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
+                                        <Clock className="w-2.5 h-2.5 text-amber-600 animate-pulse shrink-0" />
+                                        <span>Pending Review</span>
+                                      </span>
+                                    ) : l.status === 'approved' ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/90 shadow-2xs">
+                                        <Activity className="w-2.5 h-2.5 text-indigo-600 shrink-0" />
+                                        <span>Active (Servicing)</span>
+                                      </span>
+                                    ) : l.status === 'paid' ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs">
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                                        <span>Completed</span>
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90 shadow-2xs">
+                                        <XCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
+                                        <span>{l.status === 'declined' ? 'Declined' : l.status.toUpperCase()}</span>
+                                      </span>
+                                    )}
                                   </div>
                                   
                                   <div className="mb-4 grid grid-cols-3 gap-2 bg-slate-50/80 p-3 rounded-2xl border border-slate-100">

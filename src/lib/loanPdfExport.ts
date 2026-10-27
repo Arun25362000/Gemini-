@@ -451,42 +451,11 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
   };
 }
 
+import { universalQuickPrintPdf } from './printService';
+
 /**
- * Triggers instant printing of the generated PDF document.
- * Creates an invisible iframe or popup window with autoPrint enabled for 1-click quick printing.
+ * Triggers instant printing of the generated PDF document across all devices (Android APK, mobile, tablet, desktop).
  */
-export function quickPrintLoanPdf(doc: jsPDF): void {
-  try {
-    doc.autoPrint();
-    const blobUrl = String(doc.output('bloburl'));
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    iframe.src = blobUrl;
-    document.body.appendChild(iframe);
-
-    iframe.onload = () => {
-      setTimeout(() => {
-        try {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-        } catch {
-          window.open(blobUrl, '_blank');
-        }
-      }, 350);
-    };
-  } catch (err) {
-    console.error('Failed to trigger quick print iframe:', err);
-    try {
-      const blobUrl = String(doc.output('bloburl'));
-      window.open(blobUrl, '_blank');
-    } catch (openErr) {
-      console.error('Failed to open PDF window:', openErr);
-    }
-  }
+export function quickPrintLoanPdf(doc: jsPDF, fileName: string = 'Loan_Statement.pdf', documentTitle?: string): void {
+  universalQuickPrintPdf(doc, fileName, documentTitle || 'Loan Statement');
 }

@@ -331,7 +331,7 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
       'TOTAL',
       `${monthlyPaidContributions.length} Paid Members`,
       `Rs. ${monthlyContributionTotal.toLocaleString('en-IN')}`,
-      `Cash: Rs. ${monthlyContribCashReceived.toLocaleString('en-IN')}  •  Online: Rs. ${monthlyContribOnlineReceived.toLocaleString('en-IN')}`,
+      '',
       '-',
       'PAID'
     ]
@@ -484,7 +484,7 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
       `Rs. ${monthlyLoanPrincipalCollected.toLocaleString('en-IN')}`,
       `Rs. ${monthlyLoanInterestCollected.toLocaleString('en-IN')}`,
       `Rs. ${monthlyLoanTotalCollected.toLocaleString('en-IN')}`,
-      `Cash: Rs. ${monthlyLoanCashReceived.toLocaleString('en-IN')}  •  Online: Rs. ${monthlyLoanOnlineReceived.toLocaleString('en-IN')}`,
+      '',
       '-',
       'PAID'
     ]

@@ -146,8 +146,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   const handlePrintDividendPdf = async () => {
     try {
       setIsPrintingDividend(true);
-      const { doc } = generateDividendPayPdfDoc(dividendCalculation);
-      quickPrintDividendPdf(doc);
+      const { doc, fileName } = generateDividendPayPdfDoc(dividendCalculation);
+      quickPrintDividendPdf(doc, fileName, 'Dividend Pay Report');
     } catch (err: any) {
       console.error('Failed to print dividend PDF:', err);
       notify?.('error', `Failed to print Dividend pay report: ${err.message || 'Unknown error'}`);

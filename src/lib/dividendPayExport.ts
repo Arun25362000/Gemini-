@@ -607,45 +607,11 @@ export function generateDividendPayPdfDoc(calculation: DividendCalculationResult
   return { doc, fileName };
 }
 
+import { universalQuickPrintPdf } from './printService';
+
 /**
- * Triggers instant printing of the generated PDF document.
+ * Triggers instant printing of the generated PDF document across all devices (Android APK, mobile, tablet, desktop).
  */
-export function quickPrintDividendPdf(doc: jsPDF): void {
-  try {
-    doc.autoPrint();
-    const blobUrl = String(doc.output('bloburl'));
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    iframe.src = blobUrl;
-
-    iframe.onload = () => {
-      try {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-      } catch (printErr) {
-        console.warn('Iframe print failed, falling back to window.open', printErr);
-        window.open(blobUrl, '_blank');
-      }
-      setTimeout(() => {
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
-        }
-      }, 60000);
-    };
-
-    document.body.appendChild(iframe);
-  } catch (err) {
-    console.error('quickPrintDividendPdf error:', err);
-    try {
-      doc.save('Unnati_Dividend_Pay_Report.pdf');
-    } catch (saveErr) {
-      console.error('Fallback save failed:', saveErr);
-    }
-  }
+export function quickPrintDividendPdf(doc: jsPDF, fileName: string = 'Unnati_Dividend_Pay_Report.pdf', documentTitle?: string): void {
+  universalQuickPrintPdf(doc, fileName, documentTitle || 'Dividend Pay Report');
 }

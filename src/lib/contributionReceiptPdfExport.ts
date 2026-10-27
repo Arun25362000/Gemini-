@@ -485,43 +485,11 @@ export function downloadPaymentReceiptPdf(
   return result;
 }
 
+import { universalQuickPrintPdf } from './printService';
+
 /**
- * Triggers instant printing of the generated payment receipt PDF document
+ * Triggers instant printing of the generated payment receipt PDF document across all devices (Android APK, mobile, tablet, desktop).
  */
-export function quickPrintPaymentReceiptPdf(doc: jsPDF): void {
-  try {
-    doc.autoPrint();
-    const blobUrl = String(doc.output('bloburl'));
-
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    iframe.src = blobUrl;
-
-    iframe.onload = () => {
-      try {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-      } catch (printErr) {
-        console.warn('Iframe print failed, falling back to window.open', printErr);
-        window.open(blobUrl, '_blank');
-      }
-      setTimeout(() => {
-        try {
-          document.body.removeChild(iframe);
-          URL.revokeObjectURL(blobUrl);
-        } catch {
-          // ignore cleanup errors
-        }
-      }, 60000);
-    };
-
-    document.body.appendChild(iframe);
-  } catch (err) {
-    console.error('Error triggering receipt print:', err);
-  }
+export function quickPrintPaymentReceiptPdf(doc: jsPDF, fileName: string = 'Payment_Receipt.pdf', documentTitle?: string): void {
+  universalQuickPrintPdf(doc, fileName, documentTitle || 'Payment Receipt');
 }
