@@ -2702,9 +2702,15 @@ export default function App() {
     };
     handleRedirectResultFlow();
 
+    // Safety watchdog: ensure splash loading screen never hangs permanently
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 3500);
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
+      try {
+        setUser(firebaseUser);
+        if (firebaseUser) {
         const userRef = doc(db, 'users', firebaseUser.uid);
         let userSnap = await getDoc(userRef);
         
@@ -2718,7 +2724,6 @@ export default function App() {
           
           let existingData: UserProfile | null = null;
           let oldDocId: string | null = null;
-
           if (emailSnap && emailSnap.exists()) {
             existingData = emailSnap.data() as UserProfile;
             oldDocId = emailRef.id;
@@ -2779,8 +2784,8 @@ export default function App() {
             // For Pranesh Rao J, keep English name 'Pranesh Rao J' intact
             const finalDisplayName = isGururaj 
               ? GURURAJ_ENGLISH_NAME 
-              : isPranesh
-                ? PRANESH_CANONICAL_NAME
+              : isPranesh 
+                ? PRANESH_CANONICAL_NAME 
                 : (firebaseUser.displayName || existingData.displayName);
 
             const finalEmail = isPranesh
@@ -2789,8 +2794,8 @@ export default function App() {
 
             const finalPhone = isGururaj 
               ? (existingData.phoneNumber && existingData.phoneNumber.replace(/\D/g, '').endsWith(GURURAJ_PHONE) ? existingData.phoneNumber : GURURAJ_PHONE) 
-              : isPranesh
-                ? (existingData.phoneNumber && existingData.phoneNumber.replace(/\D/g, '').endsWith(PRANESH_PHONE) ? existingData.phoneNumber : PRANESH_PHONE)
+              : isPranesh 
+                ? (existingData.phoneNumber && existingData.phoneNumber.replace(/\D/g, '').endsWith(PRANESH_PHONE) ? existingData.phoneNumber : PRANESH_PHONE) 
                 : existingData.phoneNumber;
 
             // Link UID to existing record (User was pre-registered by email or email was updated)
@@ -2906,11 +2911,30 @@ export default function App() {
         setProfile(null);
         setShowPhonePrompt(false);
       }
+    } catch (authErr) {
+      console.error("Auth state synchronization error:", authErr);
+      if (firebaseUser) {
+        const fallbackEmail = (firebaseUser.email || '').toLowerCase().trim();
+        const isAdminEmail = ADMIN_EMAILS.includes(fallbackEmail);
+        setProfile({
+          uid: firebaseUser.uid,
+          email: fallbackEmail,
+          displayName: firebaseUser.displayName || (isAdminEmail ? 'Admin' : 'Member'),
+          phoneNumber: firebaseUser.phoneNumber || '',
+          role: isAdminEmail ? 'admin' : 'user',
+          joinDate: '2026-01-01'
+        });
+      }
+    } finally {
       setLoading(false);
-    });
+    }
+  });
 
-    return () => unsubscribeAuth();
-  }, []);
+  return () => {
+    clearTimeout(safetyTimer);
+    unsubscribeAuth();
+  };
+}, []);
 
   // --- Data Sync ---
   useEffect(() => {
@@ -11116,7 +11140,7 @@ ${scheduleHighlights}
                                           ) : (
                                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90 shadow-2xs">
                                               <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
-                                              <span>{l.status === 'declined' ? 'Declined' : l.status.toUpperCase()}</span>
+                                              <span>{l.status === 'declined' ? 'Declined' : ((l.status as any)?.toUpperCase?.() || 'Declined')}</span>
                                             </span>
                                           )}
                                         </td>
@@ -11270,7 +11294,7 @@ ${scheduleHighlights}
                                     ) : (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90 shadow-2xs">
                                         <XCircle className="w-2.5 h-2.5 text-rose-600 shrink-0" />
-                                        <span>{l.status === 'declined' ? 'Declined' : l.status.toUpperCase()}</span>
+                                        <span>{l.status === 'declined' ? 'Declined' : ((l.status as any)?.toUpperCase?.() || 'Declined')}</span>
                                       </span>
                                     )}
                                   </div>

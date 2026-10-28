@@ -3,11 +3,12 @@ import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { Loan, LoanPayment, UserProfile } from '../types';
 import { getSafeMemberDisplayName } from './utils';
+import { universalQuickPrintPdf } from './printService';
 import { numberToIndianWords } from './contributionReceiptPdfExport';
 
 export interface LoanReceiptPdfOptions {
-  loan: Loan;
   payment: LoanPayment;
+  loan: Loan;
   installmentNum?: number;
   installmentMonth?: number;
   installmentYear?: number;
@@ -27,434 +28,6 @@ export interface LoanReceiptPdfResult {
   fileName: string;
   receiptNumber: string;
   totalAmount: number;
-  periodText: string;
-}
-
-const MONTH_NAMES = [
-  '', 'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
-];
-
-/**
- * Builds and returns the jsPDF document for a Loan Installment Repayment Receipt.
- */
-export function generateLoanReceiptPdfDoc(options: LoanReceiptPdfOptions): LoanReceiptPdfResult {
-  const {
-    loan: l,
-    payment: p,
-    installmentNum = p?.installmentNum || 1,
-    installmentMonth = p?.month || 1,
-    installmentYear = p?.year || 2026,
-    installmentDate = new Date(installmentYear, installmentMonth - 1, 10),
-    principal = p?.amount || 0,
-    interest = p?.interest || 0,
-    total = (principal + interest),
-    paidPaymentsInMonth = [],
-    borrower,
-    societyName = 'UNNATI TRUST (R)',
-    societyRegNo = 'TRUST/BLR/2026',
-    societyEmail = 'unnati.finance2026@gmail.com'
-  } = options;
-
-  // Resolve borrower identification
-  const rawName = borrower?.displayName || l.userName || (p as any)?.userName || l.userEmail?.split('@')[0] || 'Borrower';
-  const borrowerPhone = borrower?.phoneNumber || (borrower as any)?.phone || l.phoneNumber || '-';
-  const borrowerEmail = borrower?.email || l.userEmail || p.userEmail || '-';
-  const borrowerName = getSafeMemberDisplayName(borrower || rawName, borrowerPhone, borrowerEmail) || rawName || 'Borrower';
-
-  // Format period & payment date
-  const periodText = `${MONTH_NAMES[installmentMonth] || format(installmentDate, 'MMMM')} ${installmentYear}`;
-
-  let paymentDateStr = 'Recent';
-  let paymentDateObj: Date | null = null;
-  if (p?.timestamp?.toDate) {
-    paymentDateObj = p.timestamp.toDate();
-  } else if (p?.approvedAt?.toDate) {
-    paymentDateObj = p.approvedAt.toDate();
-  } else if (p?.timestamp?.seconds) {
-    paymentDateObj = new Date(p.timestamp.seconds * 1000);
-  } else if (p?.timestamp instanceof Date) {
-    paymentDateObj = p.timestamp;
-  } else {
-    paymentDateObj = installmentDate;
-  }
-
-  if (paymentDateObj && !isNaN(paymentDateObj.getTime())) {
-    paymentDateStr = format(paymentDateObj, 'dd-MMM-yyyy hh:mm a');
-  }
-
-  // Unique receipt number
-  const uniqueIdSuffix = (p?.id || l?.id || Math.random().toString(36).substring(2, 7)).slice(-6).toUpperCase();
-  const receiptNumber = `UT-EMI-${installmentYear}-${String(installmentMonth).padStart(2, '0')}-${uniqueIdSuffix}`;
-
-  // Initialize jsPDF A4 portrait
-  const doc = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: 'a4'
-  });
-
-  const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
-  const marginX = 14;
-  const contentWidth = pageWidth - (marginX * 2);
-
-  // Color Palette
-  const brandDark = [24, 24, 27]; // #18181b
-  const primaryIndigo = [79, 70, 229]; // #4f46e5
-  const emeraldColor = [5, 150, 105]; // #059669
-  const slate600 = [71, 85, 105];
-  const slate200 = [226, 232, 240];
-
-  // Outer Decorative Receipt Border
-  doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setLineWidth(0.6);
-  doc.roundedRect(marginX, 12, contentWidth, 268, 3, 3, 'S');
-
-  // Inner Subtle Border
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.2);
-  doc.roundedRect(marginX + 1.5, 13.5, contentWidth - 3, 265, 2, 2, 'S');
-
-  // ==================== 1. HEADER SECTION ====================
-  doc.setFontSize(18);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(societyName, pageWidth / 2, 24, { align: 'center' });
-
-  doc.setFontSize(9);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`REGISTRATION NO: ${societyRegNo} • BANGALORE, KARNATAKA`, pageWidth / 2, 30, { align: 'center' });
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Email: ${societyEmail} • Official Finance & Loan Cell`, pageWidth / 2, 35, { align: 'center' });
-
-  // Receipt Badge Banner
-  doc.setFillColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.roundedRect(pageWidth / 2 - 48, 39, 96, 8, 2, 2, 'F');
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.text('LOAN INSTALLMENT REPAYMENT RECEIPT', pageWidth / 2, 44.5, { align: 'center' });
-
-  // Status Stamp
-  doc.setFillColor(236, 253, 245);
-  doc.setDrawColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(pageWidth - marginX - 44, 20, 40, 14, 2, 2, 'FD');
-  doc.setFontSize(8);
-  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('[ VERIFIED & PAID ]', pageWidth - marginX - 24, 26, { align: 'center' });
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
-  doc.text('INSTALLMENT CLEARED', pageWidth - marginX - 24, 30.5, { align: 'center' });
-
-  // Divider Line
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.4);
-  doc.line(marginX + 4, 51, pageWidth - marginX - 4, 51);
-
-  // ==================== 2. RECEIPT & LOAN METADATA GRID ====================
-  const metaY = 56;
-  const col1X = marginX + 6;
-  const col2X = marginX + (contentWidth / 2) + 4;
-
-  doc.setFontSize(8);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('RECEIPT NUMBER:', col1X, metaY);
-  doc.text('LOAN REFERENCE ID:', col2X, metaY);
-
-  doc.setFontSize(9.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('courier', 'bold');
-  doc.text(receiptNumber, col1X, metaY + 4.5);
-  const loanRef = l.id ? `UT-LN-${l.id.slice(-6).toUpperCase()}` : 'UT-LN-PRIMARY';
-  doc.text(loanRef, col2X, metaY + 4.5);
-
-  doc.setFontSize(8);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('INSTALLMENT SCHEDULE:', col1X, metaY + 12);
-  doc.text('PAYMENT DATE & TIME:', col2X, metaY + 12);
-
-  doc.setFontSize(9);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`Installment #${installmentNum} (${periodText})`, col1X, metaY + 16.5);
-  doc.setFont('helvetica', 'normal');
-  doc.text(paymentDateStr, col2X, metaY + 16.5);
-
-  doc.setFontSize(8);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('PAYMENT METHOD / MODE:', col1X, metaY + 24);
-  doc.text('APPROVED LOAN AMOUNT:', col2X, metaY + 24);
-
-  const paymentMode = p?.paymentMode || p?.paymentMethod || 'Online (Bank/UPI)';
-  doc.setFontSize(9);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(paymentMode.toUpperCase(), col1X, metaY + 28.5);
-
-  const loanPrincipalFormatted = `Rs. ${(l.approvedAmount || l.amount || 0).toLocaleString('en-IN')} (0.5% Monthly Interest)`;
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(loanPrincipalFormatted, col2X, metaY + 28.5);
-
-  // Divider
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.line(marginX + 4, metaY + 33, pageWidth - marginX - 4, metaY + 33);
-
-  // ==================== 3. BORROWER PARTICULARS BOX ====================
-  const borrowerBoxY = metaY + 36;
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(marginX + 4, borrowerBoxY, contentWidth - 8, 23, 2, 2, 'FD');
-
-  doc.setFontSize(7.5);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('RECEIVED WITH THANKS FROM (BORROWER PARTICULARS)', marginX + 8, borrowerBoxY + 5.5);
-
-  doc.setFontSize(11);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(borrowerName, marginX + 8, borrowerBoxY + 12);
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  const borrowerContact = [
-    borrowerPhone && borrowerPhone !== '-' ? `Mobile: ${borrowerPhone}` : '',
-    borrowerEmail && borrowerEmail !== '-' ? `Email: ${borrowerEmail}` : ''
-  ].filter(Boolean).join('  |  ');
-  doc.text(borrowerContact || 'Registered Society Member', marginX + 8, borrowerBoxY + 18);
-
-  // ==================== 4. INSTALLMENT BREAKDOWN TABLE ====================
-  const tableStartY = borrowerBoxY + 28;
-
-  const tableBody: any[] = [];
-
-  if (paidPaymentsInMonth && paidPaymentsInMonth.length > 1) {
-    // Detailed list of payments for this month
-    paidPaymentsInMonth.forEach((pm, idx) => {
-      const pmPrincipal = pm.amount || 0;
-      const pmInterest = pm.interest || 0;
-      const pmTotal = pmPrincipal + pmInterest;
-      const pmDate = pm.timestamp?.toDate ? format(pm.timestamp.toDate(), 'dd-MMM-yyyy') : (pm.approvedAt?.toDate ? format(pm.approvedAt.toDate(), 'dd-MMM-yyyy') : '-');
-      const pmMode = pm.paymentMode || pm.paymentMethod || 'Online';
-
-      tableBody.push([
-        String(idx + 1),
-        `Principal Installment Part #${idx + 1} (${periodText})\nDate: ${pmDate} • Mode: ${pmMode}`,
-        `Rs. ${pmPrincipal.toLocaleString('en-IN')}`,
-        `Rs. ${pmInterest.toLocaleString('en-IN')}`,
-        `Rs. ${pmTotal.toLocaleString('en-IN')}`
-      ]);
-    });
-  } else {
-    // Standard Single Installment Repayment Row
-    tableBody.push([
-      '1',
-      `Monthly Principal Repayment (Installment #${installmentNum} of Tenure)`,
-      `Rs. ${principal.toLocaleString('en-IN')}`,
-      '-',
-      `Rs. ${principal.toLocaleString('en-IN')}`
-    ]);
-    tableBody.push([
-      '2',
-      `Monthly Loan Interest (0.5% Flat/Outstanding Charge for ${periodText})`,
-      '-',
-      `Rs. ${interest.toLocaleString('en-IN')}`,
-      `Rs. ${interest.toLocaleString('en-IN')}`
-    ]);
-  }
-
-  // Add Grand Total Row
-  tableBody.push([
-    '',
-    'GRAND TOTAL INSTALLMENT REPAYMENT RECEIVED',
-    `Rs. ${principal.toLocaleString('en-IN')}`,
-    `Rs. ${interest.toLocaleString('en-IN')}`,
-    `Rs. ${total.toLocaleString('en-IN')}`
-  ]);
-
-  autoTable(doc, {
-    startY: tableStartY,
-    margin: { left: marginX + 4, right: marginX + 4 },
-    head: [['#', 'REPAYMENT PARTICULARS & DESCRIPTION', 'PRINCIPAL', 'INTEREST (0.5%)', 'TOTAL AMOUNT']],
-    body: tableBody,
-    theme: 'grid',
-    headStyles: {
-      fillColor: [79, 70, 229],
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      fontSize: 8,
-      halign: 'left',
-      cellPadding: 3.5
-    },
-    columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 'auto', halign: 'left' },
-      2: { cellWidth: 28, halign: 'right' },
-      3: { cellWidth: 28, halign: 'right' },
-      4: { cellWidth: 32, halign: 'right', fontStyle: 'bold' }
-    },
-    bodyStyles: {
-      fontSize: 8.5,
-      textColor: [24, 24, 27],
-      cellPadding: 3.5
-    },
-    alternateRowStyles: {
-      fillColor: [248, 250, 252]
-    },
-    didParseCell: (data) => {
-      // Highlight the grand total row
-      if (data.row.index === tableBody.length - 1) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.fillColor = [243, 244, 246];
-        data.cell.styles.textColor = [79, 70, 229];
-        if (data.column.index === 4) {
-          data.cell.styles.textColor = [5, 150, 105];
-          data.cell.styles.fontSize = 9.5;
-        }
-      }
-    }
-  });
-
-  const finalY = (doc as any).lastAutoTable?.finalY || (tableStartY + 45);
-
-  // ==================== 5. AMOUNT IN WORDS BOX ====================
-  const wordsBoxY = finalY + 5;
-  doc.setFillColor(236, 253, 245);
-  doc.setDrawColor(167, 243, 208);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(marginX + 4, wordsBoxY, contentWidth - 8, 16, 2, 2, 'FD');
-
-  doc.setFontSize(7.5);
-  doc.setTextColor(5, 150, 105);
-  doc.setFont('helvetica', 'bold');
-  doc.text('TOTAL AMOUNT RECEIVED (IN WORDS):', marginX + 8, wordsBoxY + 5);
-
-  const amountInWords = numberToIndianWords(total);
-  doc.setFontSize(9);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(amountInWords, marginX + 8, wordsBoxY + 11.5);
-
-  // ==================== 6. LOAN REPAYMENT SUMMARY STRIP ====================
-  const stripY = wordsBoxY + 20;
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(marginX + 4, stripY, contentWidth - 8, 20, 2, 2, 'FD');
-
-  const stripCol1 = marginX + 8;
-  const stripCol2 = marginX + 65;
-  const stripCol3 = marginX + 125;
-
-  doc.setFontSize(7.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('APPROVED PRINCIPAL:', stripCol1, stripY + 6);
-  doc.text('INSTALLMENT STATUS:', stripCol2, stripY + 6);
-  doc.text('PAYMENT REFERENCE:', stripCol3, stripY + 6);
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text(`Rs. ${(l.approvedAmount || l.amount || 0).toLocaleString('en-IN')}`, stripCol1, stripY + 13);
-  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.text(`Cleared (Inst. #${installmentNum})`, stripCol2, stripY + 13);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('courier', 'normal');
-  doc.text(p?.id ? p.id.slice(-8).toUpperCase() : uniqueIdSuffix, stripCol3, stripY + 13);
-
-  // ==================== 7. SIGNATURES & VERIFICATION NOTE ====================
-  const sigY = stripY + 28;
-
-  // Left side: Computer generated notice
-  doc.setFontSize(7.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Note: This is an authentic computer-generated payment receipt.', marginX + 6, sigY);
-  doc.text('Issued by Unnati Trust (R) Accounts & Loan Management Division.', marginX + 6, sigY + 4.5);
-  doc.text(`Verified against central database records. Ref: ${receiptNumber}`, marginX + 6, sigY + 9);
-
-  // Right side: Official Authorized Stamp & Seal
-  const sigRightX = pageWidth - marginX - 55;
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.line(sigRightX, sigY + 14, sigRightX + 48, sigY + 14);
-
-  doc.setFontSize(8);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('FOR UNNATI TRUST (R)', sigRightX + 24, sigY + 18, { align: 'center' });
-
-  doc.setFontSize(7);
-  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('[ Electronically Verified & Signed ]', sigRightX + 24, sigY + 22, { align: 'center' });
-
-  // Bottom Footer
-  doc.setFontSize(7);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  doc.text(
-    `Generated on ${format(new Date(), 'dd-MMM-yyyy hh:mm a')} • Unnati Trust Loan Management System`,
-    pageWidth / 2,
-    275,
-    { align: 'center' }
-  );
-
-  const safeBorrowerFileStr = borrowerName.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const fileName = `LoanReceipt_${receiptNumber}_${safeBorrowerFileStr}.pdf`;
-
-  return {
-    doc,
-    fileName,
-    receiptNumber,
-    totalAmount: total,
-    periodText
-  };
-}
-
-/**
- * Triggers a download of the Loan Installment PDF receipt
- */
-export function downloadLoanReceiptPdf(
-  options: LoanReceiptPdfOptions,
-  isMobile?: boolean,
-  downloadFileMobileFn?: (fileName: string, base64Data: string) => Promise<{ success: boolean; uri?: string }>
-): LoanReceiptPdfResult {
-  const result = generateLoanReceiptPdfDoc(options);
-  if (isMobile && downloadFileMobileFn) {
-    try {
-      const dataUri = result.doc.output('datauristring');
-      const base64Data = dataUri.split(',')[1] || dataUri;
-      downloadFileMobileFn(result.fileName, base64Data);
-      return result;
-    } catch (e) {
-      console.warn('Mobile download failed, falling back to doc.save', e);
-    }
-  }
-  result.doc.save(result.fileName);
-  return result;
-}
-
-import { universalQuickPrintPdf } from './printService';
-
-/**
- * Triggers instant printing of the generated loan receipt PDF document across all devices (Android APK, mobile, tablet, desktop).
- */
-export function quickPrintLoanReceiptPdf(doc: jsPDF, fileName: string = 'Loan_Receipt.pdf', documentTitle?: string): void {
-  universalQuickPrintPdf(doc, fileName, documentTitle || 'Loan Receipt');
 }
 
 export interface CumulativeLoanReceiptPdfOptions {
@@ -471,94 +44,87 @@ export interface CumulativeLoanReceiptPdfResult {
   doc: jsPDF;
   fileName: string;
   receiptNumber: string;
-  totalPrincipalPaid: number;
-  totalInterestPaid: number;
-  grandTotalPaid: number;
-  paidCount: number;
-  totalTenure: number;
-  periodSpanText: string;
+  totalPaidAmount: number;
 }
 
+const MONTH_NAMES = [
+  '', 'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+];
+
 /**
- * Builds and returns the jsPDF document for all cumulative installment repayments made so far on a loan.
+ * Builds the official A4 PDF receipt for a single loan installment repayment.
  */
-export function generateCumulativeLoanReceiptPdfDoc(options: CumulativeLoanReceiptPdfOptions): CumulativeLoanReceiptPdfResult {
+export function generateLoanReceiptPdfDoc(options: LoanReceiptPdfOptions): LoanReceiptPdfResult {
   const {
+    payment: p,
     loan: l,
-    paidPayments = [],
-    totalTenure = l.installments || 10,
+    installmentNum = 1,
+    installmentMonth = p.month,
+    installmentYear = p.year,
+    installmentDate,
+    principal = p.amount,
+    interest = p.interest || 0,
+    total = (p.amount + (p.interest || 0)),
     borrower,
     societyName = 'UNNATI TRUST (R)',
     societyRegNo = 'TRUST/BLR/2026',
     societyEmail = 'unnati.finance2026@gmail.com'
   } = options;
 
-  // Sort paid payments chronologically
-  const sortedPayments = [...paidPayments].sort((a, b) => {
-    const valA = (a.year || 0) * 100 + (a.month || 0);
-    const valB = (b.year || 0) * 100 + (b.month || 0);
-    if (valA !== valB) return valA - valB;
-    const timeA = a.timestamp?.seconds || (a.timestamp?.toDate ? a.timestamp.toDate().getTime() : 0);
-    const timeB = b.timestamp?.seconds || (b.timestamp?.toDate ? b.timestamp.toDate().getTime() : 0);
-    return timeA - timeB;
-  });
+  const rawName = borrower?.displayName || (l as any).userName || l.userEmail?.split('@')[0] || 'Member';
+  const memberPhone = borrower?.phoneNumber || (borrower as any)?.phone || '-';
+  const memberEmail = borrower?.email || l.userEmail || '-';
+  const memberName = getSafeMemberDisplayName(borrower || rawName, memberPhone, memberEmail) || rawName || 'Member';
 
-  const totalPrincipalPaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const totalInterestPaid = sortedPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
-  const grandTotalPaid = totalPrincipalPaid + totalInterestPaid;
-  const approvedLoanAmount = l.approvedAmount || l.amount || 0;
-  const remainingPrincipal = Math.max(0, approvedLoanAmount - totalPrincipalPaid);
-
-  // Resolve borrower identification
-  const rawName = borrower?.displayName || l.userName || l.userEmail?.split('@')[0] || 'Borrower';
-  const borrowerPhone = borrower?.phoneNumber || (borrower as any)?.phone || l.phoneNumber || '-';
-  const borrowerEmail = borrower?.email || l.userEmail || '-';
-  const borrowerName = getSafeMemberDisplayName(borrower || rawName, borrowerPhone, borrowerEmail) || rawName || 'Borrower';
-
-  // Period span text
-  let periodSpanText = '-';
-  if (sortedPayments.length > 0) {
-    const firstP = sortedPayments[0];
-    const lastP = sortedPayments[sortedPayments.length - 1];
-    const firstStr = `${MONTH_NAMES[firstP.month] || firstP.month} ${firstP.year}`;
-    const lastStr = `${MONTH_NAMES[lastP.month] || lastP.month} ${lastP.year}`;
-    periodSpanText = sortedPayments.length === 1 ? firstStr : `${firstStr} — ${lastStr} (${sortedPayments.length} Payments)`;
+  let paymentDateStr = 'Recent';
+  let paymentDateObj: Date | null = installmentDate || null;
+  if (!paymentDateObj) {
+    if (p.timestamp?.toDate) {
+      paymentDateObj = p.timestamp.toDate();
+    } else if (p.timestamp?.seconds) {
+      paymentDateObj = new Date(p.timestamp.seconds * 1000);
+    } else if (p.timestamp instanceof Date) {
+      paymentDateObj = p.timestamp;
+    } else {
+      paymentDateObj = new Date(installmentYear, installmentMonth - 1, 10);
+    }
   }
 
-  // Unique receipt number
-  const uniqueIdSuffix = (l.id || Math.random().toString(36).substring(2, 7)).slice(-6).toUpperCase();
-  const receiptNumber = `UT-CUM-EMI-${uniqueIdSuffix}-${format(new Date(), 'yyyyMMdd')}`;
-  const loanRef = l.id ? `UT-LN-${l.id.slice(-6).toUpperCase()}` : 'UT-LN-PRIMARY';
+  if (paymentDateObj && !isNaN(paymentDateObj.getTime())) {
+    paymentDateStr = format(paymentDateObj, 'dd-MMM-yyyy hh:mm a');
+  }
 
-  // Initialize jsPDF A4 portrait
+  const uniqueIdSuffix = (p.id || l.id || Math.random().toString(36).substring(2, 7)).slice(-6).toUpperCase();
+  const receiptNumber = `UT-EMI-${installmentYear}-${String(installmentMonth).padStart(2, '0')}-${uniqueIdSuffix}`;
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
     format: 'a4'
   });
 
-  const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
+  const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 14;
   const contentWidth = pageWidth - (marginX * 2);
 
-  // Color Palette
   const brandDark = [24, 24, 27];
   const primaryIndigo = [79, 70, 229];
-  const emeraldColor = [5, 150, 105];
   const slate600 = [71, 85, 105];
+  const emeraldColor = [5, 150, 105];
   const slate200 = [226, 232, 240];
 
-  // Outer Decorative Border
+  // Outer Border
   doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
   doc.setLineWidth(0.6);
   doc.roundedRect(marginX, 12, contentWidth, 268, 3, 3, 'S');
 
-  // Inner Subtle Border
+  // Inner Border
   doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
   doc.setLineWidth(0.2);
   doc.roundedRect(marginX + 1.5, 13.5, contentWidth - 3, 265, 2, 2, 'S');
 
-  // ==================== 1. HEADER SECTION ====================
+  // Header
   doc.setFontSize(18);
   doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
   doc.setFont('helvetica', 'bold');
@@ -567,298 +133,452 @@ export function generateCumulativeLoanReceiptPdfDoc(options: CumulativeLoanRecei
   doc.setFontSize(9);
   doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
   doc.setFont('helvetica', 'bold');
-  doc.text(`REGISTRATION NO: ${societyRegNo} • BANGALORE, KARNATAKA`, pageWidth / 2, 30, { align: 'center' });
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Email: ${societyEmail} • Consolidated Loan Statement & Repayment Receipt`, pageWidth / 2, 35, { align: 'center' });
-
-  // Receipt Badge Banner
-  doc.setFillColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.roundedRect(pageWidth / 2 - 58, 39, 116, 8, 2, 2, 'F');
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
-  doc.text('CONSOLIDATED LOAN REPAYMENT RECEIPT', pageWidth / 2, 44.5, { align: 'center' });
-
-  // Status Stamp
-  doc.setFillColor(236, 253, 245);
-  doc.setDrawColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(pageWidth - marginX - 48, 20, 44, 15, 2, 2, 'FD');
-  doc.setFontSize(7.5);
-  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('[ VERIFIED & PAID ]', pageWidth - marginX - 26, 26, { align: 'center' });
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`${sortedPayments.length} of ${totalTenure} Paid`, pageWidth - marginX - 26, 31, { align: 'center' });
-
-  // Divider Line
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.4);
-  doc.line(marginX + 4, 51, pageWidth - marginX - 4, 51);
-
-  // ==================== 2. RECEIPT & LOAN METADATA GRID ====================
-  const metaY = 56;
-  const col1X = marginX + 6;
-  const col2X = marginX + (contentWidth / 2) + 4;
-
-  doc.setFontSize(8);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('RECEIPT NUMBER:', col1X, metaY);
-  doc.text('LOAN REFERENCE ID:', col2X, metaY);
-
-  doc.setFontSize(9);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('courier', 'bold');
-  doc.text(receiptNumber, col1X, metaY + 4.5);
-  doc.text(loanRef, col2X, metaY + 4.5);
-
-  doc.setFontSize(8);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('REPAID SCHEDULE PROGRESS:', col1X, metaY + 12);
-  doc.text('COVERAGE WINDOW:', col2X, metaY + 12);
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`${sortedPayments.length} of ${totalTenure} Installments Cleared`, col1X, metaY + 16.5);
-  doc.setFont('helvetica', 'normal');
-  doc.text(periodSpanText, col2X, metaY + 16.5);
-
-  doc.setFontSize(8);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('APPROVED LOAN PRINCIPAL:', col1X, metaY + 24);
-  doc.text('REMAINING OUTSTANDING BALANCE:', col2X, metaY + 24);
-
-  doc.setFontSize(9);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`Rs. ${approvedLoanAmount.toLocaleString('en-IN')} (0.5% Monthly Interest)`, col1X, metaY + 28.5);
-
-  doc.setTextColor(remainingPrincipal > 0 ? brandDark[0] : emeraldColor[0], remainingPrincipal > 0 ? brandDark[1] : emeraldColor[1], remainingPrincipal > 0 ? brandDark[2] : emeraldColor[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(remainingPrincipal > 0 ? `Rs. ${remainingPrincipal.toLocaleString('en-IN')}` : 'FULLY SETTLED (Rs. 0)', col2X, metaY + 28.5);
-
-  // Divider
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.line(marginX + 4, metaY + 33, pageWidth - marginX - 4, metaY + 33);
-
-  // ==================== 3. BORROWER PARTICULARS BOX ====================
-  const borrowerBoxY = metaY + 36;
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(marginX + 4, borrowerBoxY, contentWidth - 8, 21, 2, 2, 'FD');
-
-  doc.setFontSize(7.5);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('RECEIVED WITH THANKS FROM (BORROWER PARTICULARS)', marginX + 8, borrowerBoxY + 5.5);
-
-  doc.setFontSize(10.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(borrowerName, marginX + 8, borrowerBoxY + 11.5);
-
-  doc.setFontSize(8);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  const borrowerContact = [
-    borrowerPhone && borrowerPhone !== '-' ? `Mobile: ${borrowerPhone}` : '',
-    borrowerEmail && borrowerEmail !== '-' ? `Email: ${borrowerEmail}` : ''
-  ].filter(Boolean).join('  |  ');
-  doc.text(borrowerContact || 'Registered Society Member', marginX + 8, borrowerBoxY + 17);
-
-  // ==================== 4. ITEMISED REPAYMENT SCHEDULE TABLE ====================
-  const tableStartY = borrowerBoxY + 25;
-
-  const tableBody: any[] = [];
-
-  sortedPayments.forEach((p, idx) => {
-    const pPrincipal = p.amount || 0;
-    const pInterest = p.interest || 0;
-    const pTotal = pPrincipal + pInterest;
-    const periodStr = `${MONTH_NAMES[p.month] || p.month} ${p.year}`;
-    const pMode = p.paymentMode || p.paymentMethod || 'Online';
-    let pDateStr = '-';
-    if (p.timestamp?.toDate) {
-      pDateStr = format(p.timestamp.toDate(), 'dd-MMM-yyyy');
-    } else if (p.approvedAt?.toDate) {
-      pDateStr = format(p.approvedAt.toDate(), 'dd-MMM-yyyy');
-    }
-
-    tableBody.push([
-      String(idx + 1),
-      periodStr,
-      `Rs. ${pPrincipal.toLocaleString('en-IN')}`,
-      `Rs. ${pInterest.toLocaleString('en-IN')}`,
-      `Rs. ${pTotal.toLocaleString('en-IN')}`,
-      pMode,
-      pDateStr
-    ]);
-  });
-
-  // Grand Total Row
-  tableBody.push([
-    '',
-    `TOTAL REPAID SO FAR (${sortedPayments.length} PAYMENTS)`,
-    `Rs. ${totalPrincipalPaid.toLocaleString('en-IN')}`,
-    `Rs. ${totalInterestPaid.toLocaleString('en-IN')}`,
-    `Rs. ${grandTotalPaid.toLocaleString('en-IN')}`,
-    '',
-    ''
-  ]);
-
-  autoTable(doc, {
-    startY: tableStartY,
-    margin: { left: marginX + 4, right: marginX + 4 },
-    head: [['#', 'PERIOD / MONTH', 'PRINCIPAL', 'INTEREST (0.5%)', 'TOTAL PAID', 'MODE', 'PAID DATE']],
-    body: tableBody,
-    theme: 'grid',
-    headStyles: {
-      fillColor: [79, 70, 229],
-      textColor: [255, 255, 255],
-      fontStyle: 'bold',
-      fontSize: 7.5,
-      halign: 'left',
-      cellPadding: 2.8
-    },
-    columnStyles: {
-      0: { cellWidth: 8, halign: 'center' },
-      1: { cellWidth: 'auto', halign: 'left' },
-      2: { cellWidth: 26, halign: 'right' },
-      3: { cellWidth: 26, halign: 'right' },
-      4: { cellWidth: 28, halign: 'right', fontStyle: 'bold' },
-      5: { cellWidth: 20, halign: 'center' },
-      6: { cellWidth: 24, halign: 'center' }
-    },
-    bodyStyles: {
-      fontSize: 8,
-      textColor: [24, 24, 27],
-      cellPadding: 2.5
-    },
-    alternateRowStyles: {
-      fillColor: [248, 250, 252]
-    },
-    didParseCell: (data) => {
-      if (data.row.index === tableBody.length - 1) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.fillColor = [243, 244, 246];
-        data.cell.styles.textColor = [79, 70, 229];
-        if (data.column.index === 4) {
-          data.cell.styles.textColor = [5, 150, 105];
-          data.cell.styles.fontSize = 8.5;
-        }
-      }
-    }
-  });
-
-  const finalY = (doc as any).lastAutoTable?.finalY || (tableStartY + 50);
-
-  // ==================== 5. AMOUNT IN WORDS BOX ====================
-  const wordsBoxY = Math.min(finalY + 4, 225);
-  doc.setFillColor(236, 253, 245);
-  doc.setDrawColor(167, 243, 208);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(marginX + 4, wordsBoxY, contentWidth - 8, 15, 2, 2, 'FD');
-
-  doc.setFontSize(7);
-  doc.setTextColor(5, 150, 105);
-  doc.setFont('helvetica', 'bold');
-  doc.text('TOTAL REPAYMENTS RECEIVED (IN WORDS):', marginX + 8, wordsBoxY + 4.5);
-
-  const amountInWords = numberToIndianWords(grandTotalPaid);
-  doc.setFontSize(8.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(amountInWords, marginX + 8, wordsBoxY + 10.5);
-
-  // ==================== 6. LOAN PROGRESS SUMMARY STRIP ====================
-  const stripY = wordsBoxY + 18;
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(marginX + 4, stripY, contentWidth - 8, 17, 2, 2, 'FD');
-
-  const stripCol1 = marginX + 8;
-  const stripCol2 = marginX + 65;
-  const stripCol3 = marginX + 125;
-
-  doc.setFontSize(7);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('TOTAL PRINCIPAL REPAID:', stripCol1, stripY + 5);
-  doc.text('TOTAL INTEREST RECEIVED:', stripCol2, stripY + 5);
-  doc.text('OUTSTANDING LOAN BALANCE:', stripCol3, stripY + 5);
-
-  doc.setFontSize(8);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text(`Rs. ${totalPrincipalPaid.toLocaleString('en-IN')}`, stripCol1, stripY + 11.5);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.text(`Rs. ${totalInterestPaid.toLocaleString('en-IN')}`, stripCol2, stripY + 11.5);
-  doc.setTextColor(remainingPrincipal > 0 ? brandDark[0] : emeraldColor[0], remainingPrincipal > 0 ? brandDark[1] : emeraldColor[1], remainingPrincipal > 0 ? brandDark[2] : emeraldColor[2]);
-  doc.text(`Rs. ${remainingPrincipal.toLocaleString('en-IN')}`, stripCol3, stripY + 11.5);
-
-  // ==================== 7. SIGNATURES & VERIFICATION NOTE ====================
-  const sigY = stripY + 21;
-
-  doc.setFontSize(7);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Note: This is an authentic computer-generated cumulative loan statement & repayment receipt.', marginX + 6, sigY);
-  doc.text(`Issued by Unnati Trust (R) Accounts & Loan Management Cell. Ref: ${receiptNumber}`, marginX + 6, sigY + 4);
-
-  const sigRightX = pageWidth - marginX - 55;
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.line(sigRightX, sigY + 9, sigRightX + 48, sigY + 9);
-
-  doc.setFontSize(7.5);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('FOR UNNATI TRUST (R)', sigRightX + 24, sigY + 13, { align: 'center' });
-
-  doc.setFontSize(6.5);
-  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('[ Electronically Verified & Signed ]', sigRightX + 24, sigY + 16.5, { align: 'center' });
-
-  // Bottom Footer
-  doc.setFontSize(6.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
   doc.text(
-    `Generated on ${format(new Date(), 'dd-MMM-yyyy hh:mm a')} • Unnati Trust Loan Management System`,
+    `Registered Public Charitable Trust  •  Reg No: ${societyRegNo}`,
     pageWidth / 2,
-    276,
+    29.5,
     { align: 'center' }
   );
 
-  const safeBorrowerFileStr = borrowerName.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const fileName = `CumulativeLoanReceipt_${loanRef}_${safeBorrowerFileStr}.pdf`;
+  doc.setFontSize(7.5);
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.setFont('helvetica', 'normal');
+  doc.text(
+    `Official Contact: ${societyEmail}   •   Loan Repayment Management System`,
+    pageWidth / 2,
+    34,
+    { align: 'center' }
+  );
+
+  // Badge Banner
+  doc.setFillColor(245, 247, 255);
+  doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(marginX + 8, 38, contentWidth - 16, 12, 2, 2, 'FD');
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.text('OFFICIAL LOAN INSTALLMENT REPAYMENT RECEIPT', pageWidth / 2, 45.5, { align: 'center' });
+
+  // Receipt Number & Date
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text(`Receipt No: ${receiptNumber}`, marginX + 10, 57);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.text(`Date & Time: ${paymentDateStr}`, pageWidth - marginX - 10, 57, { align: 'right' });
+
+  // Member Particulars & Loan Details Info Box
+  autoTable(doc, {
+    startY: 62,
+    margin: { left: marginX + 6, right: marginX + 6 },
+    theme: 'grid',
+    styles: { fontSize: 8.5, cellPadding: 3, textColor: [30, 41, 59] },
+    headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold' },
+    body: [
+      [
+        { content: 'Borrower Name:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: memberName },
+        { content: 'Loan Account #:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: `LN-${(l.id || 'N/A').slice(-6).toUpperCase()}` }
+      ],
+      [
+        { content: 'Contact Number:', styles: { fontStyle: 'bold' } },
+        { content: memberPhone },
+        { content: 'Sanctioned Amount:', styles: { fontStyle: 'bold' } },
+        { content: `Rs. ${(l.approvedAmount || l.amount || 0).toLocaleString('en-IN')}` }
+      ],
+      [
+        { content: 'Email Address:', styles: { fontStyle: 'bold' } },
+        { content: memberEmail },
+        { content: 'Installment Period:', styles: { fontStyle: 'bold' } },
+        { content: `Inst. #${installmentNum} (${MONTH_NAMES[installmentMonth]} ${installmentYear})` }
+      ],
+      [
+        { content: 'Repayment Mode:', styles: { fontStyle: 'bold' } },
+        { content: (p.paymentMode || (p as any).mode || 'Online / UPI').toUpperCase() },
+        { content: 'Payment Status:', styles: { fontStyle: 'bold' } },
+        { content: 'SUCCESSFULLY RECEIVED & RECORDED', styles: { textColor: emeraldColor as any, fontStyle: 'bold' } }
+      ]
+    ]
+  });
+
+  const finalY1 = (doc as any).lastAutoTable?.finalY || 105;
+
+  // Breakdown Item Table
+  autoTable(doc, {
+    startY: finalY1 + 6,
+    margin: { left: marginX + 6, right: marginX + 6 },
+    theme: 'striped',
+    head: [['Sl No.', 'Description', 'Installment Schedule', 'Principal Amount', 'Interest (0.5%)', 'Net Amount (Rs.)']],
+    body: [
+      [
+        '1',
+        'Monthly Loan Principal & Interest Repayment',
+        `Installment #${installmentNum} / ${l.installments || 10}`,
+        `Rs. ${principal.toLocaleString('en-IN')}`,
+        `Rs. ${interest.toLocaleString('en-IN')}`,
+        `Rs. ${total.toLocaleString('en-IN')}`
+      ]
+    ],
+    headStyles: {
+      fillColor: primaryIndigo as any,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 9,
+      halign: 'center'
+    },
+    bodyStyles: {
+      fontSize: 9,
+      cellPadding: 4,
+      halign: 'center'
+    },
+    columnStyles: {
+      0: { cellWidth: 15, halign: 'center' },
+      1: { cellWidth: 60, halign: 'left' },
+      2: { cellWidth: 35, halign: 'center' },
+      3: { cellWidth: 25, halign: 'right' },
+      4: { cellWidth: 25, halign: 'right' },
+      5: { cellWidth: 25, halign: 'right', fontStyle: 'bold' }
+    }
+  });
+
+  const finalY2 = (doc as any).lastAutoTable?.finalY || 140;
+
+  // Total Summary Box
+  const summaryBoxY = finalY2 + 6;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
+  doc.roundedRect(marginX + 6, summaryBoxY, contentWidth - 12, 28, 2, 2, 'FD');
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text('Amount in Words:', marginX + 10, summaryBoxY + 8);
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9);
+  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.text(numberToIndianWords(total), marginX + 10, summaryBoxY + 15);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
+  doc.text(`Total Received: Rs. ${total.toLocaleString('en-IN')}/-`, pageWidth - marginX - 10, summaryBoxY + 15, { align: 'right' });
+
+  // Verification Note
+  const noteY = summaryBoxY + 36;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.text('Terms & Conditions:', marginX + 10, noteY);
+  doc.text('1. This receipt is computer generated and serves as an official confirmation of loan repayment.', marginX + 10, noteY + 5);
+  doc.text('2. Principal repayments directly reduce your outstanding loan liability as per society bylaws.', marginX + 10, noteY + 9);
+  doc.text('3. For any reconciliation or queries, quote the Loan Account Number and Receipt Number above.', marginX + 10, noteY + 13);
+
+  // Signature Block
+  const sigY = noteY + 32;
+  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
+  doc.setLineWidth(0.3);
+  doc.line(pageWidth - marginX - 55, sigY + 10, pageWidth - marginX - 10, sigY + 10);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text('Authorized Signatory', pageWidth - marginX - 32.5, sigY + 15, { align: 'center' });
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.text(societyName, pageWidth - marginX - 32.5, sigY + 19, { align: 'center' });
+
+  const safeMemberFileStr = memberName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `Loan_Receipt_${receiptNumber}_${safeMemberFileStr}.pdf`;
 
   return {
     doc,
     fileName,
     receiptNumber,
-    totalPrincipalPaid,
-    totalInterestPaid,
-    grandTotalPaid,
-    paidCount: sortedPayments.length,
-    totalTenure,
-    periodSpanText
+    totalAmount: total
   };
 }
 
 /**
- * Triggers a download of the Cumulative Loan Installment PDF receipt
+ * Builds the consolidated A4 PDF receipt for all installment payments made so far towards a loan.
+ */
+export function generateCumulativeLoanReceiptPdfDoc(options: CumulativeLoanReceiptPdfOptions): CumulativeLoanReceiptPdfResult {
+  const {
+    loan: l,
+    paidPayments,
+    totalTenure = l.installments || 10,
+    borrower,
+    societyName = 'UNNATI TRUST (R)',
+    societyRegNo = 'TRUST/BLR/2026',
+    societyEmail = 'unnati.finance2026@gmail.com'
+  } = options;
+
+  const rawName = borrower?.displayName || (l as any).userName || l.userEmail?.split('@')[0] || 'Member';
+  const memberPhone = borrower?.phoneNumber || (borrower as any)?.phone || '-';
+  const memberEmail = borrower?.email || l.userEmail || '-';
+  const memberName = getSafeMemberDisplayName(borrower || rawName, memberPhone, memberEmail) || rawName || 'Member';
+
+  const sortedPayments = [...paidPayments].sort((a, b) => {
+    const timeA = a.timestamp?.seconds ? a.timestamp.seconds : (a.year * 100 + a.month);
+    const timeB = b.timestamp?.seconds ? b.timestamp.seconds : (b.year * 100 + b.month);
+    return timeA - timeB;
+  });
+
+  const totalPrincipalRepaid = sortedPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalInterestRepaid = sortedPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
+  const grandTotalRepaid = totalPrincipalRepaid + totalInterestRepaid;
+  const sanctionedAmount = l.approvedAmount || l.amount || 0;
+  const outstandingPrincipal = Math.max(0, sanctionedAmount - totalPrincipalRepaid);
+
+  const uniqueIdSuffix = (l.id || Math.random().toString(36).substring(2, 7)).slice(-6).toUpperCase();
+  const receiptNumber = `UT-LOAN-CUM-${uniqueIdSuffix}`;
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 14;
+  const contentWidth = pageWidth - (marginX * 2);
+
+  const brandDark = [24, 24, 27];
+  const primaryIndigo = [79, 70, 229];
+  const slate600 = [71, 85, 105];
+  const emeraldColor = [5, 150, 105];
+  const slate200 = [226, 232, 240];
+
+  // Outer Border
+  doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.setLineWidth(0.6);
+  doc.roundedRect(marginX, 12, contentWidth, 268, 3, 3, 'S');
+
+  // Inner Border
+  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(marginX + 1.5, 13.5, contentWidth - 3, 265, 2, 2, 'S');
+
+  // Header
+  doc.setFontSize(18);
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text(societyName, pageWidth / 2, 24, { align: 'center' });
+
+  doc.setFontSize(9);
+  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text(
+    `Registered Public Charitable Trust  •  Reg No: ${societyRegNo}`,
+    pageWidth / 2,
+    29.5,
+    { align: 'center' }
+  );
+
+  doc.setFontSize(7.5);
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.setFont('helvetica', 'normal');
+  doc.text(
+    `Official Contact: ${societyEmail}   •   Consolidated Loan Repayment Statement`,
+    pageWidth / 2,
+    34,
+    { align: 'center' }
+  );
+
+  // Badge Banner
+  doc.setFillColor(245, 247, 255);
+  doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(marginX + 8, 38, contentWidth - 16, 12, 2, 2, 'FD');
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.text('CONSOLIDATED LOAN REPAYMENT STATEMENT & RECEIPT', pageWidth / 2, 45.5, { align: 'center' });
+
+  // Receipt Number & Date
+  const genDateStr = format(new Date(), 'dd-MMM-yyyy hh:mm a');
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text(`Statement Ref: ${receiptNumber}`, marginX + 10, 57);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.text(`Generated: ${genDateStr}`, pageWidth - marginX - 10, 57, { align: 'right' });
+
+  // Borrower & Loan Particulars
+  autoTable(doc, {
+    startY: 62,
+    margin: { left: marginX + 6, right: marginX + 6 },
+    theme: 'grid',
+    styles: { fontSize: 8.5, cellPadding: 3, textColor: [30, 41, 59] },
+    headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold' },
+    body: [
+      [
+        { content: 'Borrower Name:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: memberName },
+        { content: 'Loan Account #:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: `LN-${(l.id || 'N/A').slice(-6).toUpperCase()}` }
+      ],
+      [
+        { content: 'Contact Number:', styles: { fontStyle: 'bold' } },
+        { content: memberPhone },
+        { content: 'Sanctioned Principal:', styles: { fontStyle: 'bold' } },
+        { content: `Rs. ${sanctionedAmount.toLocaleString('en-IN')}` }
+      ],
+      [
+        { content: 'Installments Paid:', styles: { fontStyle: 'bold' } },
+        { content: `${sortedPayments.length} of ${totalTenure} Paid` },
+        { content: 'Outstanding Principal:', styles: { fontStyle: 'bold' } },
+        { content: `Rs. ${outstandingPrincipal.toLocaleString('en-IN')}`, styles: { fontStyle: 'bold', textColor: outstandingPrincipal === 0 ? emeraldColor as any : [220, 38, 38] as any } }
+      ]
+    ]
+  });
+
+  const finalY1 = (doc as any).lastAutoTable?.finalY || 88;
+
+  // Payments List Table
+  const tableRows = sortedPayments.map((p, idx) => {
+    let pDate = '-';
+    if (p.timestamp?.toDate) {
+      pDate = format(p.timestamp.toDate(), 'dd-MMM-yyyy');
+    } else if (p.timestamp?.seconds) {
+      pDate = format(new Date(p.timestamp.seconds * 1000), 'dd-MMM-yyyy');
+    } else if (p.timestamp instanceof Date) {
+      pDate = format(p.timestamp, 'dd-MMM-yyyy');
+    }
+
+    const principalAmt = p.amount || 0;
+    const interestAmt = p.interest || 0;
+    const totalAmt = principalAmt + interestAmt;
+    const mode = (p.paymentMode || (p as any).mode || 'UPI').toUpperCase();
+
+    return [
+      String(idx + 1),
+      `${MONTH_NAMES[p.month]} ${p.year}`,
+      pDate,
+      mode,
+      `Rs. ${principalAmt.toLocaleString('en-IN')}`,
+      `Rs. ${interestAmt.toLocaleString('en-IN')}`,
+      `Rs. ${totalAmt.toLocaleString('en-IN')}`
+    ];
+  });
+
+  autoTable(doc, {
+    startY: finalY1 + 5,
+    margin: { left: marginX + 6, right: marginX + 6 },
+    theme: 'striped',
+    head: [['#', 'Month & Year', 'Payment Date', 'Mode', 'Principal (Rs.)', 'Interest (Rs.)', 'Total (Rs.)']],
+    body: tableRows.length > 0 ? tableRows : [['-', 'No repayments recorded yet', '-', '-', '0', '0', '0']],
+    headStyles: {
+      fillColor: primaryIndigo as any,
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8.5,
+      halign: 'center'
+    },
+    bodyStyles: {
+      fontSize: 8,
+      cellPadding: 3,
+      halign: 'center'
+    },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 35, halign: 'left' },
+      2: { cellWidth: 28, halign: 'center' },
+      3: { cellWidth: 20, halign: 'center' },
+      4: { cellWidth: 28, halign: 'right' },
+      5: { cellWidth: 28, halign: 'right' },
+      6: { cellWidth: 30, halign: 'right', fontStyle: 'bold' }
+    }
+  });
+
+  const finalY2 = (doc as any).lastAutoTable?.finalY || 160;
+
+  // Cumulative Summary Box
+  const summaryBoxY = finalY2 + 5;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
+  doc.roundedRect(marginX + 6, summaryBoxY, contentWidth - 12, 28, 2, 2, 'FD');
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text(`Total Paid Towards Loan (In Words):`, marginX + 10, summaryBoxY + 7);
+
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8.5);
+  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.text(numberToIndianWords(grandTotalRepaid), marginX + 10, summaryBoxY + 14);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
+  doc.text(
+    `Principal: Rs. ${totalPrincipalRepaid.toLocaleString('en-IN')}  |  Interest: Rs. ${totalInterestRepaid.toLocaleString('en-IN')}  |  Total: Rs. ${grandTotalRepaid.toLocaleString('en-IN')}`,
+    pageWidth - marginX - 10,
+    summaryBoxY + 22,
+    { align: 'right' }
+  );
+
+  // Signature Block
+  const sigY = summaryBoxY + 36;
+  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
+  doc.setLineWidth(0.3);
+  doc.line(pageWidth - marginX - 55, sigY + 10, pageWidth - marginX - 10, sigY + 10);
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.text('Authorized Signatory', pageWidth - marginX - 32.5, sigY + 15, { align: 'center' });
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.text(societyName, pageWidth - marginX - 32.5, sigY + 19, { align: 'center' });
+
+  const safeMemberFileStr = memberName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `All_Payments_Receipt_${receiptNumber}_${safeMemberFileStr}.pdf`;
+
+  return {
+    doc,
+    fileName,
+    receiptNumber,
+    totalPaidAmount: grandTotalRepaid
+  };
+}
+
+/**
+ * Direct download helper for single installment loan receipt
+ */
+export function downloadLoanReceiptPdf(
+  options: LoanReceiptPdfOptions,
+  isMobile?: boolean,
+  downloadFileMobileFn?: (fileName: string, base64Data: string) => Promise<{ success: boolean; uri?: string }>
+): LoanReceiptPdfResult {
+  const result = generateLoanReceiptPdfDoc(options);
+  if (isMobile && downloadFileMobileFn) {
+    try {
+      const dataUri = result.doc.output('datauristring');
+      const base64Data = dataUri.split(',')[1] || dataUri;
+      downloadFileMobileFn(result.fileName, base64Data);
+      return result;
+    } catch (e) {
+      console.warn('Mobile download fallback:', e);
+    }
+  }
+  result.doc.save(result.fileName);
+  return result;
+}
+
+/**
+ * Direct download helper for cumulative loan receipt
  */
 export function downloadCumulativeLoanReceiptPdf(
   options: CumulativeLoanReceiptPdfOptions,
@@ -873,10 +593,16 @@ export function downloadCumulativeLoanReceiptPdf(
       downloadFileMobileFn(result.fileName, base64Data);
       return result;
     } catch (e) {
-      console.warn('Mobile download failed, falling back to doc.save', e);
+      console.warn('Mobile cumulative download fallback:', e);
     }
   }
   result.doc.save(result.fileName);
   return result;
 }
 
+/**
+ * Universal print helper for loan receipt
+ */
+export function quickPrintLoanReceiptPdf(doc: jsPDF, fileName: string = 'Loan_Receipt.pdf', documentTitle?: string): void {
+  universalQuickPrintPdf(doc, fileName, documentTitle || 'Loan Receipt');
+}

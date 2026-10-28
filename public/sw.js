@@ -60,6 +60,19 @@ self.addEventListener('fetch', (event) => {
     return; // Pass through to network directly
   }
 
+  // Exclude development server, Vite assets, source files, and API endpoints
+  if (
+    url.hostname.includes('localhost') ||
+    url.hostname.includes('ais-dev') ||
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.includes('hot-update')
+  ) {
+    return; // Pass through to network directly
+  }
+
   // For navigation requests, try network first, then cache
   if (event.request.mode === 'navigate') {
     event.respondWith(
