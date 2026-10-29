@@ -11124,13 +11124,15 @@ ${scheduleHighlights}
                                         <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                           {l.status === 'pending' ? (
                                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
                                               <Clock className="w-3 h-3 text-amber-600 animate-pulse shrink-0" />
-                                              <span>Pending Review</span>
+                                              <span>Pending</span>
                                             </span>
                                           ) : l.status === 'approved' ? (
                                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/90 shadow-2xs">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 shrink-0" />
                                               <Activity className="w-3 h-3 text-indigo-600 shrink-0" />
-                                              <span>Active (Servicing)</span>
+                                              <span>Active</span>
                                             </span>
                                           ) : l.status === 'paid' ? (
                                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs">
@@ -11166,11 +11168,11 @@ ${scheduleHighlights}
                                                     setLoanSubTab('repayments');
                                                     setSelectedLoan(l);
                                                   }}
-                                                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-lg text-xs font-bold transition-all shadow-2xs group cursor-pointer"
+                                                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/90 rounded-lg text-[11px] font-bold transition-all shadow-2xs group cursor-pointer whitespace-nowrap"
                                                   title="View Repayment Schedule & Records"
                                                 >
                                                   <IndianRupee className="w-3.5 h-3.5 text-indigo-600" />
-                                                  <span>View Repayments</span>
+                                                  <span>EMIs</span>
                                                   <ArrowRight className="w-3 h-3 text-indigo-400 group-hover:translate-x-0.5 transition-transform" />
                                                 </button>
                                               ) : (
@@ -11278,13 +11280,15 @@ ${scheduleHighlights}
                                     </div>
                                     {l.status === 'pending' ? (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200/90 shadow-2xs">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
                                         <Clock className="w-2.5 h-2.5 text-amber-600 animate-pulse shrink-0" />
-                                        <span>Pending Review</span>
+                                        <span>Pending</span>
                                       </span>
                                     ) : l.status === 'approved' ? (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/90 shadow-2xs">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 shrink-0" />
                                         <Activity className="w-2.5 h-2.5 text-indigo-600 shrink-0" />
-                                        <span>Active (Servicing)</span>
+                                        <span>Active</span>
                                       </span>
                                     ) : l.status === 'paid' ? (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs">
@@ -11342,7 +11346,7 @@ ${scheduleHighlights}
                                           className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer"
                                         >
                                           <IndianRupee className="w-3.5 h-3.5" />
-                                          <span>View Repayments</span>
+                                          <span>EMIs</span>
                                           <ArrowRight className="w-3.5 h-3.5" />
                                         </button>
                                       ) : (
@@ -11713,6 +11717,8 @@ ${scheduleHighlights}
                                     const isPaidThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
                                     const isPendingThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
                                     const loanStartsFuture = isLoanRepaymentStartingInFuture(l, repaymentMonth, repaymentYear);
+                                     const startMonthDate = loanSchedule[0]?.installmentDate || new Date(getLoanSanctionDate(l).getFullYear(), getLoanSanctionDate(l).getMonth() + 1, 1);
+                                     const startsMonthLabel = format(startMonthDate, 'MMM').toUpperCase();
                                     const isFullyPaid = l.status === 'paid' || remainingPrincipal <= 0 || remainingTotal <= 0;
                                     const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanStartsFuture && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
 
@@ -11771,7 +11777,7 @@ ${scheduleHighlights}
                                                 loanStartsFuture ? "bg-blue-50 text-blue-600 border-blue-200" :
                                                 isLate ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"
                                               )}>
-                                                {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? 'STARTS NEXT MONTH' : isLate ? 'OVERDUE' : 'PENDING'}
+                                                {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? `STARTS ${startsMonthLabel}` : isLate ? 'OVERDUE' : 'PENDING'}
                                               </span>
                                             )}
                                           </td>
@@ -11809,11 +11815,24 @@ ${scheduleHighlights}
                                               <button 
                                                 onClick={() => setSelectedLoan(selectedLoan?.id === l.id ? null : l)}
                                                 className={cn(
-                                                  "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border shadow-xs cursor-pointer",
-                                                  selectedLoan?.id === l.id ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-indigo-100" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300"
+                                                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap border shadow-2xs cursor-pointer",
+                                                  selectedLoan?.id === l.id 
+                                                    ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-xs" 
+                                                    : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200/90"
                                                 )}
+                                                title={selectedLoan?.id === l.id ? "Close Repayment Schedule" : "View Repayment Schedule"}
                                               >
-                                                {selectedLoan?.id === l.id ? 'Hide Details' : 'View Schedule'}
+                                                {selectedLoan?.id === l.id ? (
+                                                  <>
+                                                    <X className="w-3.5 h-3.5" />
+                                                    <span>Close</span>
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                                                    <span>Schedule</span>
+                                                  </>
+                                                )}
                                               </button>
                                             </div>
                                           </td>
@@ -12153,6 +12172,8 @@ ${scheduleHighlights}
                               const isPaidThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
                               const isPendingThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
                               const loanStartsFuture = isLoanRepaymentStartingInFuture(l, repaymentMonth, repaymentYear);
+                               const startMonthDate = loanSchedule[0]?.installmentDate || new Date(getLoanSanctionDate(l).getFullYear(), getLoanSanctionDate(l).getMonth() + 1, 1);
+                               const startsMonthLabel = format(startMonthDate, 'MMM').toUpperCase();
                               const isFullyPaid = l.status === 'paid' || remainingPrincipal <= 0 || remainingTotal <= 0;
                               const isLate = !isFullyPaid && !isPaidThisMonth && !isPendingThisMonth && new Date().getDate() > 10 && !loanStartsFuture && (repaymentYear < new Date().getFullYear() || (repaymentYear === new Date().getFullYear() && repaymentMonth <= (new Date().getMonth() + 1)));
 
@@ -12212,7 +12233,7 @@ ${scheduleHighlights}
                                             loanStartsFuture ? "bg-blue-50 text-blue-600 border-blue-200" :
                                             isLate ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"
                                           )}>
-                                            {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? 'STARTS NEXT MONTH' : isLate ? 'OVERDUE' : 'PENDING'}
+                                            {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? `STARTS ${startsMonthLabel}` : isLate ? 'OVERDUE' : 'PENDING'}
                                           </span>
                                         )}
                                       </div>
@@ -12251,11 +12272,24 @@ ${scheduleHighlights}
                                       <button 
                                         onClick={() => setSelectedLoan(selectedLoan?.id === l.id ? null : l)}
                                         className={cn(
-                                          "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border shadow-xs",
-                                          selectedLoan?.id === l.id ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-indigo-100" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300"
+                                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border shadow-2xs cursor-pointer",
+                                          selectedLoan?.id === l.id 
+                                            ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-xs" 
+                                            : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200/90"
                                         )}
+                                        title={selectedLoan?.id === l.id ? "Close Repayment Schedule" : "View Repayment Schedule"}
                                       >
-                                        {selectedLoan?.id === l.id ? 'Hide Details' : 'View Schedule'}
+                                        {selectedLoan?.id === l.id ? (
+                                          <>
+                                            <X className="w-3.5 h-3.5" />
+                                            <span>Close</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                                            <span>Schedule</span>
+                                          </>
+                                        )}
                                       </button>
                                     </div>
                                   </div>
@@ -14589,54 +14623,185 @@ ${scheduleHighlights}
         ) : (
           <div className="space-y-6">
             {/* Filter Section */}
-                <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white p-6 sm:p-7 rounded-3xl shadow-sm border-2 border-indigo-200/90">
-                  <div className="flex flex-col md:flex-row md:items-end gap-4">
-                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Month</label>
-                        <div className="relative">
-                          <select 
-                            value={filterMonth}
-                            onChange={(e) => setFilterMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                            className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
-                          >
-                            <option value="all">All Months (Full Year)</option>
-                            {Array.from({ length: 12 }).map((_, i) => (
-                              <option key={`filter-month-${i + 1}`} value={i + 1}>
-                                {format(new Date(2024, i, 1), 'MMMM')}
+                <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white p-5 sm:p-6 rounded-3xl shadow-sm border-2 border-indigo-200/90">
+                  {(() => {
+                    const currentCalMonth = new Date().getMonth() + 1;
+                    const currentCalYear = new Date().getFullYear();
+                    const sortedYearsAsc = [...availableContributionYears].sort((a, b) => a - b);
+                    const minContribYear = sortedYearsAsc.length > 0 ? sortedYearsAsc[0] : 2026;
+                    const maxContribYear = sortedYearsAsc.length > 0 ? sortedYearsAsc[sortedYearsAsc.length - 1] : 2028;
+
+                    const isPrevDisabled = typeof filterMonth === 'number' && typeof filterYear === 'number'
+                      ? (filterYear <= minContribYear && filterMonth <= 1)
+                      : (filterMonth === 'all' && typeof filterYear === 'number' ? filterYear <= minContribYear : false);
+
+                    const isNextDisabled = typeof filterMonth === 'number' && typeof filterYear === 'number'
+                      ? (filterYear >= maxContribYear && filterMonth >= 12)
+                      : (filterMonth === 'all' && typeof filterYear === 'number' ? filterYear >= maxContribYear : false);
+
+                    const handleFilterChange = (newMonth: number | 'all', newYear: number | 'all') => {
+                      setFilterMonth(newMonth);
+                      setFilterYear(newYear);
+                      setAppliedFilter({ month: newMonth, year: newYear });
+                      setPaymentMethodFilter('all');
+                    };
+
+                    const handlePrevMonth = () => {
+                      if (filterYear === 'all') {
+                        const targetM = currentCalMonth <= 1 ? 12 : currentCalMonth - 1;
+                        const targetY = currentCalMonth <= 1 ? currentCalYear - 1 : currentCalYear;
+                        handleFilterChange(targetM, targetY);
+                        return;
+                      }
+                      if (filterMonth === 'all') {
+                        if (filterYear > minContribYear) {
+                          handleFilterChange('all', (filterYear as number) - 1);
+                        }
+                        return;
+                      }
+                      if (filterMonth === 1) {
+                        if ((filterYear as number) > minContribYear) {
+                          handleFilterChange(12, (filterYear as number) - 1);
+                        }
+                      } else {
+                        handleFilterChange((filterMonth as number) - 1, filterYear);
+                      }
+                    };
+
+                    const handleNextMonth = () => {
+                      if (filterYear === 'all') {
+                        const targetM = currentCalMonth >= 12 ? 1 : currentCalMonth + 1;
+                        const targetY = currentCalMonth >= 12 ? currentCalYear + 1 : currentCalYear;
+                        handleFilterChange(targetM, targetY);
+                        return;
+                      }
+                      if (filterMonth === 'all') {
+                        if (filterYear < maxContribYear) {
+                          handleFilterChange('all', (filterYear as number) + 1);
+                        }
+                        return;
+                      }
+                      if (filterMonth === 12) {
+                        if ((filterYear as number) < maxContribYear) {
+                          handleFilterChange(1, (filterYear as number) + 1);
+                        }
+                      } else {
+                        handleFilterChange((filterMonth as number) + 1, filterYear);
+                      }
+                    };
+
+                    return (
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shrink-0 shadow-xs">
+                            <Calendar className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-bold text-base sm:text-lg text-slate-900">
+                                {isAdmin ? 'All Contributions Filter' : 'Contribution History Filter'}
+                              </h3>
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                {filterMonth === 'all' && filterYear === 'all'
+                                  ? 'Lifetime History'
+                                  : filterMonth === 'all'
+                                    ? `All Months (${filterYear})`
+                                    : filterYear === 'all'
+                                      ? `${format(new Date(2026, (filterMonth as number) - 1, 1), 'MMMM')} (All Years)`
+                                      : format(new Date(Number(filterYear) || 2026, (filterMonth as number) - 1, 1), 'MMMM yyyy')}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 font-medium mt-0.5">
+                              Filter records by month or view full year contributions across all members
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Smart Traversable Month & Year Controls matching Monthly Collection Summary */}
+                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap self-start lg:self-auto">
+                          <div className="flex items-center bg-white rounded-2xl p-1 border-2 border-indigo-200/90 shadow-2xs">
+                            <button 
+                              type="button"
+                              disabled={isPrevDisabled}
+                              onClick={handlePrevMonth}
+                              className={cn(
+                                "p-2 rounded-xl transition-all",
+                                isPrevDisabled 
+                                  ? "text-slate-300 cursor-not-allowed opacity-40" 
+                                  : "text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
+                              )}
+                              title={isPrevDisabled ? "Beginning of records" : "Previous Month"}
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            
+                            {/* Month Dropdown with 'All Months (Full Year)' option */}
+                            <select 
+                              value={filterMonth}
+                              onChange={(e) => {
+                                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                                handleFilterChange(val, filterYear);
+                              }}
+                              className="bg-transparent text-slate-800 font-bold text-xs sm:text-sm px-2 sm:px-2.5 py-1 focus:outline-none cursor-pointer"
+                            >
+                              <option value="all" className="bg-white text-slate-900 font-semibold">
+                                All Months (Full Year)
                               </option>
-                            ))}
-                          </select>
+                              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                                <option key={`filter-m-${m}`} value={m} className="bg-white text-slate-900 font-semibold">
+                                  {format(new Date(2026, m - 1, 1), "MMMM")}
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* Year Dropdown with 'All Years (Lifetime History)' option */}
+                            <select 
+                              value={filterYear}
+                              onChange={(e) => {
+                                const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                                handleFilterChange(filterMonth, val);
+                              }}
+                              className="bg-transparent text-slate-800 font-bold text-xs sm:text-sm px-2 sm:px-2.5 py-1 focus:outline-none cursor-pointer border-l border-slate-200"
+                            >
+                              <option value="all" className="bg-white text-slate-900 font-semibold">
+                                All Years (Lifetime)
+                              </option>
+                              {availableContributionYears.map(y => (
+                                <option key={`filter-y-${y}`} value={y} className="bg-white text-slate-900 font-semibold">
+                                  {y}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button 
+                              type="button"
+                              disabled={isNextDisabled}
+                              onClick={handleNextMonth}
+                              className={cn(
+                                "p-2 rounded-xl transition-all",
+                                isNextDisabled 
+                                  ? "text-slate-300 cursor-not-allowed opacity-40" 
+                                  : "text-slate-500 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
+                              )}
+                              title={isNextDisabled ? "End of records" : "Next Month"}
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {(filterMonth !== currentCalMonth || filterYear !== currentCalYear) && (
+                            <button 
+                              type="button"
+                              onClick={() => handleFilterChange(currentCalMonth, currentCalYear)}
+                              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-xs font-bold rounded-2xl text-white transition-all shadow-sm whitespace-nowrap cursor-pointer"
+                            >
+                              Current Month
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-2 ml-1 tracking-wider">Year</label>
-                        <div className="relative">
-                          <select 
-                            value={filterYear}
-                            onChange={(e) => setFilterYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                            className="w-full p-3.5 bg-white rounded-2xl border-2 border-indigo-200/90 text-slate-900 font-semibold focus:ring-4 focus:ring-indigo-100 focus:border-indigo-600 outline-none transition-all cursor-pointer shadow-2xs text-sm"
-                          >
-                            <option value="all">All Years (Lifetime History)</option>
-                            {availableContributionYears.map(y => (
-                              <option key={`filter-year-${y}`} value={y}>{y}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                      <button 
-                        onClick={() => {
-                          setAppliedFilter({ month: filterMonth, year: filterYear });
-                          setPaymentMethodFilter('all');
-                        }}
-                        className="px-6 sm:px-8 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm whitespace-nowrap"
-                      >
-                        <Search className="w-4 h-4" /> Show Payments
-                      </button>
-                    </div>
-                  </div>
+                    );
+                  })()}
 
                   {isAdmin && appliedFilter && (
                     <div className="mt-6 pt-6 border-t border-indigo-100/90 flex flex-wrap gap-4">

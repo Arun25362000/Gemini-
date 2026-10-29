@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { 
-  CreditCard, CheckCircle2, Calendar, AlertCircle, ChevronDown, Search, Check, IndianRupee, Layers
+  CreditCard, CheckCircle2, Calendar, AlertCircle, ChevronDown, Search, Check, IndianRupee, Layers,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { Loan, LoanPayment, UserProfile } from '../types';
 import { cn, getSafeMemberDisplayName } from '../lib/utils';
@@ -28,6 +29,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
   const now = new Date();
   const currentCalMonth = now.getMonth() + 1;
   const currentCalYear = now.getFullYear();
+  const currentMonthShort = format(now, 'MMM');
 
   // Helper to extract loan sanctioned date
   const getLoanSanctionDate = (loan: Loan): Date => {
@@ -93,14 +95,43 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
   }, [loans, loanPayments]);
 
   // Determine currently selected active loan (default to first active loan if none selected or if selected is settled)
+  const [internalSelectedLoanId, setInternalSelectedLoanId] = useState<string | null>(null);
+  const activeLoanId = selectedLoanId || internalSelectedLoanId;
+
   const currentLoan = useMemo(() => {
     if (activeLoans.length === 0) return null;
-    if (selectedLoanId) {
-      const found = activeLoans.find(l => l.id === selectedLoanId);
+    if (activeLoanId) {
+      const found = activeLoans.find(l => l.id === activeLoanId);
       if (found) return found;
     }
     return activeLoans[0];
-  }, [activeLoans, selectedLoanId]);
+  }, [activeLoans, activeLoanId]);
+
+  const currentLoanIndex = useMemo(() => {
+    if (!currentLoan) return -1;
+    return activeLoans.findIndex(l => l.id === currentLoan.id);
+  }, [activeLoans, currentLoan]);
+
+  const handleSelectLoan = (loanId: string) => {
+    setInternalSelectedLoanId(loanId);
+    if (onSelectLoan) {
+      onSelectLoan(loanId);
+    }
+  };
+
+  const handlePrevLoan = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (activeLoans.length === 0) return;
+    const prevIdx = currentLoanIndex <= 0 ? activeLoans.length - 1 : currentLoanIndex - 1;
+    handleSelectLoan(activeLoans[prevIdx].id);
+  };
+
+  const handleNextLoan = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (activeLoans.length === 0) return;
+    const nextIdx = currentLoanIndex >= activeLoans.length - 1 ? 0 : currentLoanIndex + 1;
+    handleSelectLoan(activeLoans[nextIdx].id);
+  };
 
   // Monthly Collection Real-Time Counts for current collection month (Loan: Paid: <count>, Due: <count>)
   // Strictly matches the logic in Monthly Collection Summary ribbon
@@ -312,7 +343,20 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
               </span>
             </div>
 
-            {/* Member Name with L# and exact Detail Badges: Sanctioned Date, Loan: Paid count, Due count matching Monthly Collection Summary */}
+            {/* Loan Repayment Counts placed directly under the ribbon title label */}
+            <div className="flex items-center gap-1.5 flex-nowrap shrink-0 mt-1.5 text-[11px] sm:text-xs">
+              <span className="font-bold text-slate-700">{currentMonthShort} Loan Payments -</span>
+              <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
+                Paid: {collectionCounts.loanPaidCount}
+              </span>
+              <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                Due: {collectionCounts.loanDueCount}
+              </span>
+            </div>
+
+            {/* Member Details: Member Name + L#, (LN-XXXXXX), and Sanctioned Date come below */}
             <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-[11px] sm:text-xs font-medium mt-1.5">
               {/* Member Name + L# */}
               <div className="flex items-center gap-1.5 shrink-0">
@@ -334,135 +378,144 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 <span className="text-sky-600 font-medium">Sanctioned Date:</span>
                 <span className="font-bold text-sky-900">{stats.sanctionedDateStr}</span>
               </span>
-
-              <span className="text-slate-300 hidden sm:inline select-none">•</span>
-
-              {/* Loan Repayment Counts matching Monthly Collection Summary ribbon */}
-              <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
-                <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Loan -</span>
-                <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
-                  Paid: {collectionCounts.loanPaidCount}
-                </span>
-                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-                  Due: {collectionCounts.loanDueCount}
-                </span>
-              </div>
             </div>
           </div>
         </div>
 
-        {/* Compact Dropdown: Member name on left, colored box status right-aligned */}
-        <div className="relative self-stretch lg:self-auto shrink-0 min-w-[240px] sm:min-w-[280px] lg:min-w-[300px]">
-          {/* Dropdown Trigger Button */}
-          <button
-            type="button"
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="w-full flex items-center justify-between gap-2.5 px-3.5 py-2 bg-white hover:bg-slate-50 border-2 border-indigo-200/90 hover:border-indigo-300 rounded-xl shadow-2xs transition-all text-left text-xs font-bold text-slate-800 cursor-pointer"
-            title="Select Active Loan Member"
-          >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="truncate text-slate-900 font-bold">
-                {stats.memberName}
-              </span>
-              <span className="text-indigo-600 font-extrabold shrink-0 text-[11px]">
-                L#{stats.loanSeqNum}
-              </span>
-            </div>
+        {/* Loan Member Traverser (1/X) & Compact Dropdown */}
+        <div className="flex items-center gap-2 self-stretch lg:self-auto shrink-0 flex-wrap sm:flex-nowrap">
+          {/* Previous / Next buttons traversing across active loans */}
+          <div className="flex items-center bg-white border-2 border-indigo-200/90 rounded-xl shadow-2xs overflow-hidden shrink-0 h-[38px]">
+            <button
+              type="button"
+              onClick={handlePrevLoan}
+              className="px-2 h-full hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-colors border-r border-indigo-200/90 disabled:opacity-40 cursor-pointer flex items-center justify-center"
+              title="Previous Active Loan Member"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="px-2.5 text-[11px] font-bold text-slate-700 select-none whitespace-nowrap">
+              {currentLoanIndex + 1} / {activeLoans.length}
+            </span>
+            <button
+              type="button"
+              onClick={handleNextLoan}
+              className="px-2 h-full hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 transition-colors disabled:opacity-40 cursor-pointer flex items-center justify-center"
+              title="Next Active Loan Member"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              {renderStatusBadge(stats.currentMonthStatus)}
-              <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
-            </div>
-          </button>
-
-          {/* Custom Dropdown Menu with Backdrop */}
-          {isDropdownOpen && (
-            <>
-              <div 
-                className="fixed inset-0 z-40" 
-                onClick={() => {
-                  setIsDropdownOpen(false);
-                  setSearchFilter('');
-                }} 
-              />
-              <div className="absolute right-0 top-full mt-1.5 w-full sm:w-84 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 p-1.5 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-                {/* Search box if list has multiple members */}
-                {activeLoans.length > 4 && (
-                  <div className="p-1.5 border-b border-slate-100">
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search member..."
-                        value={searchFilter}
-                        onChange={(e) => setSearchFilter(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-indigo-400"
-                        autoFocus
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* List of Active Loan Members */}
-                <div className="max-h-64 overflow-y-auto divide-y divide-slate-50 py-1">
-                  {filteredActiveLoans.length === 0 ? (
-                    <p className="text-center py-3 text-xs text-slate-400 font-medium">No matching active loans</p>
-                  ) : (
-                    filteredActiveLoans.map((l) => {
-                      const borrower = allUsers.find(u => 
-                        (l.userId && u.uid === l.userId) || 
-                        (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
-                      );
-                      const name = getSafeMemberDisplayName(borrower || l.userEmail, borrower?.phoneNumber, borrower?.email);
-                      const statusInfo = getLoanMonthStatus(l);
-                      const seq = getMemberLoanSequenceNumber(l);
-                      const isSelected = stats.loan.id === l.id;
-
-                      return (
-                        <button
-                          key={l.id}
-                          type="button"
-                          onClick={() => {
-                            if (onSelectLoan) {
-                              onSelectLoan(l.id);
-                            }
-                            setIsDropdownOpen(false);
-                            setSearchFilter('');
-                          }}
-                          className={cn(
-                            "w-full flex items-center justify-between gap-3 px-3 py-2 text-left rounded-xl transition-all cursor-pointer group",
-                            isSelected 
-                              ? "bg-indigo-50/90 text-indigo-950 font-bold" 
-                              : "hover:bg-slate-50 text-slate-700"
-                          )}
-                        >
-                          {/* Left Side: Member Name and L# */}
-                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                            {isSelected && (
-                              <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                            )}
-                            <span className={cn("text-xs truncate", isSelected ? "font-black text-indigo-950" : "font-semibold text-slate-800")}>
-                              {name}
-                            </span>
-                            <span className="text-indigo-600 font-extrabold text-[11px] shrink-0">
-                              L#{seq}
-                            </span>
-                          </div>
-
-                          {/* Right Side: Status Badge (Right Aligned) */}
-                          <div className="shrink-0 ml-2">
-                            {renderStatusBadge(statusInfo)}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+          {/* Compact Dropdown: Member name on left, colored box status right-aligned */}
+          <div className="relative flex-1 min-w-[200px] sm:min-w-[240px] lg:min-w-[260px]">
+            {/* Dropdown Trigger Button */}
+            <button
+              type="button"
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="w-full flex items-center justify-between gap-2.5 px-3.5 py-2 bg-white hover:bg-slate-50 border-2 border-indigo-200/90 hover:border-indigo-300 rounded-xl shadow-2xs transition-all text-left text-xs font-bold text-slate-800 cursor-pointer"
+              title="Select Active Loan Member"
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="truncate text-slate-900 font-bold">
+                  {stats.memberName}
+                </span>
+                <span className="text-indigo-600 font-extrabold shrink-0 text-[11px]">
+                  L#{stats.loanSeqNum}
+                </span>
               </div>
-            </>
-          )}
+
+              <div className="flex items-center gap-2 shrink-0">
+                {renderStatusBadge(stats.currentMonthStatus)}
+                <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
+              </div>
+            </button>
+
+            {/* Custom Dropdown Menu with Backdrop */}
+            {isDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => {
+                    setIsDropdownOpen(false);
+                    setSearchFilter('');
+                  }} 
+                />
+                <div className="absolute right-0 top-full mt-1.5 w-full sm:w-84 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 p-1.5 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                  {/* Search box if list has multiple members */}
+                  {activeLoans.length > 4 && (
+                    <div className="p-1.5 border-b border-slate-100">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search member..."
+                          value={searchFilter}
+                          onChange={(e) => setSearchFilter(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-indigo-400"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* List of Active Loan Members */}
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-50 py-1">
+                    {filteredActiveLoans.length === 0 ? (
+                      <p className="text-center py-3 text-xs text-slate-400 font-medium">No matching active loans</p>
+                    ) : (
+                      filteredActiveLoans.map((l) => {
+                        const borrower = allUsers.find(u => 
+                          (l.userId && u.uid === l.userId) || 
+                          (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
+                        );
+                        const name = getSafeMemberDisplayName(borrower || l.userEmail, borrower?.phoneNumber, borrower?.email);
+                        const statusInfo = getLoanMonthStatus(l);
+                        const seq = getMemberLoanSequenceNumber(l);
+                        const isSelected = stats.loan.id === l.id;
+
+                        return (
+                          <button
+                            key={l.id}
+                            type="button"
+                            onClick={() => {
+                              handleSelectLoan(l.id);
+                              setIsDropdownOpen(false);
+                              setSearchFilter('');
+                            }}
+                            className={cn(
+                              "w-full flex items-center justify-between gap-3 px-3 py-2 text-left rounded-xl transition-all cursor-pointer group",
+                              isSelected 
+                                ? "bg-indigo-50/90 text-indigo-950 font-bold" 
+                                : "hover:bg-slate-50 text-slate-700"
+                            )}
+                          >
+                            {/* Left Side: Member Name and L# */}
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              {isSelected && (
+                                <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                              )}
+                              <span className={cn("text-xs truncate", isSelected ? "font-black text-indigo-950" : "font-semibold text-slate-800")}>
+                                {name}
+                              </span>
+                              <span className="text-indigo-600 font-extrabold text-[11px] shrink-0">
+                                L#{seq}
+                              </span>
+                            </div>
+
+                            {/* Right Side: Status Badge (Right Aligned) */}
+                            <div className="shrink-0 ml-2">
+                              {renderStatusBadge(statusInfo)}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
