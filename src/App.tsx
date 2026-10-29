@@ -4645,8 +4645,37 @@ export default function App() {
     }
   };
 
+  // Helper to check if a payment cycle is closed (post monthly close, strictly after 10th of the month)
+  const isPostMonthlyClose = (recordMonth?: number, recordYear?: number): boolean => {
+    const now = new Date();
+    const curDay = now.getDate();
+    const curMonth = now.getMonth() + 1; // 1-12
+    const curYear = now.getFullYear();
+
+    if (!recordMonth || !recordYear) {
+      return curDay > 10;
+    }
+
+    // Any past month/year has already passed its 10th day
+    if (recordYear < curYear || (recordYear === curYear && recordMonth < curMonth)) {
+      return true;
+    }
+    // For current month/year, it closes strictly after the 10th (i.e. day 11 onwards)
+    if (recordYear === curYear && recordMonth === curMonth) {
+      return curDay > 10;
+    }
+    // Future/advance month cycle has not reached its 10th close yet
+    return false;
+  };
+
   const deleteContribution = async (id: string) => {
     if (profile?.role !== 'admin') return;
+    const target = contributions.find(c => c.id === id);
+    if (target && isPostMonthlyClose(target.month, target.year)) {
+      notify('error', "Cannot delete contribution post monthly close (after 10th of the month).");
+      setDeletingId(null);
+      return;
+    }
     try {
       await deleteDoc(doc(db, 'contributions', id));
       setDeletingId(null);
@@ -7997,8 +8026,13 @@ ${scheduleHighlights}
 
   const deleteLoanRepayment = async (paymentId: string) => {
     if (profile?.role !== 'admin') return;
+    const payment = loanPayments.find(p => p.id === paymentId);
+    if (payment && isPostMonthlyClose(payment.month, payment.year)) {
+      notify('error', "Cannot delete loan repayment post monthly close (after 10th of the month).");
+      setDeletingRepaymentId(null);
+      return;
+    }
     try {
-      const payment = loanPayments.find(p => p.id === paymentId);
       await deleteDoc(doc(db, 'loanPayments', paymentId));
       if (payment) {
         const loan = loans.find(l => l.id === payment.loanId);
@@ -12081,13 +12115,24 @@ ${scheduleHighlights}
                                                                   </button>
                                                                 )}
                                                                 {(payment?.id || displayPayment?.id) && (
-                                                                  <button 
-                                                                    onClick={() => setDeletingRepaymentId((payment?.id || displayPayment?.id)!)}
-                                                                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all border border-slate-200/60 hover:border-red-200 cursor-pointer"
-                                                                    title="Delete Repayment Record"
-                                                                  >
-                                                                    <Trash2 className="w-4 h-4 text-red-500" />
-                                                                  </button>
+                                                                  (() => {
+                                                                    const isClosed = isPostMonthlyClose(payment?.month || displayPayment?.month || installmentMonth, payment?.year || displayPayment?.year || installmentYear);
+                                                                    return (
+                                                                      <button 
+                                                                        disabled={isClosed}
+                                                                        onClick={() => setDeletingRepaymentId((payment?.id || displayPayment?.id)!)}
+                                                                        className={cn(
+                                                                          "p-1.5 rounded-xl transition-all border",
+                                                                          isClosed
+                                                                            ? "text-slate-300 opacity-40 cursor-not-allowed border-slate-200/40 hover:bg-transparent"
+                                                                            : "text-slate-400 hover:text-red-600 hover:bg-red-50 border-slate-200/60 hover:border-red-200 cursor-pointer"
+                                                                        )}
+                                                                        title={isClosed ? "Deletion disabled post monthly close (after 10th)" : "Delete Repayment Record"}
+                                                                      >
+                                                                        <Trash2 className={cn("w-4 h-4", isClosed ? "text-slate-300" : "text-red-500")} />
+                                                                      </button>
+                                                                    );
+                                                                  })()
                                                                 )}
                                                               </>
                                                             )}
@@ -12428,13 +12473,24 @@ ${scheduleHighlights}
                                                     <span className="text-sm font-black text-slate-950">₹{total.toLocaleString('en-IN')}</span>
                                                   </div>
                                                   {isAdmin && !isSettledOrClosed && isPaid && targetPaymentId && (
-                                                    <button 
-                                                      onClick={() => setDeletingRepaymentId(targetPaymentId)}
-                                                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer border border-slate-200/60"
-                                                      title="Delete Repayment Record"
-                                                    >
-                                                      <Trash2 className="w-4 h-4 text-red-500" />
-                                                    </button>
+                                                    (() => {
+                                                      const isClosed = isPostMonthlyClose(payment?.month || displayPayment?.month || installmentMonth, payment?.year || displayPayment?.year || installmentYear);
+                                                      return (
+                                                        <button 
+                                                          disabled={isClosed}
+                                                          onClick={() => setDeletingRepaymentId(targetPaymentId)}
+                                                          className={cn(
+                                                            "p-1.5 rounded-xl transition-colors border",
+                                                            isClosed
+                                                              ? "text-slate-300 opacity-40 cursor-not-allowed border-slate-200/40 hover:bg-transparent"
+                                                              : "text-slate-400 hover:text-red-600 hover:bg-red-50 border-slate-200/60 cursor-pointer"
+                                                          )}
+                                                          title={isClosed ? "Deletion disabled post monthly close (after 10th)" : "Delete Repayment Record"}
+                                                        >
+                                                          <Trash2 className={cn("w-4 h-4", isClosed ? "text-slate-300" : "text-red-500")} />
+                                                        </button>
+                                                      );
+                                                    })()
                                                   )}
                                                 </div>
                                               </div>
@@ -15067,14 +15123,25 @@ ${scheduleHighlights}
                                     </button>
                                   )}
                                   {isAdmin && (
-                                    <button 
-                                      type="button"
-                                      onClick={() => setDeletingId(c.id!)}
-                                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
-                                      title="Delete"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    (() => {
+                                      const isClosed = isPostMonthlyClose(c.month, c.year);
+                                      return (
+                                        <button 
+                                          type="button"
+                                          disabled={isClosed}
+                                          onClick={() => setDeletingId(c.id!)}
+                                          className={cn(
+                                            "p-1.5 rounded-lg transition-all",
+                                            isClosed
+                                              ? "text-slate-300 opacity-40 cursor-not-allowed hover:bg-transparent"
+                                              : "text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                                          )}
+                                          title={isClosed ? "Deletion disabled post monthly close (after 10th)" : "Delete"}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      );
+                                    })()
                                   )}
                                 </div>
                               </td>
@@ -15229,14 +15296,25 @@ ${scheduleHighlights}
                                     <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                                   </button>
                                 )}
-                                <button 
-                                  type="button"
-                                  onClick={() => setDeletingId(c.id!)}
-                                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all active:scale-95 cursor-pointer"
-                                  title="Delete Record"
-                                >
-                                  <Trash2 className="w-4 h-4 text-red-500" />
-                                </button>
+                                {(() => {
+                                  const isClosed = isPostMonthlyClose(c.month, c.year);
+                                  return (
+                                    <button 
+                                      type="button"
+                                      disabled={isClosed}
+                                      onClick={() => setDeletingId(c.id!)}
+                                      className={cn(
+                                        "p-2 rounded-xl transition-all",
+                                        isClosed
+                                          ? "text-slate-300 opacity-40 cursor-not-allowed hover:bg-transparent"
+                                          : "text-slate-400 hover:text-red-600 hover:bg-red-50 active:scale-95 cursor-pointer"
+                                      )}
+                                      title={isClosed ? "Deletion disabled post monthly close (after 10th)" : "Delete Record"}
+                                    >
+                                      <Trash2 className={cn("w-4 h-4", isClosed ? "text-slate-300" : "text-red-500")} />
+                                    </button>
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>
