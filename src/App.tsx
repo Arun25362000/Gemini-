@@ -13985,7 +13985,7 @@ ${scheduleHighlights}
                               >
                                 {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                                   <option key={`coll-m-${m}`} value={m} className="bg-white text-slate-900">
-                                    {format(new Date(2026, m - 1, 1), "MMMM")}
+                                    {format(new Date(2026, m - 1, 1), "MMM")}
                                   </option>
                                 ))}
                               </select>
@@ -14805,7 +14805,7 @@ ${scheduleHighlights}
                               </option>
                               {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                                 <option key={`filter-m-${m}`} value={m} className="bg-white text-slate-900 font-semibold">
-                                  {format(new Date(2026, m - 1, 1), "MMMM")}
+                                  {format(new Date(2026, m - 1, 1), "MMM")}
                                 </option>
                               ))}
                             </select>
@@ -15596,7 +15596,12 @@ ${scheduleHighlights}
                               const parts = paymentModal.note.split(' ');
                               const yearStr = parts[parts.length - 1];
                               const monthName = parts[parts.length - 2];
-                              const monthMap: any = { 'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12 };
+                              const monthMap: any = { 
+                                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 
+                                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12,
+                                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'Jun': 6,
+                                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                              };
                               const month = monthMap[monthName] || (new Date().getMonth() + 1);
                               const year = parseInt(yearStr) || new Date().getFullYear();
                               const paymentDateToRecord = paymentDate || format(new Date(), 'yyyy-MM-dd');
@@ -18794,7 +18799,7 @@ ${scheduleHighlights}
                         >
                           {Array.from({ length: 12 }).map((_, i) => (
                             <option key={`contrib-reg-month-${i + 1}`} value={i + 1}>
-                              {format(new Date(2024, i, 1), 'MMMM')}
+                              {format(new Date(2024, i, 1), 'MMM')}
                             </option>
                           ))}
                         </select>

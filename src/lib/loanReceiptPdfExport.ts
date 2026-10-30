@@ -159,7 +159,7 @@ export function generateLoanReceiptPdfDoc(options: LoanReceiptPdfOptions): LoanR
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.text('OFFICIAL LOAN INSTALLMENT REPAYMENT RECEIPT', pageWidth / 2, 45.5, { align: 'center' });
+  doc.text('LOAN INSTALLMENT REPAYMENT RECEIPT', pageWidth / 2, 45.5, { align: 'center' });
 
   // Receipt Number & Date
   doc.setFontSize(9);
@@ -228,21 +228,21 @@ export function generateLoanReceiptPdfDoc(options: LoanReceiptPdfOptions): LoanR
       fillColor: primaryIndigo as any,
       textColor: [255, 255, 255],
       fontStyle: 'bold',
-      fontSize: 9,
+      fontSize: 8.5,
       halign: 'center'
     },
     bodyStyles: {
-      fontSize: 9,
-      cellPadding: 4,
+      fontSize: 8.5,
+      cellPadding: 3.5,
       halign: 'center'
     },
     columnStyles: {
-      0: { cellWidth: 15, halign: 'center' },
-      1: { cellWidth: 60, halign: 'left' },
-      2: { cellWidth: 35, halign: 'center' },
-      3: { cellWidth: 25, halign: 'right' },
-      4: { cellWidth: 25, halign: 'right' },
-      5: { cellWidth: 25, halign: 'right', fontStyle: 'bold' }
+      0: { cellWidth: 14, halign: 'center' },
+      1: { cellWidth: 54, halign: 'left' },
+      2: { cellWidth: 32, halign: 'center' },
+      3: { cellWidth: 23, halign: 'right' },
+      4: { cellWidth: 23, halign: 'right' },
+      5: { cellWidth: 24, halign: 'right', fontStyle: 'bold' }
     }
   });
 

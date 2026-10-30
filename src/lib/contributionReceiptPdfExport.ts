@@ -218,106 +218,75 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
   // Receipt Badge Banner
   doc.setFillColor(245, 247, 255); // very soft indigo
   doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(marginX + 4, 38, contentWidth - 8, 10, 1.5, 1.5, 'FD');
+  doc.setLineWidth(0.4);
+  doc.roundedRect(marginX + 8, 38, contentWidth - 16, 12, 2, 2, 'FD');
 
   doc.setFontSize(11);
   doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
   doc.setFont('helvetica', 'bold');
   doc.text(
-    isAdvance ? 'OFFICIAL PAYMENT RECEIPT (ADVANCE CONTRIBUTION)' : 'OFFICIAL PAYMENT RECEIPT (MONTHLY CONTRIBUTION)',
+    isAdvance ? 'PAYMENT RECEIPT (ADVANCE CONTRIBUTION)' : 'PAYMENT RECEIPT (MONTHLY CONTRIBUTION)',
     pageWidth / 2,
-    44.5,
+    45.5,
     { align: 'center' }
   );
 
-  // ==================== 2. RECEIPT METADATA GRID ====================
-  const metaY = 53;
-  const colW = (contentWidth - 8) / 2;
-
-  // Left column: Receipt No & Payment Mode
-  doc.setFontSize(8.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  // Receipt Number & Date
+  doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text('RECEIPT NUMBER:', marginX + 6, metaY);
   doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text(receiptNumber, marginX + 38, metaY);
+  doc.text(`Receipt No: ${receiptNumber}`, marginX + 10, 57);
 
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.text('PAYMENT DATE:', marginX + 6, metaY + 6);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text(paymentDateStr, marginX + 38, metaY + 6);
-
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.text('PAYMENT MODE:', marginX + 6, metaY + 12);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text((c.paymentMethod || 'Online').toUpperCase(), marginX + 38, metaY + 12);
-
-  // Right column: Payment Status & Transaction ID
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.text('PAYMENT STATUS:', marginX + colW + 8, metaY);
-
-  // Status Badge in green
-  doc.setFillColor(236, 253, 245); // emerald-50
-  doc.setDrawColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setLineWidth(0.2);
-  doc.roundedRect(marginX + colW + 42, metaY - 3.8, 22, 5.5, 1, 1, 'FD');
-  doc.setFontSize(8);
-  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(c.status === 'paid' ? 'PAID' : c.status.toUpperCase(), marginX + colW + 53, metaY + 0.2, { align: 'center' });
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.text('REFERENCE ID:', marginX + colW + 8, metaY + 6);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text(c.id ? c.id.slice(0, 16) : 'N/A', marginX + colW + 42, metaY + 6);
-
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.text('PAYMENT TYPE:', marginX + colW + 8, metaY + 12);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.text(isAdvance ? 'Multi-Month Advance' : 'Regular Contribution', marginX + colW + 42, metaY + 12);
-
-  // Divider
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.line(marginX + 4, metaY + 17, marginX + contentWidth - 4, metaY + 17);
-
-  // ==================== 3. MEMBER DETAILS CARD ====================
-  const memberCardY = metaY + 21;
-  doc.setFillColor(248, 250, 252); // slate-50
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(marginX + 4, memberCardY, contentWidth - 8, 26, 1.5, 1.5, 'FD');
-
-  doc.setFontSize(8);
-  doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('RECEIVED WITH THANKS FROM (MEMBER DETAILS)', marginX + 8, memberCardY + 5.5);
-
-  doc.setFontSize(11);
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text(memberName, marginX + 8, memberCardY + 12.5);
-
-  doc.setFontSize(8.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Mobile / Contact: ${memberPhone}`, marginX + 8, memberCardY + 18);
-  doc.text(`Email Address: ${memberEmail}`, marginX + 8, memberCardY + 22.5);
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.text(`Date & Time: ${paymentDateStr}`, pageWidth - marginX - 10, 57, { align: 'right' });
 
-  doc.text(`Member Identifier: ${member?.uid || c.userId || 'N/A'}`, marginX + colW + 8, memberCardY + 18);
-  doc.text(`Subscription Period: ${periodText}`, marginX + colW + 8, memberCardY + 22.5);
+  // Member Particulars & Contribution Details Info Box (matching Loan Receipt Excel cells format)
+  autoTable(doc, {
+    startY: 62,
+    margin: { left: marginX + 6, right: marginX + 6 },
+    theme: 'grid',
+    styles: { fontSize: 8.5, cellPadding: 3, textColor: [30, 41, 59] },
+    headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold' },
+    body: [
+      [
+        { content: 'Member Name:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: memberName },
+        { content: 'Reference ID:', styles: { fontStyle: 'bold', cellWidth: 35 } },
+        { content: c.id ? c.id.slice(0, 16) : 'N/A' }
+      ],
+      [
+        { content: 'Contact Number:', styles: { fontStyle: 'bold' } },
+        { content: memberPhone },
+        { content: 'Payment Type:', styles: { fontStyle: 'bold' } },
+        { content: isAdvance ? 'Multi-Month Advance' : 'Regular Contribution' }
+      ],
+      [
+        { content: 'Email Address:', styles: { fontStyle: 'bold' } },
+        { content: memberEmail },
+        { content: 'Subscription Period:', styles: { fontStyle: 'bold' } },
+        { content: periodText }
+      ],
+      [
+        { content: 'Payment Mode:', styles: { fontStyle: 'bold' } },
+        { content: (c.paymentMethod || 'Online').toUpperCase() },
+        { content: 'Payment Status:', styles: { fontStyle: 'bold' } },
+        { content: 'SUCCESSFULLY RECEIVED & RECORDED', styles: { textColor: emeraldColor as any, fontStyle: 'bold' } }
+      ]
+    ]
+  });
+
+  const finalY1 = (doc as any).lastAutoTable?.finalY || 105;
 
   // ==================== 4. CONTRIBUTION PARTICULARS TABLE ====================
-  const tableStartY = memberCardY + 31;
+  const tableStartY = finalY1 + 6;
 
   const tableRows = coveredMonthsList.map((item, index) => {
     const monthName = MONTH_NAMES[item.month] || `Month ${item.month}`;
     const periodLabel = `${monthName} ${item.year}`;
     const desc = isAdvance 
       ? `Advance Group Contribution (${periodLabel})`
-      : `Monthly Group Contribution (${periodLabel})`;
+      : `Monthly member Contribution (${periodLabel})`;
 
     return [
       String(index + 1),
@@ -330,7 +299,7 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
 
   autoTable(doc, {
     startY: tableStartY,
-    margin: { left: marginX + 4, right: marginX + 4 },
+    margin: { left: marginX + 6, right: marginX + 6 },
     head: [['#', 'Particulars / Description', 'Period', 'Payment Mode', 'Amount']],
     body: tableRows,
     theme: 'grid',
@@ -340,30 +309,30 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
       fontStyle: 'bold',
       fontSize: 8.5,
       halign: 'left',
-      cellPadding: 2.2
+      cellPadding: 3
     },
     bodyStyles: {
       textColor: [30, 41, 59],
       fontSize: 8.5,
-      cellPadding: 2.2
+      cellPadding: 3
     },
     columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 'auto' },
-      2: { cellWidth: 38 },
-      3: { cellWidth: 28, halign: 'center' },
-      4: { cellWidth: 32, halign: 'right', fontStyle: 'bold' }
+      0: { cellWidth: 12, halign: 'center' },
+      1: { cellWidth: 68 },
+      2: { cellWidth: 36, halign: 'center' },
+      3: { cellWidth: 26, halign: 'center' },
+      4: { cellWidth: 28, halign: 'right', fontStyle: 'bold' }
     }
   });
 
   const finalTableY = (doc as any).lastAutoTable?.finalY || tableStartY + 25;
 
   // ==================== 5. TOTALS & WORDS BOX ====================
-  const totalsBoxY = finalTableY + 4;
+  const totalsBoxY = finalTableY + 6;
   doc.setFillColor(245, 247, 255);
   doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
   doc.setLineWidth(0.4);
-  doc.roundedRect(marginX + 4, totalsBoxY, contentWidth - 8, 22, 1.5, 1.5, 'FD');
+  doc.roundedRect(marginX + 6, totalsBoxY, contentWidth - 12, 22, 1.5, 1.5, 'FD');
 
   // Amount in Figures
   doc.setFontSize(9);
