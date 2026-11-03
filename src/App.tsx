@@ -731,6 +731,24 @@ export default function App() {
   const [originalEditingEmail, setOriginalEditingEmail] = useState<string | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
   const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs' | 'monthlyCollection' | 'reports'>('contributions');
+  const [isNavTabsExpanded, setIsNavTabsExpanded] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('unnati_nav_tabs_expanded');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleNavTabs = useCallback(() => {
+    setIsNavTabsExpanded(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('unnati_nav_tabs_expanded', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments' | 'breakdown' | 'projection'>('applications');
   const [projectionSelectedUserId, setProjectionSelectedUserId] = useState<string>('');
   const [adminProjectionScheduleExpanded, setAdminProjectionScheduleExpanded] = useState<boolean>(true);
@@ -829,6 +847,7 @@ export default function App() {
     targetUser?: UserProfile | null;
   } | null>(null);
   const [isExportingReceiptPdf, setIsExportingReceiptPdf] = useState<boolean>(false);
+  const [isEmailingReceipt, setIsEmailingReceipt] = useState<boolean>(false);
   const [memberActionMenu, setMemberActionMenu] = useState<{
     memberKey: string;
     member: UserProfile;
@@ -919,6 +938,14 @@ export default function App() {
   const [sentBatchMemberIds, setSentBatchMemberIds] = useState<string[]>([]);
   const [batchQueueIndex, setBatchQueueIndex] = useState<number>(-1);
   const [isBatchAutoRunning, setIsBatchAutoRunning] = useState<boolean>(false);
+
+  // Loan Repayment Batch WhatsApp Reminder State
+  const [showLoanBatchReminderModal, setShowLoanBatchReminderModal] = useState<boolean>(false);
+  const [loanBatchSearchQuery, setLoanBatchSearchQuery] = useState<string>('');
+  const [selectedLoanBatchIds, setSelectedLoanBatchIds] = useState<string[]>([]);
+  const [sentLoanBatchIds, setSentLoanBatchIds] = useState<string[]>([]);
+  const [loanBatchQueueIndex, setLoanBatchQueueIndex] = useState<number>(-1);
+  const [isLoanBatchAutoRunning, setIsLoanBatchAutoRunning] = useState<boolean>(false);
 
   const [deletingRepaymentId, setDeletingRepaymentId] = useState<string | null>(null);
 
@@ -1086,6 +1113,14 @@ export default function App() {
       }
       if (isPayingLoan) {
         setIsPayingLoan(false);
+        return;
+      }
+      if (showLoanBatchReminderModal) {
+        setShowLoanBatchReminderModal(false);
+        return;
+      }
+      if (showBatchReminderModal) {
+        setShowBatchReminderModal(false);
         return;
       }
       if (isApplyingLoan) {
@@ -2116,6 +2151,203 @@ export default function App() {
     }
     setBatchQueueIndex(nextIdx);
     sendSingleBatchWhatsApp(membersToSend[nextIdx]);
+  };
+
+  // Loan Repayment Batch WhatsApp Reminder Calculations & Handlers
+  const unpaidLoansForBatch = useMemo(() => {
+    const activeLoans = loans.filter(l => l.status === 'approved');
+    const items: Array<{
+      id: string;
+      loan: Loan;
+      targetUser?: UserProfile;
+      borrowerName: string;
+      borrowerEmail: string;
+      phoneNumber: string;
+      formattedPhone: string | null;
+      loanLabel: string;
+      approvedAmount: number;
+      remainingPrincipal: number;
+      principalDue: number;
+      interestDue: number;
+      totalDue: number;
+      repaymentMonth: number;
+      repaymentYear: number;
+      monthName: string;
+    }> = [];
+
+    const monthName = format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy');
+
+    for (const l of activeLoans) {
+      if (!l.id) continue;
+      
+      const targetUser = allUsers.find(u => 
+        (l.userId && u.uid === l.userId) || 
+        (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
+      );
+
+      const email = (l.userEmail || targetUser?.email || '').toLowerCase().trim();
+      const name = (targetUser?.displayName || l.userName || '').toLowerCase().trim();
+      // Exclude system administrator robot account
+      if (email === SYSTEM_ADMIN_EMAIL.toLowerCase() || email.includes('unnati.finance2026') || name === 'unnati') {
+        continue;
+      }
+
+      const payments = loanPayments.filter(p => p.loanId === l.id);
+      const paidPayments = payments.filter(p => p.status === 'paid');
+      const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      const remainingPrincipal = Math.max(0, (l.approvedAmount || l.amount || 0) - totalPrincipalPaid);
+
+      // Exclude if loan is already settled
+      if (remainingPrincipal <= 0) continue;
+
+      // Exclude if loan repayments start in a future month
+      if (isLoanRepaymentStartingInFuture(l, repaymentMonth, repaymentYear)) continue;
+
+      // Exclude if already paid or pending approval for selected month/year
+      const isPaidThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'paid');
+      const isPendingThisMonth = payments.some(p => p.month === repaymentMonth && p.year === repaymentYear && p.status === 'pending');
+      if (isPaidThisMonth || isPendingThisMonth) continue;
+
+      const loanSeq = getMemberLoanSequenceInfo(l, loans, allUsers);
+      const principalDue = Math.min(5000, remainingPrincipal);
+      const interestDue = Math.round(remainingPrincipal * 0.005);
+      const totalDue = principalDue + interestDue;
+      const borrowerName = targetUser?.displayName || l.userName || l.userEmail || 'Member';
+      const rawPhone = targetUser?.phoneNumber || (targetUser as any)?.phone || '';
+      const formattedPhone = formatWhatsAppNumber(rawPhone);
+
+      items.push({
+        id: l.id,
+        loan: l,
+        targetUser,
+        borrowerName,
+        borrowerEmail: targetUser?.email || l.userEmail || '',
+        phoneNumber: rawPhone,
+        formattedPhone,
+        loanLabel: loanSeq.label,
+        approvedAmount: l.approvedAmount || l.amount || 0,
+        remainingPrincipal,
+        principalDue,
+        interestDue,
+        totalDue,
+        repaymentMonth,
+        repaymentYear,
+        monthName,
+      });
+    }
+
+    return items;
+  }, [loans, loanPayments, allUsers, repaymentMonth, repaymentYear]);
+
+  // Open Loan Batch Reminder Modal
+  const openLoanBatchReminder = useCallback(() => {
+    const validIds = unpaidLoansForBatch
+      .filter(item => Boolean(item.formattedPhone))
+      .map(item => item.id);
+    setSelectedLoanBatchIds(validIds);
+    setSentLoanBatchIds([]);
+    setLoanBatchSearchQuery('');
+    setLoanBatchQueueIndex(-1);
+    setIsLoanBatchAutoRunning(false);
+    setShowLoanBatchReminderModal(true);
+  }, [unpaidLoansForBatch]);
+
+  // Filtered unpaid loans for dialog search
+  const filteredLoanBatchItems = useMemo(() => {
+    if (!loanBatchSearchQuery.trim()) return unpaidLoansForBatch;
+    const q = loanBatchSearchQuery.toLowerCase().trim();
+    return unpaidLoansForBatch.filter(item => {
+      const name = item.borrowerName.toLowerCase();
+      const email = item.borrowerEmail.toLowerCase();
+      const phone = (item.phoneNumber || '').toLowerCase();
+      const label = item.loanLabel.toLowerCase();
+      return name.includes(q) || email.includes(q) || phone.includes(q) || label.includes(q);
+    });
+  }, [unpaidLoansForBatch, loanBatchSearchQuery]);
+
+  // Toggle selection for all unpaid loans (or filtered if searching)
+  const toggleSelectAllLoanBatchItems = () => {
+    const targetPool = filteredLoanBatchItems;
+    const validIds = targetPool
+      .filter(item => Boolean(item.formattedPhone))
+      .map(item => item.id);
+    
+    const allSelected = validIds.length > 0 && validIds.every(id => selectedLoanBatchIds.includes(id));
+    if (allSelected) {
+      setSelectedLoanBatchIds(prev => prev.filter(id => !validIds.includes(id)));
+    } else {
+      setSelectedLoanBatchIds(prev => Array.from(new Set([...prev, ...validIds])));
+    }
+  };
+
+  // Toggle selection for single loan
+  const toggleSelectLoanBatchItem = (id: string) => {
+    setSelectedLoanBatchIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  // Format loan reminder message with proper loan details
+  const formatLoanReminderMessage = (item: typeof unpaidLoansForBatch[0]) => {
+    return `Hi ${item.borrowerName}, this is a reminder for your Unnati Loan Repayment (${item.loanLabel}) of ₹${item.totalDue.toLocaleString('en-IN')} for ${item.monthName}. (Principal: ₹${item.principalDue.toLocaleString('en-IN')}, Interest: ₹${item.interestDue.toLocaleString('en-IN')}, Balance: ₹${item.remainingPrincipal.toLocaleString('en-IN')}). Please pay before the 10th to avoid late fees. Ignore if already paid. Thanks!`;
+  };
+
+  // Send single WhatsApp reminder for loan item during batch
+  const sendSingleLoanBatchWhatsApp = (item: typeof unpaidLoansForBatch[0]) => {
+    if (!item.formattedPhone) {
+      notify('error', `No valid phone number for ${item.borrowerName}`);
+      return;
+    }
+    const msg = formatLoanReminderMessage(item);
+    setSentLoanBatchIds(prev => prev.includes(item.id) ? prev : [...prev, item.id]);
+    launchWhatsApp(item.formattedPhone, msg);
+  };
+
+  // Send WhatsApp loan reminders to all selected unpaid loans simultaneously in 1 click
+  const sendLoanBatchRemindersSimultaneously = (customItems?: typeof unpaidLoansForBatch) => {
+    const targetItems = customItems || unpaidLoansForBatch.filter(item => 
+      selectedLoanBatchIds.includes(item.id) &&
+      Boolean(item.formattedPhone)
+    );
+
+    if (targetItems.length === 0) {
+      notify('error', 'No unpaid active loans with valid phone numbers selected.');
+      return;
+    }
+
+    const newSent = targetItems.map(item => item.id);
+    setSentLoanBatchIds(prev => Array.from(new Set([...prev, ...newSent])));
+
+    // Dispatch the first loan borrower instantly with direct click gesture
+    const firstItem = targetItems[0];
+    if (firstItem.formattedPhone) {
+      launchWhatsApp(firstItem.formattedPhone, formatLoanReminderMessage(firstItem));
+    }
+
+    // Stagger remaining borrowers smoothly (800ms) to ensure browsers do not block multi-tab popups
+    if (targetItems.length > 1) {
+      targetItems.slice(1).forEach((item, idx) => {
+        setTimeout(() => {
+          if (item.formattedPhone) {
+            launchWhatsApp(item.formattedPhone, formatLoanReminderMessage(item));
+          }
+        }, (idx + 1) * 800);
+      });
+      notify('success', `Opening WhatsApp for ${targetItems.length} unpaid active loans simultaneously in 1 click!`);
+    } else {
+      notify('success', `Opening WhatsApp reminder for ${firstItem.borrowerName} (${firstItem.loanLabel})!`);
+    }
+  };
+
+  // Copy WhatsApp group broadcast text for unpaid loans
+  const copyLoanBatchGroupBroadcast = () => {
+    const monthName = format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy');
+    const loanListStr = unpaidLoansForBatch
+      .map((item, i) => `${i + 1}. ${item.borrowerName} (${item.loanLabel}) - Due: ₹${item.totalDue.toLocaleString('en-IN')} (Prin: ₹${item.principalDue.toLocaleString('en-IN')}, Int: ₹${item.interestDue.toLocaleString('en-IN')}, Balance: ₹${item.remainingPrincipal.toLocaleString('en-IN')})`)
+      .join('\n');
+    const text = `*Unnati Trust - Loan Repayment Reminder*\nMonth: ${monthName}\n\nDear Members, please ensure your monthly loan repayment is paid before the 10th to keep your loan account up-to-date.\n\n*Pending Loan Repayments (${unpaidLoansForBatch.length}):*\n${loanListStr}\n\nPlease ignore if already paid. Thank you!`;
+    navigator.clipboard.writeText(text);
+    notify('success', 'Loan repayment group reminder copied to clipboard! Paste it directly into your WhatsApp group.');
   };
 
     // Financial summary calculated directly from database records
@@ -7616,6 +7848,212 @@ export default function App() {
     }
   };
 
+  const handleEmailReceipt = async (c: Contribution, targetMember?: UserProfile | null) => {
+    try {
+      setIsEmailingReceipt(true);
+      const member = targetMember || allUsers.find(u => 
+        isContribMatchUser(c, u) ||
+        (c.userId && u.uid === c.userId) || 
+        (c.userEmail && u.email.toLowerCase() === c.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const recipientEmail = (member?.email || c.userEmail || '').trim();
+      if (!recipientEmail || recipientEmail === '-') {
+        notify('error', 'Member does not have a registered email address.');
+        return;
+      }
+
+      const { doc, fileName, receiptNumber } = generatePaymentReceiptPdfDoc({
+        contribution: c,
+        member,
+        allContributions: contributions,
+      });
+
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+      const isAdvance = Boolean(c.isAdvance || (c as any).isAdvanceYear);
+      let coveredList: Array<{ month: number; year: number; amount?: number }> = [];
+      const advMonths = (c as any).advanceMonths;
+      if (Array.isArray(advMonths) && advMonths.length > 0) {
+        coveredList = advMonths.map((m: any) => ({ month: m.month, year: m.year, amount: m.amount }));
+      } else if (c.transactionGroupId) {
+        const group = contributions.filter(item => item.transactionGroupId === c.transactionGroupId);
+        if (group.length > 1) {
+          coveredList = group
+            .sort((a, b) => (a.year * 100 + a.month) - (b.year * 100 + b.month))
+            .map(item => ({ month: item.month, year: item.year, amount: item.amount }));
+        }
+      }
+      if (coveredList.length === 0) {
+        coveredList = [{ month: c.month, year: c.year, amount: c.amount }];
+      }
+
+      const periodText = isAdvance && coveredList.length > 1
+        ? `${format(new Date(coveredList[0].year, coveredList[0].month - 1), 'MMMM yyyy')} — ${format(new Date(coveredList[coveredList.length - 1].year, coveredList[coveredList.length - 1].month - 1), 'MMMM yyyy')} (${coveredList.length} Months)`
+        : format(new Date(c.year, c.month - 1), 'MMMM yyyy');
+
+      let paymentDate = 'Recent';
+      if (c.timestamp?.toDate) {
+        paymentDate = format(c.timestamp.toDate(), 'dd MMMM yyyy, hh:mm a');
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/send-receipt-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: recipientEmail,
+          name: member?.displayName || (c as any).userName || 'Member',
+          receiptNumber,
+          title: isAdvance ? `Advance Contribution (${periodText})` : `Monthly Contribution (${periodText})`,
+          amount: c.amount || 1000,
+          date: paymentDate,
+          paymentMode: (c.paymentMethod || 'Online').toUpperCase(),
+          pdfBase64,
+          fileName
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        notify('success', `Receipt #${receiptNumber} successfully emailed to ${recipientEmail}`);
+      } else {
+        notify('error', data.message || 'Failed to send receipt email. Please verify SMTP settings.');
+      }
+    } catch (err: any) {
+      console.error('Failed to email Payment Receipt:', err);
+      notify('error', `Failed to send email: ${err?.message || 'Network error'}`);
+    } finally {
+      setIsEmailingReceipt(false);
+    }
+  };
+
+  const handleEmailLoanReceipt = async (
+    options: {
+      payment: LoanPayment;
+      loan: Loan;
+      installmentNum?: number;
+      installmentMonth?: number;
+      installmentYear?: number;
+      installmentDate?: Date;
+      principal?: number;
+      interest?: number;
+      total?: number;
+      paidPaymentsInMonth?: LoanPayment[];
+    },
+    targetMember?: UserProfile | null
+  ) => {
+    try {
+      setIsEmailingReceipt(true);
+      const borrower = targetMember || allUsers.find(u => 
+        (options.loan.userId && u.uid === options.loan.userId) || 
+        (options.loan.userEmail && u.email.toLowerCase() === options.loan.userEmail.toLowerCase()) ||
+        (options.payment.userId && u.uid === options.payment.userId) ||
+        (options.payment.userEmail && u.email.toLowerCase() === options.payment.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const recipientEmail = (borrower?.email || options.loan.userEmail || options.payment.userEmail || '').trim();
+      if (!recipientEmail || recipientEmail === '-') {
+        notify('error', 'Borrower does not have a registered email address.');
+        return;
+      }
+
+      const { doc, fileName, receiptNumber } = generateLoanReceiptPdfDoc({
+        ...options,
+        borrower,
+      });
+
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+      const totalAmount = options.total || (options.principal || 0) + (options.interest || 0);
+
+      const res = await fetch(`${API_BASE_URL}/api/send-receipt-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: recipientEmail,
+          name: borrower?.displayName || options.loan.userName || 'Member',
+          receiptNumber,
+          title: `Loan Installment Repayment (Installment #${options.installmentNum || 1})`,
+          amount: totalAmount,
+          date: options.installmentDate ? format(options.installmentDate, 'dd MMMM yyyy') : format(new Date(), 'dd MMMM yyyy'),
+          paymentMode: (options.payment.paymentMode || options.payment.paymentMethod || 'Online').toUpperCase(),
+          pdfBase64,
+          fileName
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        notify('success', `Loan Receipt #${receiptNumber} successfully emailed to ${recipientEmail}`);
+      } else {
+        notify('error', data.message || 'Failed to send loan receipt email. Please verify SMTP settings.');
+      }
+    } catch (err: any) {
+      console.error('Failed to email Loan Receipt:', err);
+      notify('error', `Failed to send email: ${err?.message || 'Network error'}`);
+    } finally {
+      setIsEmailingReceipt(false);
+    }
+  };
+
+  const handleEmailCumulativeLoanReceipt = async (
+    options: {
+      loan: Loan;
+      paidPayments: LoanPayment[];
+      totalTenure?: number;
+      borrower?: UserProfile | null;
+    }
+  ) => {
+    try {
+      setIsEmailingReceipt(true);
+      const targetMember = options.borrower || allUsers.find(u => 
+        (options.loan.userId && u.uid === options.loan.userId) || 
+        (options.loan.userEmail && u.email.toLowerCase() === options.loan.userEmail.toLowerCase())
+      ) || (user ? { displayName: user.displayName || '', email: user.email || '', phoneNumber: (user as any).phoneNumber || '' } as UserProfile : null);
+
+      const recipientEmail = (targetMember?.email || options.loan.userEmail || '').trim();
+      if (!recipientEmail || recipientEmail === '-') {
+        notify('error', 'Borrower does not have a registered email address.');
+        return;
+      }
+
+      const { doc, fileName, receiptNumber, totalPaidAmount } = generateCumulativeLoanReceiptPdfDoc({
+        loan: options.loan,
+        paidPayments: options.paidPayments,
+        totalTenure: options.totalTenure || options.loan.installments || 10,
+        borrower: targetMember
+      });
+
+      const pdfBase64 = doc.output('datauristring').split(',')[1];
+
+      const res = await fetch(`${API_BASE_URL}/api/send-receipt-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: recipientEmail,
+          name: targetMember?.displayName || options.loan.userName || 'Member',
+          receiptNumber,
+          title: 'Consolidated Loan Repayment Statement & Receipt',
+          amount: totalPaidAmount,
+          date: format(new Date(), 'dd MMMM yyyy'),
+          paymentMode: 'Consolidated Online & Cash',
+          pdfBase64,
+          fileName
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        notify('success', `Consolidated Receipt #${receiptNumber} successfully emailed to ${recipientEmail}`);
+      } else {
+        notify('error', data.message || 'Failed to send consolidated receipt email.');
+      }
+    } catch (err: any) {
+      console.error('Failed to email Consolidated Loan Receipt:', err);
+      notify('error', `Failed to send email: ${err?.message || 'Network error'}`);
+    } finally {
+      setIsEmailingReceipt(false);
+    }
+  };
+
   const [isExportingMonthlyPdf, setIsExportingMonthlyPdf] = useState(false);
 
   const exportMonthlyCollectionPdf = async (printDirectly: boolean = false) => {
@@ -9294,173 +9732,251 @@ ${scheduleHighlights}
         </div>
         )}
 
-        {isAdmin && (
-          <div className="w-full mb-6 sm:mb-8 overflow-hidden">
-            <div 
-              className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
-              style={{ WebkitOverflowScrolling: 'touch' }}
-            >
-              <div 
-                role="tablist"
-                aria-label="Admin Navigation Tabs"
-                className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-full border border-slate-200/80 shadow-2xs min-w-max"
-              >
-                {[
-                  {
-                    id: 'contributions' as const,
-                    label: 'Contributions',
-                    icon: Coins,
-                    hasPulse: Boolean(contributions.some(c => c.status === 'pending')),
-                    pulseColor: 'bg-amber-400',
-                  },
-                  {
-                    id: 'members' as const,
-                    label: 'Members',
-                    icon: Users,
-                  },
-                  {
-                    id: 'loans' as const,
-                    label: 'Loans',
-                    icon: CreditCard,
-                    hasPulse: Boolean(loans.some(l => l.status === 'pending')),
-                    pulseColor: 'bg-amber-400',
-                  },
-                  {
-                    id: 'notices' as const,
-                    label: 'Notices',
-                    icon: Megaphone,
-                  },
-                  {
-                    id: 'monthlyCollection' as const,
-                    label: 'Monthly Collection',
-                    icon: IndianRupee,
-                  },
-                  {
-                    id: 'graphs' as const,
-                    label: 'Graphs',
-                    icon: GraphIcon,
-                  },
-                  {
-                    id: 'reports' as const,
-                    label: 'Reports',
-                    icon: FileSpreadsheet,
-                  },
-                ].map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  const IconComp = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      role="tab"
-                      aria-selected={isActive}
-                      onClick={(e) => {
-                        setActiveTab(tab.id);
-                        e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-                      }}
-                      className={cn(
-                        "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
-                        isActive 
-                          ? "text-white" 
-                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                      )}
-                    >
-                      {isActive && (
-                        <motion.div
-                          layoutId="adminActiveTabPill"
-                          className="absolute inset-0 bg-indigo-600 rounded-full shadow-sm shadow-indigo-600/30"
-                          transition={{ type: "spring", stiffness: 450, damping: 35 }}
-                        />
-                      )}
-                      <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
-                        <IconComp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                        <span>{tab.label}</span>
-                        {tab.hasPulse && (
-                          <span className={cn(
-                            "w-2 h-2 rounded-full animate-pulse shrink-0",
-                            isActive ? "bg-amber-300" : (tab.pulseColor || "bg-amber-400")
-                          )} />
-                        )}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
+        {isAdmin && (() => {
+          const adminTabsList = [
+            {
+              id: 'contributions' as const,
+              label: 'Contributions',
+              hasPulse: Boolean(contributions.some(c => c.status === 'pending')),
+              pulseColor: 'bg-amber-400',
+            },
+            {
+              id: 'members' as const,
+              label: 'Members',
+            },
+            {
+              id: 'loans' as const,
+              label: 'Loans',
+              hasPulse: Boolean(loans.some(l => l.status === 'pending')),
+              pulseColor: 'bg-amber-400',
+            },
+            {
+              id: 'notices' as const,
+              label: 'Notices',
+            },
+            {
+              id: 'monthlyCollection' as const,
+              label: 'Monthly Collection',
+            },
+            {
+              id: 'graphs' as const,
+              label: 'Graphs',
+            },
+            {
+              id: 'reports' as const,
+              label: 'Reports',
+            },
+          ];
+          const currentAdminTab = adminTabsList.find(t => t.id === activeTab) || adminTabsList[0];
 
-        {!isAdmin && (
-          <div className="w-full mb-6 sm:mb-8 overflow-hidden">
-            <div 
-              className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
-              style={{ WebkitOverflowScrolling: 'touch' }}
-            >
+          return (
+            <div className="w-full mb-6 sm:mb-8 overflow-hidden">
               <div 
-                role="tablist"
-                aria-label="Member Navigation Tabs"
-                className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-full border border-slate-200/80 shadow-2xs min-w-max"
+                className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
+                style={{ WebkitOverflowScrolling: 'touch' }}
               >
-                {[
-                  {
-                    id: 'contributions' as const,
-                    label: 'Contributions',
-                    icon: Coins,
-                  },
-                  {
-                    id: 'loans' as const,
-                    label: 'Loans',
-                    icon: CreditCard,
-                    hasPulse: Boolean(loans.some(l => l.userId === user?.uid && l.status === 'approved')),
-                    pulseColor: 'bg-emerald-400',
-                  },
-                  ...(memberHasLoans ? [{
-                    id: 'graphs' as const,
-                    label: 'Graphs',
-                    icon: GraphIcon,
-                  }] : []),
-                ].map((tab) => {
-                  const isActive = activeTab === tab.id;
-                  const IconComp = tab.icon;
-                  return (
+                {!isNavTabsExpanded ? (
+                  /* Collapsed Rectangle: Clicking anywhere expands all 7 tabs */
+                  <div 
+                    onClick={toggleNavTabs}
+                    role="button"
+                    tabIndex={0}
+                    title="Click rectangle to expand all 7 tabs"
+                    aria-label="Expand all 7 navigation tabs"
+                    className="inline-flex items-center gap-2 sm:gap-2.5 p-1 sm:p-1.5 bg-slate-100/90 hover:bg-slate-200/80 rounded-xl border border-slate-200/80 shadow-2xs min-w-max cursor-pointer select-none transition-all group active:scale-[0.99]"
+                  >
+                    <div className="relative px-3.5 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 shadow-sm shadow-indigo-600/30">
+                      <span>{currentAdminTab.label}</span>
+                      {currentAdminTab.hasPulse && (
+                        <span className="w-2 h-2 rounded-full animate-pulse bg-amber-300 shrink-0" />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-600 group-hover:text-indigo-600 transition-colors pr-2">
+                      <span className="text-slate-400 font-medium hidden xs:inline">•</span>
+                      <span>Expand Tabs (7)</span>
+                      <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-indigo-600 transition-transform group-hover:translate-y-0.5" />
+                    </div>
+                  </div>
+                ) : (
+                  /* Expanded Rectangle: Shows all 7 tabs + collapse toggle */
+                  <div 
+                    role="tablist"
+                    aria-label="Admin Navigation Tabs"
+                    className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-2xs min-w-max"
+                  >
+                    {adminTabsList.map((tab) => {
+                      const isActive = activeTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          role="tab"
+                          aria-selected={isActive}
+                          title={isActive ? "Active Tab • Click to collapse tabs" : `Switch to ${tab.label}`}
+                          onClick={(e) => {
+                            if (isActive) {
+                              toggleNavTabs();
+                              return;
+                            }
+                            setActiveTab(tab.id);
+                            e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                          }}
+                          className={cn(
+                            "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
+                            isActive 
+                              ? "text-white" 
+                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                          )}
+                        >
+                          {isActive && (
+                            <motion.div
+                              layoutId="adminActiveTab"
+                              className="absolute inset-0 bg-indigo-600 rounded-lg shadow-sm shadow-indigo-600/30"
+                              transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                            />
+                          )}
+                          <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                            <span>{tab.label}</span>
+                            {tab.hasPulse && (
+                              <span className={cn(
+                                "w-2 h-2 rounded-full animate-pulse shrink-0",
+                                isActive ? "bg-amber-300" : (tab.pulseColor || "bg-amber-400")
+                              )} />
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {/* Collapse Button inside the Rectangle */}
                     <button
-                      key={tab.id}
-                      role="tab"
-                      aria-selected={isActive}
-                      onClick={(e) => {
-                        setActiveTab(tab.id);
-                        e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-                      }}
-                      className={cn(
-                        "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
-                        isActive 
-                          ? "text-white" 
-                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
-                      )}
+                      type="button"
+                      onClick={toggleNavTabs}
+                      title="Collapse 7 tabs"
+                      aria-label="Collapse 7 tabs"
+                      className="relative px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 border-l border-slate-200/90 transition-all flex items-center gap-1 select-none cursor-pointer shrink-0 ml-0.5 active:scale-95"
                     >
-                      {isActive && (
-                        <motion.div
-                          layoutId="memberActiveTabPill"
-                          className="absolute inset-0 bg-indigo-600 rounded-full shadow-sm shadow-indigo-600/30"
-                          transition={{ type: "spring", stiffness: 450, damping: 35 }}
-                        />
-                      )}
-                      <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
-                        <IconComp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                        <span>{tab.label}</span>
-                        {tab.hasPulse && (
-                          <span className={cn(
-                            "w-2 h-2 rounded-full animate-pulse shrink-0",
-                            isActive ? "bg-amber-300" : (tab.pulseColor || "bg-emerald-400")
-                          )} />
-                        )}
-                      </span>
+                      <ChevronUp className="w-3.5 h-3.5 text-slate-500 hover:text-slate-800" />
+                      <span className="text-[11px] text-slate-500 hover:text-slate-800 hidden md:inline">Collapse</span>
                     </button>
-                  );
-                })}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
+
+        {!isAdmin && (() => {
+          const memberTabsList = [
+            {
+              id: 'contributions' as const,
+              label: 'Contributions',
+            },
+            {
+              id: 'loans' as const,
+              label: 'Loans',
+              hasPulse: Boolean(loans.some(l => l.userId === user?.uid && l.status === 'approved')),
+              pulseColor: 'bg-emerald-400',
+            },
+            ...(memberHasLoans ? [{
+              id: 'graphs' as const,
+              label: 'Graphs',
+            }] : []),
+          ];
+          const currentMemberTab = memberTabsList.find(t => t.id === activeTab) || memberTabsList[0];
+
+          return (
+            <div className="w-full mb-6 sm:mb-8 overflow-hidden">
+              <div 
+                className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
+                {!isNavTabsExpanded ? (
+                  /* Collapsed Member Rectangle */
+                  <div 
+                    onClick={toggleNavTabs}
+                    role="button"
+                    tabIndex={0}
+                    title="Click rectangle to expand tabs"
+                    aria-label="Expand navigation tabs"
+                    className="inline-flex items-center gap-2 sm:gap-2.5 p-1 sm:p-1.5 bg-slate-100/90 hover:bg-slate-200/80 rounded-xl border border-slate-200/80 shadow-2xs min-w-max cursor-pointer select-none transition-all group active:scale-[0.99]"
+                  >
+                    <div className="relative px-3.5 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 shadow-sm shadow-indigo-600/30">
+                      <span>{currentMemberTab.label}</span>
+                      {currentMemberTab.hasPulse && (
+                        <span className="w-2 h-2 rounded-full animate-pulse bg-emerald-400 shrink-0" />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-600 group-hover:text-indigo-600 transition-colors pr-2">
+                      <span className="text-slate-400 font-medium hidden xs:inline">•</span>
+                      <span>Expand Tabs ({memberTabsList.length})</span>
+                      <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-indigo-600 transition-transform group-hover:translate-y-0.5" />
+                    </div>
+                  </div>
+                ) : (
+                  /* Expanded Member Rectangle */
+                  <div 
+                    role="tablist"
+                    aria-label="Member Navigation Tabs"
+                    className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-2xs min-w-max"
+                  >
+                    {memberTabsList.map((tab) => {
+                      const isActive = activeTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          role="tab"
+                          aria-selected={isActive}
+                          title={isActive ? "Active Tab • Click to collapse tabs" : `Switch to ${tab.label}`}
+                          onClick={(e) => {
+                            if (isActive) {
+                              toggleNavTabs();
+                              return;
+                            }
+                            setActiveTab(tab.id);
+                            e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                          }}
+                          className={cn(
+                            "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
+                            isActive 
+                              ? "text-white" 
+                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                          )}
+                        >
+                          {isActive && (
+                            <motion.div
+                              layoutId="memberActiveTab"
+                              className="absolute inset-0 bg-indigo-600 rounded-lg shadow-sm shadow-indigo-600/30"
+                              transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                            />
+                          )}
+                          <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                            <span>{tab.label}</span>
+                            {tab.hasPulse && (
+                              <span className={cn(
+                                "w-2 h-2 rounded-full animate-pulse shrink-0",
+                                isActive ? "bg-amber-300" : (tab.pulseColor || "bg-emerald-400")
+                              )} />
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {/* Collapse Button inside the Member Rectangle */}
+                    <button
+                      type="button"
+                      onClick={toggleNavTabs}
+                      title="Collapse tabs"
+                      aria-label="Collapse tabs"
+                      className="relative px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 border-l border-slate-200/90 transition-all flex items-center gap-1 select-none cursor-pointer shrink-0 ml-0.5 active:scale-95"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5 text-slate-500 hover:text-slate-800" />
+                      <span className="text-[11px] text-slate-500 hover:text-slate-800 hidden md:inline">Collapse</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
           <div className="flex flex-col">
@@ -12235,10 +12751,18 @@ ${scheduleHighlights}
                               return (
                                 <motion.div 
                                   key={`repayment-loan-mobile-${keyPrefix}-${l.id || 'repay'}-${idx}`}
-                                  initial={{ opacity: 0, y: 15 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  transition={{ delay: idx * 0.04 }}
-                                  className="bg-white rounded-3xl shadow-sm border border-slate-200/80 overflow-hidden relative"
+                                  initial={{ opacity: 0, y: 18, scale: 0.985 }}
+                                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                                  transition={{ 
+                                    duration: 0.35, 
+                                    delay: Math.min(idx * 0.04, 0.3), 
+                                    ease: [0.22, 1, 0.36, 1] 
+                                  }}
+                                  whileHover={{ 
+                                    y: -4, 
+                                    transition: { duration: 0.2, ease: "easeOut" } 
+                                  }}
+                                  className="bg-white rounded-3xl shadow-sm hover:shadow-lg border border-slate-200/80 hover:border-indigo-300/80 transition-shadow transition-colors overflow-hidden relative group"
                                 >
                                   <div className="absolute top-0 right-0 px-3 py-1 bg-slate-900 text-[10.5px] font-black text-white rounded-bl-xl border-b border-l border-slate-950 shadow-xs select-none tracking-wide">
                                     #{idx + 1}
@@ -12656,7 +13180,21 @@ ${scheduleHighlights}
                                 <p className="text-[11px] text-slate-500 font-medium">Export print-ready audit statement with pending amounts &amp; live statuses</p>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 self-end sm:self-center">
+                            <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={openLoanBatchReminder}
+                                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                                  title="Send loan repayment reminders to multiple unpaid borrowers simultaneously in 1 click"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  <span>Batch Reminder</span>
+                                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-700 text-emerald-100 border border-emerald-500/50">
+                                    {unpaidLoansForBatch.length}
+                                  </span>
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => exportLoanListPdf('active', true)}
@@ -13055,9 +13593,18 @@ ${scheduleHighlights}
                       return (
                         <motion.div 
                           key={`user-loan-card-${l.id || 'loan'}-${idx}`}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="bg-white rounded-[2.5rem] border border-slate-200/90 shadow-sm overflow-hidden transition-all"
+                          initial={{ opacity: 0, y: 20, scale: 0.985 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          transition={{ 
+                            duration: 0.35, 
+                            delay: Math.min(idx * 0.05, 0.3), 
+                            ease: [0.22, 1, 0.36, 1] 
+                          }}
+                          whileHover={{ 
+                            y: -4, 
+                            transition: { duration: 0.2, ease: "easeOut" } 
+                          }}
+                          className="bg-white rounded-[2.5rem] border border-slate-200/90 hover:border-indigo-300/80 shadow-sm hover:shadow-lg overflow-hidden transition-shadow transition-colors"
                         >
                           {/* Collapsible Header for Loan 1, Loan 2, etc. */}
                           <button
@@ -16184,6 +16731,336 @@ ${scheduleHighlights}
           </div>
         )}
 
+        {/* Loan Repayment Batch WhatsApp Reminders Modal (1-Click Simultaneous Dispatch) */}
+        {showLoanBatchReminderModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!isLoanBatchAutoRunning) setShowLoanBatchReminderModal(false);
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-2xl rounded-3xl shadow-2xl p-5 sm:p-7 border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden z-10"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0 border border-emerald-200/60">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg sm:text-xl font-black text-slate-900">Batch Loan WhatsApp Reminders</h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        Admin Action
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Send loan repayment reminders to multiple unpaid borrowers simultaneously in 1 click
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowLoanBatchReminderModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+                  title="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Stats Summary Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4 shrink-0">
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-center">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Due Month</span>
+                  <span className="text-xs font-black text-slate-800">
+                    {format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy')}
+                  </span>
+                </div>
+                <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-amber-700 block">
+                    {loanBatchSearchQuery ? 'Found / Unpaid' : 'Unpaid Loans'}
+                  </span>
+                  <span className="text-base font-black text-amber-900">
+                    {loanBatchSearchQuery ? `${filteredLoanBatchItems.length} of ${unpaidLoansForBatch.length}` : unpaidLoansForBatch.length}
+                  </span>
+                </div>
+                <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700 block">Selected</span>
+                  <span className="text-base font-black text-emerald-900">{selectedLoanBatchIds.length}</span>
+                </div>
+                <div className="p-3 bg-indigo-50/70 rounded-2xl border border-indigo-200/60 text-center">
+                  <span className="text-[10px] uppercase font-bold text-indigo-700 block">Sent Status</span>
+                  <span className="text-base font-black text-indigo-900">{sentLoanBatchIds.length} / {selectedLoanBatchIds.length}</span>
+                </div>
+              </div>
+
+              {/* Progress Bar (Visible if any sent) */}
+              {sentLoanBatchIds.length > 0 && (
+                <div className="mb-4 p-3 bg-emerald-50/60 rounded-2xl border border-emerald-100 shrink-0">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-800 mb-1.5">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Dispatched {sentLoanBatchIds.length} of {selectedLoanBatchIds.length} reminders
+                    </span>
+                    <span>{Math.round((sentLoanBatchIds.length / Math.max(1, selectedLoanBatchIds.length)) * 100)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-emerald-200/60 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-600 transition-all duration-300 rounded-full"
+                      style={{ width: `${Math.min(100, Math.round((sentLoanBatchIds.length / Math.max(1, selectedLoanBatchIds.length)) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Batch Actions Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 mb-3 shrink-0">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllLoanBatchItems}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    {filteredLoanBatchItems.filter(item => Boolean(item.formattedPhone)).every(item => selectedLoanBatchIds.includes(item.id)) && filteredLoanBatchItems.filter(item => Boolean(item.formattedPhone)).length > 0 ? (
+                      <>
+                        <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Deselect All</span>
+                      </>
+                    ) : (
+                      <>
+                        <Square className="w-3.5 h-3.5 text-slate-400" />
+                        <span>Select All ({filteredLoanBatchItems.filter(item => Boolean(item.formattedPhone)).length})</span>
+                      </>
+                    )}
+                  </button>
+                  <span className="text-xs text-slate-500 font-medium">
+                    Active loans due for {format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMM yyyy')}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={copyLoanBatchGroupBroadcast}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer whitespace-nowrap"
+                    title="Copy formatted group reminder with all pending loans listed to paste directly in WhatsApp"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Copy Group Broadcast</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => sendLoanBatchRemindersSimultaneously()}
+                    disabled={selectedLoanBatchIds.length === 0}
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-200/50 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                    title="Send WhatsApp reminders to multiple unpaid borrowers simultaneously in one click"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                    <span>Send All (1-Click)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Search Bar & Search Button */}
+              <div className="flex items-center gap-2 mb-3 shrink-0">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={loanBatchSearchQuery}
+                    onChange={(e) => setLoanBatchSearchQuery(e.target.value)}
+                    placeholder="Search borrower by name, loan label, phone, or email..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white text-xs text-slate-800 placeholder:text-slate-400 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                  />
+                  {loanBatchSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setLoanBatchSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
+                      title="Clear search"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!loanBatchSearchQuery) {
+                      notify('info', 'Type a borrower name or phone to filter.');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 cursor-pointer shrink-0"
+                  title="Search unpaid loans"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Search</span>
+                </button>
+              </div>
+
+              {/* Unpaid Active Loans Selection List */}
+              <div className="flex-1 overflow-y-auto min-h-[180px] max-h-[320px] divide-y divide-slate-100 border border-slate-200 rounded-2xl bg-slate-50/40 p-1">
+                {unpaidLoansForBatch.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-800">All Loan Installments Paid!</h4>
+                    <p className="text-xs text-slate-500 mt-1">There are no unpaid active loans for {format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy')}.</p>
+                  </div>
+                ) : filteredLoanBatchItems.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-2.5">
+                      <Search className="w-5 h-5" />
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-700">No loan records match "{loanBatchSearchQuery}"</h4>
+                    <p className="text-[11px] text-slate-400 mt-1">Try searching by borrower name, loan label, phone number, or email.</p>
+                    <button
+                      type="button"
+                      onClick={() => setLoanBatchSearchQuery('')}
+                      className="mt-3 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Clear Search
+                    </button>
+                  </div>
+                ) : (
+                  filteredLoanBatchItems.map(item => {
+                    const isSelected = selectedLoanBatchIds.includes(item.id);
+                    const isSent = sentLoanBatchIds.includes(item.id);
+                    const hasPhone = Boolean(item.formattedPhone);
+
+                    return (
+                      <div 
+                        key={item.id}
+                        className={cn(
+                          "flex items-center justify-between gap-3 p-3 rounded-xl transition-colors",
+                          isSelected ? "bg-white shadow-xs" : "hover:bg-white/60 opacity-80"
+                        )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <button
+                            type="button"
+                            disabled={!hasPhone}
+                            onClick={() => toggleSelectLoanBatchItem(item.id)}
+                            className="cursor-pointer text-slate-400 hover:text-emerald-600 disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-emerald-600" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center shrink-0 uppercase">
+                            {item.borrowerName.charAt(0)}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-900 truncate">
+                                {item.borrowerName}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                {item.loanLabel}
+                              </span>
+                              {isSent ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                                  <CheckCircle2 className="w-2.5 h-2.5" /> Sent
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                                  Pending
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 flex-wrap">
+                              {hasPhone ? (
+                                <span className="flex items-center gap-1 font-mono text-[10px] text-slate-600">
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                  {item.phoneNumber}
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-[10px] text-rose-500 font-medium">
+                                  <AlertCircle className="w-3 h-3" />
+                                  No phone registered
+                                </span>
+                              )}
+                              <span className="text-slate-300">•</span>
+                              <span className="text-slate-500 truncate text-[10px]">{item.borrowerEmail}</span>
+                            </div>
+
+                            {/* Proper loan details breakdown pills */}
+                            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700">
+                                Prin: ₹{item.principalDue.toLocaleString('en-IN')}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200/60">
+                                Int (0.5%): ₹{item.interestDue.toLocaleString('en-IN')}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                Due: ₹{item.totalDue.toLocaleString('en-IN')}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/60">
+                                Bal: ₹{item.remainingPrincipal.toLocaleString('en-IN')}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2 self-start sm:self-center">
+                          <button
+                            type="button"
+                            disabled={!hasPhone}
+                            onClick={() => sendSingleLoanBatchWhatsApp(item)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-50 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                            title={`Send WhatsApp reminder directly to ${item.borrowerName}`}
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Send</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Message Preview Box */}
+              <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs shrink-0">
+                <span className="font-bold text-slate-700 block mb-1">WhatsApp Message Preview:</span>
+                <p className="text-slate-600 italic bg-white p-2.5 rounded-xl border border-slate-200/60 leading-relaxed font-mono text-[11px]">
+                  "Hi [Borrower Name], this is a reminder for your Unnati Loan Repayment ([Loan Label]) of ₹[Total Due] for {format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy')}. (Principal: ₹[Principal], Interest: ₹[Interest], Balance: ₹[Remaining Balance]). Please pay before the 10th to avoid late fees. Ignore if already paid. Thanks!"
+                </p>
+              </div>
+
+              {/* Footer */}
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between shrink-0">
+                <span className="text-[11px] text-slate-400">
+                  Tip: Clicking "Send All" opens WhatsApp web chat for selected borrowers simultaneously in 1 click.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowLoanBatchReminderModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {/* Automated Reminders & Alerts Hub Modal */}
         {showReminderConfirm && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -18006,6 +18883,16 @@ ${scheduleHighlights}
                   <div className="flex items-center gap-2 justify-end">
                     <button
                       type="button"
+                      onClick={() => handleEmailReceipt(c, targetMember)}
+                      disabled={isEmailingReceipt}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      title={memberEmail && memberEmail !== '-' ? `Email PDF receipt to ${memberEmail}` : 'Email receipt to registered address'}
+                    >
+                      <Mail className="w-4 h-4 text-white" />
+                      <span>{isEmailingReceipt ? 'Sending...' : 'Email Receipt'}</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handlePrintReceipt(c, targetMember)}
                       className="flex-1 sm:flex-none px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-300 transition-all cursor-pointer shadow-2xs active:scale-95 flex items-center justify-center gap-1.5"
                     >
@@ -18258,6 +19145,16 @@ ${scheduleHighlights}
                     Download A4 print-ready PDF or print directly
                   </p>
                   <div className="flex items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleEmailLoanReceipt(selectedReceiptLoanPayment, targetMember)}
+                      disabled={isEmailingReceipt}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      title={memberEmail && memberEmail !== '-' ? `Email PDF receipt to ${memberEmail}` : 'Email receipt to registered address'}
+                    >
+                      <Mail className="w-4 h-4 text-white" />
+                      <span>{isEmailingReceipt ? 'Sending...' : 'Email Receipt'}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => handlePrintLoanReceipt(selectedReceiptLoanPayment, targetMember)}
@@ -18573,6 +19470,21 @@ ${scheduleHighlights}
                     Download A4 print-ready PDF statement or print directly
                   </p>
                   <div className="flex items-center gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleEmailCumulativeLoanReceipt({
+                        loan: l,
+                        paidPayments,
+                        totalTenure,
+                        borrower: targetMember
+                      })}
+                      disabled={isEmailingReceipt}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      title={memberEmail && memberEmail !== '-' ? `Email PDF receipt to ${memberEmail}` : 'Email receipt to registered address'}
+                    >
+                      <Mail className="w-4 h-4 text-white" />
+                      <span>{isEmailingReceipt ? 'Sending...' : 'Email Receipt'}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => handlePrintCumulativeLoanReceipt({

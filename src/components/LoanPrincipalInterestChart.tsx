@@ -224,11 +224,15 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
     const sanctionedAmount = currentLoan.approvedAmount || currentLoan.amount || 0;
     const payments = loanPayments.filter(p => p.loanId === currentLoan.id && p.status === 'paid');
-    const repaidPrincipal = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const repaidInterest = payments.reduce((sum, p) => sum + (p.interest || 0), 0);
-    const totalPaid = repaidPrincipal + repaidInterest;
-    const remainingPrincipal = Math.max(0, sanctionedAmount - repaidPrincipal);
+    const repaidPrincipalAllTime = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const remainingPrincipal = Math.max(0, sanctionedAmount - repaidPrincipalAllTime);
     const totalTenure = currentLoan.installments || 10;
+
+    // Current month loan repayment amounts (Principal, Interest, and Total Paid)
+    const currentMonthPayments = payments.filter(p => p.month === currentCalMonth && p.year === currentCalYear);
+    const currentMonthPrincipal = currentMonthPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const currentMonthInterest = currentMonthPayments.reduce((sum, p) => sum + (p.interest || 0), 0);
+    const currentMonthTotalPaid = currentMonthPrincipal + currentMonthInterest;
 
     const regularPayments = payments.filter(p => !p.isExtraPrincipal);
     const totalMonthsPaid = regularPayments.reduce((acc, p) => acc + (p.isAdvance && p.coveredMonths?.length ? p.coveredMonths.length : 1), 0);
@@ -266,9 +270,9 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       sanctionedAmount,
       sanctionedDateStr,
       isStartsNextMonth,
-      repaidPrincipal,
-      repaidInterest,
-      totalPaid,
+      repaidPrincipal: currentMonthPrincipal,
+      repaidInterest: currentMonthInterest,
+      totalPaid: currentMonthTotalPaid,
       remainingPrincipal,
       totalTenure,
       totalMonthsPaid,

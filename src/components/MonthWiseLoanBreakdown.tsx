@@ -521,7 +521,7 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                       return (
                         <div 
                           key={monthGroup.monthKey}
-                          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm overflow-hidden"
+                          className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden"
                         >
                           {/* Month Header Accordion Trigger */}
                           <button
