@@ -106,7 +106,7 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.setFont('helvetica', 'normal');
   doc.text(
-    `Generated on: ${exportDateStr}  •  Total Applications: ${validLoans.length}  •  Unique Applicants: ${uniqueApplicantsCount}  •  Format: A4 Print Ready`,
+    `Generated on: ${exportDateStr}  •  Total Applications: ${validLoans.length}  •  Unique Applicants: ${uniqueApplicantsCount}`,
     pageWidth / 2,
     24,
     { align: 'center' }
@@ -350,7 +350,7 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(148, 163, 184);
       doc.text(
-        'Confidential • Unnati Trust (R) Official Loan Applications Statement • A4 Print Ready',
+        'Confidential • Unnati Trust (R) Official Loan Applications Statement',
         marginX,
         pageHeight - 6
       );

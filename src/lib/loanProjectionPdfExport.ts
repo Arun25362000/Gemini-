@@ -75,7 +75,7 @@ export function generateLoanProjectionPdfDoc(options: LoanProjectionPdfOptions):
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.setFont('helvetica', 'normal');
   doc.text(
-    `Generated on: ${exportDateStr}   •   Format: A4 Print Ready   •   Interest Rate: 0.5% Monthly Reducing Balance`,
+    `Generated on: ${exportDateStr}   •   Interest Rate: 0.5% Monthly Reducing Balance`,
     pageWidth / 2,
     24,
     { align: 'center' }

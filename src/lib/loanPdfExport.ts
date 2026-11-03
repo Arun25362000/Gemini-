@@ -419,7 +419,7 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(148, 163, 184);
       doc.text(
-        'Confidential • Unnati Trust (R) Internal Accounting & Audit Records • Print Ready Statement',
+        'Confidential • Unnati Trust (R) Internal Accounting & Audit Records',
         14,
         pageHeight - 6
       );

@@ -73,7 +73,7 @@ export function generateMemberDetailsPdfDoc(options: MemberDetailsPdfOptions): M
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.setFont('helvetica', 'normal');
   doc.text(
-    `Generated on: ${exportDateStr}   •   Total Registered Members: ${members.length}   •   Format: A4 Print Ready`,
+    `Generated on: ${exportDateStr}   •   Total Registered Members: ${members.length}`,
     pageWidth / 2,
     24,
     { align: 'center' }
@@ -260,7 +260,7 @@ export function generateMemberDetailsPdfDoc(options: MemberDetailsPdfOptions): M
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(148, 163, 184);
       doc.text(
-        'Confidential • Unnati Trust (R) Official Member Directory • A4 Print Ready',
+        'Confidential • Unnati Trust (R) Official Member Directory',
         marginX,
         pageHeight - 6
       );

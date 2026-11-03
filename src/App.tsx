@@ -81,6 +81,7 @@ import {
   MessageSquare,
   Mail,
   Wallet,
+  Coins,
   ArrowRight,
   History as HistoryIcon,
   FileText,
@@ -793,8 +794,8 @@ export default function App() {
   const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number | 'all' } | null>({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
   const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | 'activeLoan' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
-  const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
-  const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'mode' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
+  const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'baseAmount' | 'lateFee' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
+  const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'lateFee' | 'total' | 'mode' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [isContribListExpanded, setIsContribListExpanded] = useState<boolean>(true);
   const [isLoanListExpanded, setIsLoanListExpanded] = useState<boolean>(true);
   const [isMonthlyCollectionSummaryExpanded, setIsMonthlyCollectionSummaryExpanded] = useState<boolean>(true);
@@ -8916,13 +8917,13 @@ ${scheduleHighlights}
                   </div>
                   <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-[11px] sm:text-xs font-medium mt-1">
                     {/* Contributions counts */}
-                    <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                    <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                       <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Contributions -</span>
-                      <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                      <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
                         Paid: {currentMonthCollectionCounts.contribPaidCount}
                       </span>
-                      <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                      <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
                         Due: {currentMonthCollectionCounts.contribDueCount}
                       </span>
@@ -8931,13 +8932,13 @@ ${scheduleHighlights}
                     <span className="text-slate-300 hidden sm:inline select-none">•</span>
 
                     {/* Loan counts */}
-                    <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                    <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                       <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Loan -</span>
-                      <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                      <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
                         Paid: {currentMonthCollectionCounts.loanPaidCount}
                       </span>
-                      <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                      <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
                         Due: {currentMonthCollectionCounts.loanDueCount}
                       </span>
@@ -8945,7 +8946,7 @@ ${scheduleHighlights}
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-bold text-indigo-600 hidden sm:inline">
                   {isFinancialInsightsExpanded ? 'Collapse' : 'Expand'}
                 </span>
@@ -8963,13 +8964,13 @@ ${scheduleHighlights}
 
         {(!isAdmin || isFinancialInsightsExpanded) && (
         <div className={cn(
-          "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5 mb-6",
+          "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-5 gap-2.5 sm:gap-3.5 mb-6",
           !isAdmin && (
             loans.some(l => l.status === 'approved' && ((user?.uid && l.userId === user.uid) || (user?.email && l.userEmail?.toLowerCase() === user.email?.toLowerCase())))
               ? (myAdvanceSummary.count > 0 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 max-w-5xl" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-4xl")
               : (myAdvanceSummary.count > 0 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-4xl" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 max-w-2xl")
           ),
-          isMobileVisual && "gap-2.5 mb-5"
+          isMobileVisual && "gap-2 sm:gap-2.5 mb-5"
         )}>
           {/* Card 1: Current Month / Status */}
           <motion.div 
@@ -8977,30 +8978,29 @@ ${scheduleHighlights}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             className={cn(
-              "bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
-              isMobileVisual && "p-3 rounded-xl"
+              "bg-gradient-to-br from-indigo-50/90 via-indigo-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-indigo-200/90 hover:border-indigo-400 hover:shadow-md hover:shadow-indigo-100/50 transition-all flex flex-col justify-between group relative overflow-hidden min-w-0"
             )}
           >
             <div>
-              <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                <div className="w-7.5 h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                  <Calendar className="w-4 h-4" />
+              <div className="flex items-center justify-between gap-1.5 mb-2">
+                <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                  <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </div>
-                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                <span className="text-[9.5px] sm:text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
                   {format(new Date(), 'MMM yyyy')}
                 </span>
               </div>
               {isAdmin ? (
                 <div>
-                  <h3 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Monthly Received</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-indigo-950 tracking-tight truncate">
+                  <h3 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider">Monthly Received</h3>
+                  <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-indigo-950 tracking-tight whitespace-nowrap">
                     ₹{adminCurrentMonthTotalReceived.toLocaleString('en-IN')}
                   </div>
                 </div>
               ) : (
                 <div>
-                  <h3 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Status ({format(new Date(), 'MMM')})</h3>
-                  <div className="mt-1 flex items-center gap-1.5">
+                  <h3 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider">Status ({format(new Date(), 'MMM')})</h3>
+                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     {hasPaidCurrent ? (
                       <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-sm sm:text-base">
                         <CheckCircle2 className="w-4 h-4" /> Paid
@@ -9023,23 +9023,23 @@ ${scheduleHighlights}
               )}
             </div>
             {isAdmin && (
-              <div className="mt-2.5 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10.5px]">
-                <span className="font-semibold text-slate-500">Status:</span>
+              <div className="mt-2.5 pt-2 border-t border-indigo-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] gap-1 flex-wrap">
+                <span className="font-semibold text-slate-500 shrink-0">Status:</span>
                 <div>
                   {hasPaidCurrent ? (
-                    <span className="inline-flex items-center gap-1 font-bold text-emerald-600">
+                    <span className="inline-flex items-center gap-1 font-bold text-emerald-600 whitespace-nowrap">
                       <CheckCircle2 className="w-3 h-3" /> Paid
                     </span>
                   ) : hasPendingCurrent ? (
-                    <span className="inline-flex items-center gap-1 font-bold text-amber-600">
+                    <span className="inline-flex items-center gap-1 font-bold text-amber-600 whitespace-nowrap">
                       <Clock className="w-3 h-3" /> Pending
                     </span>
                   ) : isLate ? (
-                    <span className="inline-flex items-center gap-1 font-bold text-red-600">
+                    <span className="inline-flex items-center gap-1 font-bold text-red-600 whitespace-nowrap">
                       <AlertCircle className="w-3 h-3" /> Overdue
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 font-bold text-amber-600">
+                    <span className="inline-flex items-center gap-1 font-bold text-amber-600 whitespace-nowrap">
                       <Clock className="w-3 h-3" /> Pending
                     </span>
                   )}
@@ -9056,19 +9056,18 @@ ${scheduleHighlights}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.05 }}
                 className={cn(
-                  "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group",
-                  isMobileVisual && "p-3 rounded-xl"
+                  "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group min-w-0"
                 )}
               >
                 <div>
-                  <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                    <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0">
-                      <TrendingUp className="w-4 h-4" />
+                  <div className="flex items-center justify-between gap-1.5 mb-2">
+                    <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0">
+                      <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">Your Savings</span>
+                    <span className="text-[9.5px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">Your Savings</span>
                   </div>
-                  <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Your Contributions</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-950 tracking-tight">
+                  <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider">Your Contributions</h3>
+                  <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-emerald-950 tracking-tight whitespace-nowrap">
                     ₹{myContributions.reduce((acc, c) => acc + c.amount, 0).toLocaleString('en-IN')}
                   </div>
                 </div>
@@ -9082,30 +9081,29 @@ ${scheduleHighlights}
                   transition={{ delay: 0.06 }}
                   onClick={() => setShowMyAdvanceModal(true)}
                   className={cn(
-                    "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden",
-                    isMobileVisual && "p-3 rounded-xl"
+                    "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group cursor-pointer relative overflow-hidden min-w-0"
                   )}
                   title="Click to view advance payment details"
                 >
                   <div>
-                    <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                      <div className="w-7.5 h-7.5 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                        <Sparkles className="w-4 h-4" />
+                    <div className="flex items-center justify-between gap-1.5 mb-2">
+                      <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </div>
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                      <span className="text-[9.5px] sm:text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
                         {myAdvanceSummary.count} {myAdvanceSummary.count === 1 ? 'Month' : 'Months'} Pre-Paid
                       </span>
                     </div>
-                    <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Advance Paid</h3>
-                    <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight">
+                    <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider">Advance Paid</h3>
+                    <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-purple-950 tracking-tight whitespace-nowrap">
                       ₹{myAdvanceSummary.totalAmount.toLocaleString('en-IN')}
                     </div>
                   </div>
-                  <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
-                    <span className="font-semibold text-slate-500 truncate max-w-[130px]" title={myAdvanceSummary.spanText}>
+                  <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] gap-1 flex-wrap">
+                    <span className="font-semibold text-slate-500 whitespace-nowrap" title={myAdvanceSummary.spanText}>
                       {myAdvanceSummary.spanText}
                     </span>
-                    <span className="inline-flex items-center gap-1 font-bold text-purple-700 group-hover:text-purple-900 transition-colors">
+                    <span className="inline-flex items-center gap-1 font-bold text-purple-700 group-hover:text-purple-900 transition-colors whitespace-nowrap">
                       Breakdown <ChevronRight className="w-3 h-3" />
                     </span>
                   </div>
@@ -9135,32 +9133,31 @@ ${scheduleHighlights}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.08 }}
                     className={cn(
-                      "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
-                      isMobileVisual && "p-3 rounded-xl"
+                      "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden min-w-0"
                     )}
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                        <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0">
-                          <CreditCard className="w-4 h-4" />
+                      <div className="flex items-center justify-between gap-1.5 mb-2">
+                        <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0">
+                          <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         </div>
-                        <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                        <span className="text-[9.5px] sm:text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
                           {myActiveLoans.length > 1 ? `${myActiveLoans.length} Active Loans` : 'Active Loan'}
                         </span>
                       </div>
-                      <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Loan Amount</h3>
-                      <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
+                      <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider">Total Loan Amount</h3>
+                      <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-purple-950 tracking-tight whitespace-nowrap">
                         ₹{totalActiveLoanAmount.toLocaleString('en-IN')}
                       </div>
                     </div>
-                    <div className="mt-2.5 pt-2 border-t border-purple-100/90 grid grid-cols-2 gap-2 text-[10.5px]">
+                    <div className="mt-2.5 pt-2 border-t border-purple-100/90 grid grid-cols-2 gap-2 text-[10px] sm:text-[10.5px]">
                       <div className="flex flex-col">
                         <span className="font-semibold text-slate-500">Total Loan Paid</span>
-                        <span className="font-bold text-emerald-700 truncate">₹{totalActiveLoanPaid.toLocaleString('en-IN')}</span>
+                        <span className="font-bold text-emerald-700 whitespace-nowrap">₹{totalActiveLoanPaid.toLocaleString('en-IN')}</span>
                       </div>
                       <div className="flex flex-col text-right">
                         <span className="font-semibold text-slate-500">Total Interest Paid</span>
-                        <span className="font-bold text-indigo-700 truncate">₹{totalActiveInterestPaid.toLocaleString('en-IN')}</span>
+                        <span className="font-bold text-indigo-700 whitespace-nowrap">₹{totalActiveInterestPaid.toLocaleString('en-IN')}</span>
                       </div>
                     </div>
                   </motion.div>
@@ -9175,27 +9172,26 @@ ${scheduleHighlights}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.04 }}
               className={cn(
-                "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
-                isMobileVisual && "p-3 rounded-xl"
+                "bg-gradient-to-br from-purple-50/90 via-purple-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-purple-200/90 hover:border-purple-400 hover:shadow-md hover:shadow-purple-100/50 transition-all flex flex-col justify-between group relative overflow-hidden min-w-0"
               )}
             >
               <div>
-                <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                  <div className="w-7.5 h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Users className="w-4 h-4" />
+                <div className="flex items-center justify-between gap-1.5 mb-2">
+                  <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-purple-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </div>
-                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                  <span className="text-[9.5px] sm:text-[10px] font-bold text-purple-700 bg-purple-100/90 border border-purple-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
                     Group Size
                   </span>
                 </div>
-                <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Active Members</h3>
-                <div className="mt-0.5 text-xl sm:text-2xl font-black text-purple-950 tracking-tight truncate">
+                <h3 className="text-purple-950 text-[10.5px] font-bold uppercase tracking-wider">Active Members</h3>
+                <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-purple-950 tracking-tight whitespace-nowrap">
                   {allUsers.filter(u => u.email !== SYSTEM_ADMIN_EMAIL).length}
                 </div>
               </div>
-              <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10.5px]">
-                <span className="font-semibold text-slate-500">Total Sub:</span>
-                <span className="font-bold text-purple-700 truncate ml-1">₹{financials.totalCollected.toLocaleString('en-IN')}</span>
+              <div className="mt-2.5 pt-2 border-t border-purple-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] gap-1 flex-wrap">
+                <span className="font-semibold text-slate-500 shrink-0">Total Sub:</span>
+                <span className="font-bold text-purple-700 whitespace-nowrap">₹{financials.totalCollected.toLocaleString('en-IN')}</span>
               </div>
             </motion.div>
           )}
@@ -9209,27 +9205,26 @@ ${scheduleHighlights}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.08 }}
                 className={cn(
-                  "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
-                  isMobileVisual && "p-3 rounded-xl"
+                  "bg-gradient-to-br from-emerald-50/90 via-emerald-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-emerald-200/90 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100/50 transition-all flex flex-col justify-between group relative overflow-hidden min-w-0"
                 )}
               >
                 <div>
-                  <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                    <div className="w-7.5 h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                      <TrendingUp className="w-4 h-4" />
+                  <div className="flex items-center justify-between gap-1.5 mb-2">
+                    <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-emerald-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                    <span className="text-[9.5px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
                       Savings
                     </span>
                   </div>
-                  <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Group Funds</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-emerald-950 tracking-tight truncate">
+                  <h3 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider">Group Funds</h3>
+                  <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-emerald-950 tracking-tight whitespace-nowrap">
                     ₹{financials.totalSavings.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10.5px]">
-                  <span className="font-semibold text-slate-500">Interest:</span>
-                  <span className="font-bold text-emerald-700 truncate ml-1">₹{financials.totalInterest.toLocaleString('en-IN')}</span>
+                <div className="mt-2.5 pt-2 border-t border-emerald-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] gap-1 flex-wrap">
+                  <span className="font-semibold text-slate-500 shrink-0">Interest:</span>
+                  <span className="font-bold text-emerald-700 whitespace-nowrap">₹{financials.totalInterest.toLocaleString('en-IN')}</span>
                 </div>
               </motion.div>
 
@@ -9240,27 +9235,26 @@ ${scheduleHighlights}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.12 }}
                 className={cn(
-                  "bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden",
-                  isMobileVisual && "p-3 rounded-xl"
+                  "bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-amber-200/90 hover:border-amber-400 hover:shadow-md hover:shadow-amber-100/50 transition-all flex flex-col justify-between group relative overflow-hidden min-w-0"
                 )}
               >
                 <div>
-                  <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                    <div className="w-7.5 h-7.5 rounded-xl bg-amber-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                      <CreditCard className="w-4 h-4" />
+                  <div className="flex items-center justify-between gap-1.5 mb-2">
+                    <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-amber-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                    <span className="text-[9.5px] sm:text-[10px] font-bold text-amber-800 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
                       Loans
                     </span>
                   </div>
-                  <h3 className="text-amber-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Outstanding Loan</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-amber-700 tracking-tight truncate">
+                  <h3 className="text-amber-950 text-[10.5px] font-bold uppercase tracking-wider">Outstanding Loan</h3>
+                  <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-amber-700 tracking-tight whitespace-nowrap">
                     ₹{financials.outstandingPrincipal.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="mt-2.5 pt-2 border-t border-amber-100/90 flex items-center justify-between text-[10.5px]">
-                  <span className="font-semibold text-slate-500">Active:</span>
-                  <span className="font-bold text-amber-800 truncate ml-1">{loans.filter(l => l.status === 'approved').length} loans</span>
+                <div className="mt-2.5 pt-2 border-t border-amber-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] gap-1 flex-wrap">
+                  <span className="font-semibold text-slate-500 shrink-0">Active:</span>
+                  <span className="font-bold text-amber-800 whitespace-nowrap">{loans.filter(l => l.status === 'approved').length} loans</span>
                 </div>
               </motion.div>
 
@@ -9271,27 +9265,26 @@ ${scheduleHighlights}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.16 }}
                 className={cn(
-                  "bg-gradient-to-br from-cyan-50/90 via-sky-50/40 to-white p-3.5 sm:p-4 rounded-2xl shadow-xs border-2 border-cyan-200/90 hover:border-cyan-400 hover:shadow-md hover:shadow-cyan-100/50 transition-all flex flex-col justify-between group relative overflow-hidden col-span-2 sm:col-span-1",
-                  isMobileVisual && "p-3 rounded-xl"
+                  "bg-gradient-to-br from-cyan-50/90 via-sky-50/40 to-white p-3 sm:p-4 rounded-2xl shadow-xs border-2 border-cyan-200/90 hover:border-cyan-400 hover:shadow-md hover:shadow-cyan-100/50 transition-all flex flex-col justify-between group relative overflow-hidden min-w-0 col-span-2 sm:col-span-1 md:col-span-1"
                 )}
               >
                 <div>
-                  <div className="flex items-center justify-between gap-1.5 mb-2.5">
-                    <div className="w-7.5 h-7.5 rounded-xl bg-cyan-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                      <Wallet className="w-4 h-4" />
+                  <div className="flex items-center justify-between gap-1.5 mb-2">
+                    <div className="w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-xl bg-cyan-600 text-white shadow-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                      <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-cyan-700 bg-cyan-100/90 border border-cyan-200 px-2 py-0.5 rounded-md uppercase tracking-wider truncate">
+                    <span className="text-[9.5px] sm:text-[10px] font-bold text-cyan-700 bg-cyan-100/90 border border-cyan-200 px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap">
                       Liquid
                     </span>
                   </div>
-                  <h3 className="text-cyan-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Available Balance</h3>
-                  <div className="mt-0.5 text-xl sm:text-2xl font-black text-cyan-950 tracking-tight truncate">
+                  <h3 className="text-cyan-950 text-[10.5px] font-bold uppercase tracking-wider">Available Balance</h3>
+                  <div className="mt-0.5 text-lg sm:text-xl lg:text-2xl font-black text-cyan-950 tracking-tight whitespace-nowrap">
                     ₹{financials.availableBalance.toLocaleString('en-IN')}
                   </div>
                 </div>
-                <div className="mt-2.5 pt-2 border-t border-cyan-100/90 flex items-center justify-between text-[10.5px]">
-                  <span className="font-semibold text-slate-500">Liquid Funds</span>
-                  <span className="inline-flex items-center gap-1 font-bold text-emerald-600">
+                <div className="mt-2.5 pt-2 border-t border-cyan-100/90 flex items-center justify-between text-[10px] sm:text-[10.5px] gap-1 flex-wrap">
+                  <span className="font-semibold text-slate-500 shrink-0">Liquid Funds</span>
+                  <span className="inline-flex items-center gap-1 font-bold text-emerald-600 whitespace-nowrap">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Ready
                   </span>
                 </div>
@@ -9302,153 +9295,170 @@ ${scheduleHighlights}
         )}
 
         {isAdmin && (
-          <div className={cn(
-            "flex gap-2 mb-8 p-2 bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-slate-100/90 rounded-2xl w-fit border-2 border-indigo-200/80 shadow-sm",
-            isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
-          )}>
-            <button 
-              onClick={() => setActiveTab('contributions')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'contributions' 
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
-              )}
+          <div className="w-full mb-6 sm:mb-8 overflow-hidden">
+            <div 
+              className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
+              style={{ WebkitOverflowScrolling: 'touch' }}
             >
-              Contributions
-              {isAdmin && contributions.some(c => c.status === 'pending') && (
-                <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
-              )}
-            </button>
-            <button 
-              onClick={() => setActiveTab('members')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'members' 
-                  ? "bg-purple-600 text-white shadow-md shadow-purple-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-purple-600 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              Members
-            </button>
-            <button 
-              onClick={() => setActiveTab('loans')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'loans' 
-                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-emerald-600 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              Loans
-              {isAdmin && loans.some(l => l.status === 'pending') && (
-                <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
-              )}
-            </button>
-            <button 
-              onClick={() => setActiveTab('notices')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'notices' 
-                  ? "bg-amber-600 text-white shadow-md shadow-amber-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-amber-700 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              Notices
-            </button>
-            <button 
-              onClick={() => setActiveTab('monthlyCollection')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'monthlyCollection' 
-                  ? "bg-sky-600 text-white shadow-md shadow-sky-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-sky-600 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              <IndianRupee className="w-4 h-4" />
-              Monthly Collection
-            </button>
-            <button 
-              onClick={() => setActiveTab('graphs')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'graphs' 
-                  ? "bg-teal-600 text-white shadow-md shadow-teal-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-teal-600 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              <GraphIcon className="w-4 h-4" />
-              Graphs
-            </button>
-            <button 
-              onClick={() => setActiveTab('reports')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'reports' 
-                  ? "bg-violet-600 text-white shadow-md shadow-violet-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-violet-600 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              Reports
-            </button>
+              <div 
+                role="tablist"
+                aria-label="Admin Navigation Tabs"
+                className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-full border border-slate-200/80 shadow-2xs min-w-max"
+              >
+                {[
+                  {
+                    id: 'contributions' as const,
+                    label: 'Contributions',
+                    icon: Coins,
+                    hasPulse: Boolean(contributions.some(c => c.status === 'pending')),
+                    pulseColor: 'bg-amber-400',
+                  },
+                  {
+                    id: 'members' as const,
+                    label: 'Members',
+                    icon: Users,
+                  },
+                  {
+                    id: 'loans' as const,
+                    label: 'Loans',
+                    icon: CreditCard,
+                    hasPulse: Boolean(loans.some(l => l.status === 'pending')),
+                    pulseColor: 'bg-amber-400',
+                  },
+                  {
+                    id: 'notices' as const,
+                    label: 'Notices',
+                    icon: Megaphone,
+                  },
+                  {
+                    id: 'monthlyCollection' as const,
+                    label: 'Monthly Collection',
+                    icon: IndianRupee,
+                  },
+                  {
+                    id: 'graphs' as const,
+                    label: 'Graphs',
+                    icon: GraphIcon,
+                  },
+                  {
+                    id: 'reports' as const,
+                    label: 'Reports',
+                    icon: FileSpreadsheet,
+                  },
+                ].map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  const IconComp = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={(e) => {
+                        setActiveTab(tab.id);
+                        e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                      }}
+                      className={cn(
+                        "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
+                        isActive 
+                          ? "text-white" 
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                      )}
+                    >
+                      {isActive && (
+                        <motion.div
+                          layoutId="adminActiveTabPill"
+                          className="absolute inset-0 bg-indigo-600 rounded-full shadow-sm shadow-indigo-600/30"
+                          transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                        <IconComp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                        <span>{tab.label}</span>
+                        {tab.hasPulse && (
+                          <span className={cn(
+                            "w-2 h-2 rounded-full animate-pulse shrink-0",
+                            isActive ? "bg-amber-300" : (tab.pulseColor || "bg-amber-400")
+                          )} />
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
         {!isAdmin && (
-          <div className={cn(
-            "flex gap-2 mb-8 p-2 bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-slate-100/90 rounded-2xl w-fit border-2 border-indigo-200/80 shadow-sm",
-            isMobileVisual && "w-full overflow-x-auto scrollbar-hide no-scrollbar"
-          )}>
-            <button 
-              onClick={() => setActiveTab('contributions')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'contributions' 
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
-              )}
+          <div className="w-full mb-6 sm:mb-8 overflow-hidden">
+            <div 
+              className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
+              style={{ WebkitOverflowScrolling: 'touch' }}
             >
-              Contributions
-            </button>
-            <button 
-              onClick={() => setActiveTab('loans')}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                isMobileVisual && "px-3 py-2 text-xs",
-                activeTab === 'loans' 
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
-              )}
-            >
-              Loans
-              {loans.some(l => l.userId === user?.uid && l.status === 'approved') && (
-                <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-              )}
-            </button>
-            {memberHasLoans && (
-              <button 
-                onClick={() => setActiveTab('graphs')}
-                className={cn(
-                  "px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 whitespace-nowrap",
-                  isMobileVisual && "px-3 py-2 text-xs",
-                  activeTab === 'graphs' 
-                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-200/60" 
-                    : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/70 shadow-2xs"
-                )}
+              <div 
+                role="tablist"
+                aria-label="Member Navigation Tabs"
+                className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-full border border-slate-200/80 shadow-2xs min-w-max"
               >
-                <GraphIcon className="w-4 h-4" />
-                Graphs
-              </button>
-            )}
+                {[
+                  {
+                    id: 'contributions' as const,
+                    label: 'Contributions',
+                    icon: Coins,
+                  },
+                  {
+                    id: 'loans' as const,
+                    label: 'Loans',
+                    icon: CreditCard,
+                    hasPulse: Boolean(loans.some(l => l.userId === user?.uid && l.status === 'approved')),
+                    pulseColor: 'bg-emerald-400',
+                  },
+                  ...(memberHasLoans ? [{
+                    id: 'graphs' as const,
+                    label: 'Graphs',
+                    icon: GraphIcon,
+                  }] : []),
+                ].map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  const IconComp = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={(e) => {
+                        setActiveTab(tab.id);
+                        e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                      }}
+                      className={cn(
+                        "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
+                        isActive 
+                          ? "text-white" 
+                          : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                      )}
+                    >
+                      {isActive && (
+                        <motion.div
+                          layoutId="memberActiveTabPill"
+                          className="absolute inset-0 bg-indigo-600 rounded-full shadow-sm shadow-indigo-600/30"
+                          transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                        <IconComp className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                        <span>{tab.label}</span>
+                        {tab.hasPulse && (
+                          <span className={cn(
+                            "w-2 h-2 rounded-full animate-pulse shrink-0",
+                            isActive ? "bg-amber-300" : (tab.pulseColor || "bg-emerald-400")
+                          )} />
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
@@ -10112,10 +10122,10 @@ ${scheduleHighlights}
                   <div className="bg-white rounded-3xl shadow-sm border border-slate-200/90 overflow-hidden">
                   {/* Desktop Table View */}
                   <div className="hidden lg:block w-full max-w-full overflow-hidden">
-                    <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[75vh] w-full touch-pan-x overscroll-x-contain">
                 <table className="w-full min-w-[760px] text-left border-collapse whitespace-nowrap">
-                  <thead>
-                    <tr className="bg-slate-50/75 border-b border-slate-200/80">
+                  <thead className="sticky top-0 z-10 backdrop-blur-md bg-slate-50/90 shadow-2xs">
+                    <tr className="bg-slate-50/90 backdrop-blur-md border-b border-slate-200/80">
                       <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-10 border-r border-slate-200/60 select-none">#</th>
                       <th 
                         className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors group border-r border-slate-200/60 select-none"
@@ -10998,10 +11008,10 @@ ${scheduleHighlights}
                         <div className="space-y-4">
                           {/* Desktop Table View */}
                           <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
-                            <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
+                            <div className="overflow-x-auto overflow-y-auto max-h-[75vh] w-full touch-pan-x overscroll-x-contain">
                               <table className="w-full min-w-[760px] text-left border-collapse whitespace-nowrap">
-                                <thead>
-                                  <tr className="bg-slate-50/75 border-b border-slate-200/80">
+                                <thead className="sticky top-0 z-10 backdrop-blur-md bg-slate-50/90 shadow-2xs">
+                                  <tr className="bg-slate-50/90 backdrop-blur-md border-b border-slate-200/80">
                                     <th 
                                       className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-10 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       onClick={() => handleSortLoans('date')}
@@ -11665,10 +11675,10 @@ ${scheduleHighlights}
                         <div className="space-y-4">
                           {/* Desktop Table View */}
                           <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
-                            <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
+                            <div className="overflow-x-auto overflow-y-auto max-h-[75vh] w-full touch-pan-x overscroll-x-contain">
                               <table className="w-full min-w-[800px] text-left border-collapse whitespace-nowrap">
-                                <thead>
-                                  <tr className="bg-slate-50/75 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                <thead className="sticky top-0 z-10 backdrop-blur-md bg-slate-50/90 shadow-2xs">
+                                  <tr className="bg-slate-50/90 backdrop-blur-md border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                                     <th 
                                       className="px-4 py-3.5 w-12 text-center border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                                       onClick={() => handleSortLoans('date')}
@@ -13713,13 +13723,43 @@ ${scheduleHighlights}
                 c.month === collectionMonth && 
                 c.year === collectionYear
               );
+              // Helper to split a contribution into Base (standard ₹1,000) and Late Fee / Penalty
+              const getContribSplit = (c: Contribution) => {
+                const rawLate = (c as any).lateFee !== undefined 
+                  ? Number((c as any).lateFee) 
+                  : (c as any).fine !== undefined 
+                    ? Number((c as any).fine) 
+                    : ((c.amount || 0) > MONTHLY_AMOUNT ? (c.amount || 0) - MONTHLY_AMOUNT : 0);
+                const lateFee = Math.max(0, isNaN(rawLate) ? 0 : rawLate);
+                const base = Math.max(0, (c.amount || 0) - lateFee);
+                return { base, lateFee };
+              };
+
               const monthlyContributionTotal = monthlyPaidContributions.reduce((acc, c) => acc + (c.amount || 0), 0);
+              const monthlyBaseContributionsTotal = monthlyPaidContributions.reduce((acc, c) => acc + getContribSplit(c).base, 0);
+              const monthlyLateFeesTotal = monthlyPaidContributions.reduce((acc, c) => acc + getContribSplit(c).lateFee, 0);
+              const monthlyLateFeesCount = monthlyPaidContributions.filter(c => getContribSplit(c).lateFee > 0).length;
+
               const monthlyContribCashReceived = monthlyPaidContributions
                 .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
                 .reduce((acc, c) => acc + (c.amount || 0), 0);
               const monthlyContribOnlineReceived = monthlyPaidContributions
                 .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
                 .reduce((acc, c) => acc + (c.amount || 0), 0);
+
+              const monthlyBaseContribCash = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
+                .reduce((acc, c) => acc + getContribSplit(c).base, 0);
+              const monthlyBaseContribOnline = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
+                .reduce((acc, c) => acc + getContribSplit(c).base, 0);
+
+              const monthlyLateFeesCash = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() === 'cash')
+                .reduce((acc, c) => acc + getContribSplit(c).lateFee, 0);
+              const monthlyLateFeesOnline = monthlyPaidContributions
+                .filter(c => (c.paymentMethod || (c as any).paymentMode || 'online').toString().toLowerCase() !== 'cash')
+                .reduce((acc, c) => acc + getContribSplit(c).lateFee, 0);
 
               const monthlyPaidLoanPayments = loanPayments.filter(p => 
                 p.status === 'paid' && 
@@ -13756,6 +13796,7 @@ ${scheduleHighlights}
                 const userEmail = mUser?.email || c.userEmail || '';
                 const memberName = getSafeMemberDisplayName(mUser, userPhone, userEmail) || mUser?.displayName || (c as any).userName || (c as any).displayName || (c.userEmail ? c.userEmail.split('@')[0] : 'Member');
                 const dateObj = c.timestamp?.toDate ? c.timestamp.toDate() : null;
+                const split = getContribSplit(c);
                 return {
                   sno: idx + 1,
                   id: c.id,
@@ -13763,6 +13804,8 @@ ${scheduleHighlights}
                   userPhone,
                   userEmail,
                   amount: c.amount || 0,
+                  baseAmount: split.base,
+                  lateFee: split.lateFee,
                   method: c.paymentMethod || 'online',
                   dateFormatted: dateObj ? format(dateObj, 'dd MMM yyyy') : '-',
                   timeMs: dateObj ? dateObj.getTime() : 0,
@@ -13791,12 +13834,14 @@ ${scheduleHighlights}
                 if (field === 'sno') return (a.sno - b.sno) * factor;
                 if (field === 'member') return a.memberName.localeCompare(b.memberName) * factor;
                 if (field === 'amount') return (a.amount - b.amount) * factor;
+                if (field === 'baseAmount') return (a.baseAmount - b.baseAmount) * factor;
+                if (field === 'lateFee') return (a.lateFee - b.lateFee) * factor;
                 if (field === 'method') return a.method.localeCompare(b.method) * factor;
                 if (field === 'date') return (a.timeMs - b.timeMs) * factor;
                 return 0;
               });
 
-              const handleContribSort = (field: 'sno' | 'member' | 'amount' | 'method' | 'date') => {
+              const handleContribSort = (field: 'sno' | 'member' | 'amount' | 'baseAmount' | 'lateFee' | 'method' | 'date') => {
                 if (collectionContribSortConfig.field === field) {
                   setCollectionContribSortConfig({
                     field,
@@ -13823,6 +13868,7 @@ ${scheduleHighlights}
                 const borrowerName = getSafeMemberDisplayName(borrower, borrowerPhone, borrowerEmail) || borrower?.displayName || (parentLoan as any)?.userName || parentLoan?.userEmail?.split('@')[0] || (p as any)?.userName || p.userEmail?.split('@')[0] || 'Borrower';
                 const principal = p.amount || 0;
                 const interest = p.interest || 0;
+                const lateFee = Number((p as any).lateFee || (p as any).fine || (p as any).penalty || 0);
                 const total = principal + interest;
                 const paymentMode = p.paymentMode || (p as any)?.paymentMethod || 'Online';
                 const dateObj = p.approvedAt?.toDate ? p.approvedAt.toDate() : p.timestamp?.toDate ? p.timestamp.toDate() : null;
@@ -13835,6 +13881,7 @@ ${scheduleHighlights}
                   borrowerEmail,
                   principal,
                   interest,
+                  lateFee,
                   total,
                   paymentMode,
                   dateFormatted: dateObj ? format(dateObj, 'dd MMM yyyy') : '-',
@@ -13852,12 +13899,13 @@ ${scheduleHighlights}
                 const phoneMatch = Boolean(digitsOnly.length >= 3 && item.borrowerPhone && item.borrowerPhone.replace(/\D/g, '').includes(digitsOnly));
                 const principalMatch = item.principal.toString().includes(query);
                 const interestMatch = item.interest.toString().includes(query);
+                const lateFeeMatch = item.lateFee.toString().includes(query);
                 const totalMatch = item.total.toString().includes(query);
                 const modeMatch = item.paymentMode.toLowerCase().includes(query);
                 const dateMatch = item.dateFormatted.toLowerCase().includes(query);
                 const notesMatch = Boolean((item.raw as any)?.notes && (item.raw as any).notes.toLowerCase().includes(query));
                 const txMatch = Boolean((item.raw as any)?.transactionId && (item.raw as any).transactionId.toLowerCase().includes(query));
-                return nameMatch || emailMatch || phoneMatch || principalMatch || interestMatch || totalMatch || modeMatch || dateMatch || notesMatch || txMatch;
+                return nameMatch || emailMatch || phoneMatch || principalMatch || interestMatch || lateFeeMatch || totalMatch || modeMatch || dateMatch || notesMatch || txMatch;
               }) : mappedLoanPayments;
 
               const sortedLoanPayments = [...filteredLoanPayments].sort((a, b) => {
@@ -13867,13 +13915,16 @@ ${scheduleHighlights}
                 if (field === 'borrower') return a.borrowerName.localeCompare(b.borrowerName) * factor;
                 if (field === 'principal') return (a.principal - b.principal) * factor;
                 if (field === 'interest') return (a.interest - b.interest) * factor;
+                if (field === 'lateFee') return (a.lateFee - b.lateFee) * factor;
                 if (field === 'total') return (a.total - b.total) * factor;
                 if (field === 'mode') return a.paymentMode.localeCompare(b.paymentMode) * factor;
                 if (field === 'date') return (a.timeMs - b.timeMs) * factor;
                 return 0;
               });
 
-              const handleLoanSort = (field: 'sno' | 'borrower' | 'principal' | 'interest' | 'total' | 'mode' | 'date') => {
+              const hasLoanPenalties = sortedLoanPayments.some(p => p.lateFee > 0);
+
+              const handleLoanSort = (field: 'sno' | 'borrower' | 'principal' | 'interest' | 'lateFee' | 'total' | 'mode' | 'date') => {
                 if (collectionLoanSortConfig.field === field) {
                   setCollectionLoanSortConfig({
                     field,
@@ -13885,9 +13936,9 @@ ${scheduleHighlights}
               };
 
               return (
-                <div className="space-y-6">
+                <div className="space-y-5 sm:space-y-6 w-full max-w-full overflow-hidden">
                   {/* 1. Monthly Collection Summary Card */}
-                  <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-3xl p-5 sm:p-6 shadow-sm border-2 border-indigo-200/90 transition-all">
+                  <div className="bg-gradient-to-r from-indigo-50/90 via-slate-50 to-white text-slate-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 shadow-sm border-2 border-indigo-200/90 transition-all max-w-full overflow-hidden">
                     <div className={cn("flex flex-col lg:flex-row lg:items-center justify-between gap-4", isMonthlyCollectionSummaryExpanded && "pb-5 border-b border-indigo-100/80")}>
                       <div 
                         onClick={() => setIsMonthlyCollectionSummaryExpanded(!isMonthlyCollectionSummaryExpanded)}
@@ -13909,13 +13960,13 @@ ${scheduleHighlights}
                           {isMonthlyCollectionSummaryExpanded ? (
                             <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-[11px] sm:text-xs font-medium mt-1">
                               {/* Contributions counts */}
-                              <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                              <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                                 <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Contributions -</span>
-                                <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
                                   Paid: {contribPaidCount}
                                 </span>
-                                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
                                   Due: {contribDueCount}
                                 </span>
@@ -13924,17 +13975,18 @@ ${scheduleHighlights}
                               <span className="text-slate-300 hidden sm:inline select-none">•</span>
 
                               {/* Loan counts */}
-                              <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+                              <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                                 <span className="font-bold text-slate-700 text-[11px] sm:text-xs">Loan -</span>
-                                <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                <span className="flex items-center gap-1 font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
                                   Paid: {loanPaidCount}
                                 </span>
-                                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs">
+                                <span className="flex items-center gap-1 font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 sm:px-2 py-0.5 rounded-md shadow-2xs whitespace-nowrap">
                                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
                                   Due: {loanDueCount}
                                 </span>
                               </div>
+
                             </div>
                           ) : (
                             <p className="text-xs text-slate-500 mt-0.5">
@@ -14042,104 +14094,148 @@ ${scheduleHighlights}
                       })()}
                     </div>
 
-                    {/* Collection Metrics Grid - Smart & Compact */}
+                    {/* Collection Metrics Grid - Explicit Breakdown of Base vs Late Fees */}
                     {isMonthlyCollectionSummaryExpanded && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
+                      <div className={cn(
+                        "grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-3.5 mt-4 sm:mt-5 max-w-full",
+                        monthlyLateFeesTotal > 0 
+                          ? "md:grid-cols-3 xl:grid-cols-5" 
+                          : "md:grid-cols-2 xl:grid-cols-4"
+                      )}>
                         {/* Card 1: Total Received */}
-                        <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/30 to-white border border-emerald-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-emerald-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
-                              Total Received
-                            </span>
-                            <div className="w-6 h-6 rounded-lg bg-emerald-100/80 text-emerald-700 flex items-center justify-center font-bold">
-                              <IndianRupee className="w-3.5 h-3.5" />
+                        <div className="bg-gradient-to-br from-emerald-50/90 via-emerald-50/30 to-white border border-emerald-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs relative overflow-hidden group hover:border-emerald-300 transition-all flex flex-col justify-between min-w-0 max-w-full">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
+                                Total Received
+                              </span>
+                              <div className="w-6 h-6 rounded-lg bg-emerald-100/80 text-emerald-700 flex items-center justify-center font-bold">
+                                <IndianRupee className="w-3.5 h-3.5" />
+                              </div>
                             </div>
+                            <p className="text-xl sm:text-2xl font-black text-emerald-700 tracking-tight whitespace-nowrap">
+                              ₹{grandTotalMonthlyReceived.toLocaleString("en-IN")}
+                            </p>
                           </div>
-                          <p className="text-2xl font-black text-emerald-700 tracking-tight">
-                            ₹{grandTotalMonthlyReceived.toLocaleString("en-IN")}
-                          </p>
-                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-emerald-200/60 text-[11px]">
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">By Cash:</span>
+                          <div className="flex items-center justify-between gap-1.5 sm:gap-2 mt-3 pt-2 border-t border-emerald-200/60 text-[11px] flex-wrap">
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">By Cash:</span>
                               <span className="font-black text-amber-700">₹{grandTotalCashReceived.toLocaleString("en-IN")}</span>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">By Online:</span>
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">By Online:</span>
                               <span className="font-black text-indigo-700">₹{grandTotalOnlineReceived.toLocaleString("en-IN")}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* Card 2: Member Contributions */}
-                        <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/30 to-white border border-indigo-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-indigo-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider">
-                              Member Contributions
-                            </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100/80 text-indigo-700">
-                              {monthlyPaidContributions.length} Paid
-                            </span>
-                          </div>
-                          <p className="text-2xl font-black text-indigo-950 tracking-tight">
-                            ₹{monthlyContributionTotal.toLocaleString("en-IN")}
-                          </p>
-                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-indigo-200/60 text-[11px]">
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">By Cash:</span>
-                              <span className="font-black text-amber-700">₹{monthlyContribCashReceived.toLocaleString("en-IN")}</span>
+                        {/* Card 2: Base Contributions */}
+                        <div className="bg-gradient-to-br from-indigo-50/90 via-indigo-50/30 to-white border border-indigo-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs relative overflow-hidden group hover:border-indigo-300 transition-all flex flex-col justify-between min-w-0 max-w-full">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] font-bold text-indigo-800 uppercase tracking-wider">
+                                Base Contributions
+                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100/80 text-indigo-700 whitespace-nowrap">
+                                {monthlyPaidContributions.length} Paid
+                              </span>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">By Online:</span>
-                              <span className="font-black text-indigo-700">₹{monthlyContribOnlineReceived.toLocaleString("en-IN")}</span>
+                            <p className="text-xl sm:text-2xl font-black text-indigo-950 tracking-tight whitespace-nowrap">
+                              ₹{monthlyBaseContributionsTotal.toLocaleString("en-IN")}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between gap-1.5 sm:gap-2 mt-3 pt-2 border-t border-indigo-200/60 text-[11px] flex-wrap">
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">Base Cash:</span>
+                              <span className="font-black text-amber-700">₹{monthlyBaseContribCash.toLocaleString("en-IN")}</span>
+                            </div>
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">Base Online:</span>
+                              <span className="font-black text-indigo-700">₹{monthlyBaseContribOnline.toLocaleString("en-IN")}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* Card 3: Total Loan Repayments */}
-                        <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/30 to-white border border-purple-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-purple-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider">
-                              Loan Repayments
-                            </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100/80 text-purple-700">
-                              {monthlyPaidLoanPayments.length} Collected
-                            </span>
+                        {/* Card 3: Group Penalties (Late Fees) - Only shown when late payments / penalties occur */}
+                        {monthlyLateFeesTotal > 0 && (
+                          <div className="border rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs relative overflow-hidden transition-all flex flex-col justify-between min-w-0 max-w-full bg-gradient-to-br from-rose-50/90 via-amber-50/30 to-white border-rose-200/90 hover:border-rose-300">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-rose-800">
+                                  Group Penalties (Late Fees)
+                                </span>
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-extrabold whitespace-nowrap">
+                                  {monthlyLateFeesCount} {monthlyLateFeesCount === 1 ? 'Penalty' : 'Penalties'}
+                                </span>
+                              </div>
+                              <p className="text-xl sm:text-2xl font-black tracking-tight text-rose-700 whitespace-nowrap">
+                                ₹{monthlyLateFeesTotal.toLocaleString("en-IN")}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-between gap-1.5 sm:gap-2 mt-3 pt-2 border-t text-[11px] flex-wrap border-rose-200/60">
+                              <div className="flex items-center gap-1 whitespace-nowrap">
+                                <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">Late Cash:</span>
+                                <span className="font-black text-amber-700">₹{monthlyLateFeesCash.toLocaleString("en-IN")}</span>
+                              </div>
+                              <div className="flex items-center gap-1 whitespace-nowrap">
+                                <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">Late Online:</span>
+                                <span className="font-black text-indigo-700">₹{monthlyLateFeesOnline.toLocaleString("en-IN")}</span>
+                              </div>
+                            </div>
                           </div>
-                          <p className="text-2xl font-black text-purple-950 tracking-tight">
-                            ₹{monthlyLoanTotalCollected.toLocaleString("en-IN")}
-                          </p>
-                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-purple-200/60 text-[11px]">
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">By Cash:</span>
+                        )}
+
+                        {/* Card 4: Total Loan Repayments */}
+                        <div className="bg-gradient-to-br from-purple-50/90 via-purple-50/30 to-white border border-purple-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs relative overflow-hidden group hover:border-purple-300 transition-all flex flex-col justify-between min-w-0 max-w-full">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider">
+                                Loan Repayments
+                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100/80 text-purple-700 whitespace-nowrap">
+                                {monthlyPaidLoanPayments.length} Collected
+                              </span>
+                            </div>
+                            <p className="text-xl sm:text-2xl font-black text-purple-950 tracking-tight whitespace-nowrap">
+                              ₹{monthlyLoanTotalCollected.toLocaleString("en-IN")}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between gap-1.5 sm:gap-2 mt-3 pt-2 border-t border-purple-200/60 text-[11px] flex-wrap">
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">By Cash:</span>
                               <span className="font-black text-amber-700">₹{monthlyLoanCashReceived.toLocaleString("en-IN")}</span>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">By Online:</span>
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">By Online:</span>
                               <span className="font-black text-indigo-700">₹{monthlyLoanOnlineReceived.toLocaleString("en-IN")}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* Card 4: Principal & Interest Split */}
-                        <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/30 to-white border border-amber-200/80 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-amber-300 transition-all">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
-                              Principal &amp; Interest
-                            </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                              Split
-                            </span>
+                        {/* Card 5: Principal & Interest Split */}
+                        <div className="bg-gradient-to-br from-amber-50/90 via-amber-50/30 to-white border border-amber-200/80 rounded-xl sm:rounded-2xl p-3 sm:p-4 shadow-xs relative overflow-hidden group hover:border-amber-300 transition-all flex flex-col justify-between min-w-0 max-w-full">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                                Principal &amp; Interest
+                              </span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 whitespace-nowrap">
+                                Split
+                              </span>
+                            </div>
+                            <div className="text-base sm:text-lg font-black text-slate-900 flex items-center flex-wrap gap-1">
+                              <span>₹{monthlyLoanPrincipalCollected.toLocaleString("en-IN")}</span>
+                              <span className="text-xs font-normal text-slate-400">+</span>
+                              <span className="text-amber-700 font-bold">₹{monthlyLoanInterestCollected.toLocaleString("en-IN")}</span>
+                            </div>
                           </div>
-                          <div className="text-base sm:text-lg font-black text-slate-900 truncate">
-                            ₹{monthlyLoanPrincipalCollected.toLocaleString("en-IN")} <span className="text-xs font-normal text-slate-400">+</span> <span className="text-amber-700 font-bold">₹{monthlyLoanInterestCollected.toLocaleString("en-IN")}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 mt-1.5 pt-1.5 border-t border-amber-200/60 text-[11px]">
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">Principal:</span>
+                          <div className="flex items-center justify-between gap-1.5 sm:gap-2 mt-3 pt-2 border-t border-amber-200/60 text-[11px] flex-wrap">
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">Principal:</span>
                               <span className="font-black text-slate-700">₹{monthlyLoanPrincipalCollected.toLocaleString("en-IN")}</span>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10.5px] font-semibold text-slate-600">Interest:</span>
+                            <div className="flex items-center gap-1 whitespace-nowrap">
+                              <span className="text-[10px] sm:text-[10.5px] font-semibold text-slate-600">Interest:</span>
                               <span className="font-black text-amber-700">₹{monthlyLoanInterestCollected.toLocaleString("en-IN")}</span>
                             </div>
                           </div>
@@ -14201,206 +14297,128 @@ ${scheduleHighlights}
                               Member Contributions
                               <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", !isContribListExpanded && "-rotate-90")} />
                             </h4>
-                            <p className="text-xs text-slate-500">Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} • {monthlyPaidContributions.length} Members</p>
+                            <p className="text-xs text-slate-500">
+                              Paid for {format(new Date(collectionYear, collectionMonth - 1, 1), "MMMM yyyy")} • {monthlyPaidContributions.length} Members
+                              <span className="hidden sm:inline font-semibold text-slate-700 ml-1.5">
+                                (Base: ₹{monthlyBaseContributionsTotal.toLocaleString("en-IN")} • Late Fees: ₹{monthlyLateFeesTotal.toLocaleString("en-IN")})
+                              </span>
+                            </p>
                           </div>
                         </div>
-                        <span className="px-3.5 py-1.5 bg-indigo-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs">
-                          ₹{monthlyContributionTotal.toLocaleString("en-IN")}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {monthlyLateFeesTotal > 0 && (
+                            <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-xl text-xs font-bold border border-rose-200 shadow-2xs">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                              ₹{monthlyLateFeesTotal.toLocaleString("en-IN")} Penalties
+                            </span>
+                          )}
+                          <span className="px-3.5 py-1.5 bg-indigo-600 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs">
+                            ₹{monthlyContributionTotal.toLocaleString("en-IN")}
+                          </span>
+                        </div>
                       </div>
 
                       {isContribListExpanded && (
-                        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/90 space-y-4">
+                        <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-6 shadow-sm border border-slate-200/90 space-y-3 sm:space-y-4 max-w-full overflow-hidden">
                           {sortedContribs.length === 0 ? (
                             <p className="text-slate-400 text-xs italic py-8 text-center">
                               {searchQuery && searchQuery.trim() ? "No contributions match your search." : "No paid contributions recorded for this month."}
                             </p>
                           ) : (
-                            <>
-                              {/* Desktop Table View */}
-                              <div className="hidden lg:block overflow-x-auto w-full touch-pan-x overscroll-x-contain">
-                                <table className="w-full min-w-[650px] text-left border-collapse whitespace-nowrap">
-                                  <thead>
-                                    <tr className="bg-slate-50/75 border-b border-slate-200/80 text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
-                                      <th 
-                                        onClick={() => handleContribSort('sno')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-10"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          #
-                                          {collectionContribSortConfig.field === 'sno' ? (
-                                            collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
-                                      <th 
-                                        onClick={() => handleContribSort('member')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          Member
-                                          {collectionContribSortConfig.field === 'member' ? (
-                                            collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
-                                      <th 
-                                        onClick={() => handleContribSort('amount')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          Amount
-                                          {collectionContribSortConfig.field === 'amount' ? (
-                                            collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
-                                      <th 
-                                        onClick={() => handleContribSort('method')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          Method
-                                          {collectionContribSortConfig.field === 'method' ? (
-                                            collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
-                                      <th 
-                                        onClick={() => handleContribSort('date')}
-                                        className="px-3 sm:px-3.5 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
-                                      >
-                                        <div className="flex items-center gap-1">
-                                          Date
-                                          {collectionContribSortConfig.field === 'date' ? (
-                                            collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
-                                        </div>
-                                      </th>
+                            <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
+                              <table className="w-full min-w-full text-left border-collapse text-xs">
+                                <thead>
+                                  <tr className="bg-slate-50/90 border-b border-slate-200 text-[10.5px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
+                                    <th 
+                                      onClick={() => handleContribSort('sno')}
+                                      className="px-2 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-8 sm:w-12 text-center select-none"
+                                    >
+                                      <div className="flex items-center justify-center gap-0.5 sm:gap-1">
+                                        #
+                                        {collectionContribSortConfig.field === 'sno' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('member')}
+                                      className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Member
+                                        {collectionContribSortConfig.field === 'member' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('amount')}
+                                      className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Total Paid
+                                        {collectionContribSortConfig.field === 'amount' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('method')}
+                                      className="px-2 sm:px-3 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none text-center"
+                                    >
+                                      <div className="flex items-center justify-center gap-0.5 sm:gap-1">
+                                        Method
+                                        {collectionContribSortConfig.field === 'method' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
+                                      </div>
+                                    </th>
+                                    <th 
+                                      onClick={() => handleContribSort('date')}
+                                      className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        Date
+                                        {collectionContribSortConfig.field === 'date' ? (
+                                          collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                        ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
+                                      </div>
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
+                                  {sortedContribs.map((item, rowIdx) => (
+                                    <tr key={`coll-contrib-${item.id}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
+                                      <td className="px-2 sm:px-3.5 py-2.5 sm:py-3 font-bold text-slate-400 border-r border-slate-200/60 text-center w-8 sm:w-12">
+                                        {rowIdx + 1}
+                                      </td>
+                                      <td className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 font-bold text-slate-900 border-r border-slate-200/60 break-words max-w-[130px] sm:max-w-none">
+                                        {item.memberName}
+                                      </td>
+                                      <td className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 whitespace-nowrap">
+                                        <div className="font-bold text-emerald-600">₹{item.amount.toLocaleString('en-IN')}</div>
+                                        {item.lateFee > 0 ? (
+                                          <div className="text-[9.5px] sm:text-[10px] text-slate-500 font-medium">
+                                            {item.baseAmount.toLocaleString('en-IN')} + {item.lateFee.toLocaleString('en-IN')}
+                                          </div>
+                                        ) : null}
+                                      </td>
+                                      <td className="px-2 sm:px-3 py-2.5 sm:py-3 border-r border-slate-200/60 text-center">
+                                        <span className={cn(
+                                          "px-2 py-0.5 rounded-md text-[9.5px] sm:text-[10px] font-bold uppercase inline-block whitespace-nowrap",
+                                          item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                        )}>
+                                          {item.method}
+                                        </span>
+                                      </td>
+                                      <td className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 text-slate-500 text-[10.5px] sm:text-xs whitespace-nowrap">
+                                        {item.dateFormatted}
+                                      </td>
                                     </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
-                                    {sortedContribs.map((item, rowIdx) => (
-                                      <tr key={`coll-contrib-${item.id}`} className="hover:bg-slate-50/70 transition-colors">
-                                        <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-400 border-r border-slate-200/60">
-                                          {rowIdx + 1}
-                                        </td>
-                                        <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-900 border-r border-slate-200/60">
-                                          {item.memberName}
-                                        </td>
-                                        <td className="px-3 sm:px-3.5 py-3 font-bold text-emerald-600 border-r border-slate-200/60">
-                                          ₹{item.amount.toLocaleString('en-IN')}
-                                        </td>
-                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
-                                          <span className={cn(
-                                            "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase",
-                                            item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                          )}>
-                                            {item.method}
-                                          </span>
-                                        </td>
-                                        <td className="px-3 sm:px-3.5 py-3 text-slate-500">
-                                          {item.dateFormatted}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-
-                              {/* Mobile / Tablet Columnar Table View */}
-                              <div className="lg:hidden">
-                                <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
-                                  <table className="w-full min-w-[480px] text-left border-collapse whitespace-nowrap text-xs">
-                                    <thead>
-                                      <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                                        <th 
-                                          onClick={() => handleContribSort('sno')}
-                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-9 text-center select-none"
-                                        >
-                                          <div className="flex items-center justify-center gap-1">
-                                            #
-                                            {collectionContribSortConfig.field === 'sno' ? (
-                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleContribSort('member')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Member
-                                            {collectionContribSortConfig.field === 'member' ? (
-                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleContribSort('amount')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Amount
-                                            {collectionContribSortConfig.field === 'amount' ? (
-                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleContribSort('method')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Method
-                                            {collectionContribSortConfig.field === 'method' ? (
-                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleContribSort('date')}
-                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Date
-                                            {collectionContribSortConfig.field === 'date' ? (
-                                              collectionContribSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
-                                      {sortedContribs.map((item, rowIdx) => (
-                                        <tr key={`coll-contrib-mobile-${item.id}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
-                                          <td className="px-2.5 py-2.5 font-bold text-slate-400 border-r border-slate-200/60 text-center">
-                                            {rowIdx + 1}
-                                          </td>
-                                          <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-200/60">
-                                            {item.memberName}
-                                          </td>
-                                          <td className="px-3 py-2.5 font-bold text-emerald-600 border-r border-slate-200/60">
-                                            ₹{item.amount.toLocaleString('en-IN')}
-                                          </td>
-                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
-                                            <span className={cn(
-                                              "px-2 py-0.5 rounded-md text-[10px] font-bold uppercase",
-                                              item.method === 'cash' ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                            )}>
-                                              {item.method}
-                                            </span>
-                                          </td>
-                                          <td className="px-3 py-2.5 text-slate-500">
-                                            {item.dateFormatted}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            </>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
                           )}
                         </div>
                       )}
@@ -14431,97 +14449,121 @@ ${scheduleHighlights}
                       </div>
 
                       {isLoanListExpanded && (
-                        <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/90 space-y-4">
+                        <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-6 shadow-sm border border-slate-200/90 space-y-3 sm:space-y-4 max-w-full overflow-hidden">
                           {sortedLoanPayments.length === 0 ? (
                             <p className="text-slate-400 text-xs italic py-8 text-center">
                               {searchQuery && searchQuery.trim() ? "No loan repayments match your search." : "No loan repayments collected for this month."}
                             </p>
                           ) : (
-                            <>
-                              {/* Desktop Table View */}
-                              <div className="hidden lg:block overflow-x-auto w-full touch-pan-x overscroll-x-contain">
-                                <table className="w-full min-w-[720px] text-left border-collapse whitespace-nowrap">
+                              <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
+                                <table className="w-full min-w-full text-left border-collapse text-xs">
                                   <thead>
-                                    <tr className="bg-slate-50/75 border-b border-slate-200/80 text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
+                                    <tr className="bg-slate-50/90 border-b border-slate-200 text-[10.5px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
                                       <th 
                                         onClick={() => handleLoanSort('sno')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-14"
+                                        className="px-2 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-8 sm:w-12 text-center select-none"
                                       >
-                                        <div className="flex items-center gap-1">
-                                          Sl no
+                                        <div className="flex items-center justify-center gap-0.5 sm:gap-1">
+                                          #
                                           {collectionLoanSortConfig.field === 'sno' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
                                         </div>
                                       </th>
                                       <th 
                                         onClick={() => handleLoanSort('borrower')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                                        className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
                                       >
                                         <div className="flex items-center gap-1">
-                                          BORROWER
+                                          Borrower
                                           {collectionLoanSortConfig.field === 'borrower' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
                                         </div>
                                       </th>
                                       <th 
                                         onClick={() => handleLoanSort('total')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-44 sm:w-52"
+                                        className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
                                       >
                                         <div className="flex items-center gap-1">
-                                          Total paid
+                                          Total Paid
                                           {collectionLoanSortConfig.field === 'total' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
                                         </div>
                                       </th>
+                                      {hasLoanPenalties && (
+                                        <th 
+                                          onClick={() => handleLoanSort('lateFee')}
+                                          className="px-2 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            Late Fee
+                                            {collectionLoanSortConfig.field === 'lateFee' ? (
+                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                            ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
+                                          </div>
+                                        </th>
+                                      )}
                                       <th 
                                         onClick={() => handleLoanSort('mode')}
-                                        className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-28 sm:w-32"
+                                        className="px-2 sm:px-3 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none text-center"
                                       >
-                                        <div className="flex items-center gap-1">
+                                        <div className="flex items-center justify-center gap-0.5 sm:gap-1">
                                           Mode
                                           {collectionLoanSortConfig.field === 'mode' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
                                         </div>
                                       </th>
                                       <th 
                                         onClick={() => handleLoanSort('date')}
-                                        className="px-3 sm:px-3.5 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none w-32 sm:w-36"
+                                        className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 cursor-pointer hover:bg-slate-100 transition-colors select-none"
                                       >
                                         <div className="flex items-center gap-1">
                                           Date
                                           {collectionLoanSortConfig.field === 'date' ? (
-                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                          ) : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-400" />}
+                                            collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" /> : <ArrowDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-600" />
+                                          ) : <ArrowUpDown className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-300" />}
                                         </div>
                                       </th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
                                     {sortedLoanPayments.map((p, rowIdx) => (
-                                      <tr key={`coll-loan-p-${p.id}`} className="hover:bg-slate-50/70 transition-colors">
-                                        <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-400 border-r border-slate-200/60">
+                                      <tr key={`coll-loan-p-${p.id}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
+                                        <td className="px-2 sm:px-3.5 py-2.5 sm:py-3 font-bold text-slate-400 border-r border-slate-200/60 text-center w-8 sm:w-12">
                                           {rowIdx + 1}
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 font-bold text-slate-900 border-r border-slate-200/60">
+                                        <td className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 font-bold text-slate-900 border-r border-slate-200/60 break-words max-w-[130px] sm:max-w-none">
                                           {p.borrowerName}
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
+                                        <td className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 whitespace-nowrap">
                                           <div className="flex flex-col">
                                             <span className="font-bold text-emerald-600">
                                               ₹{p.total.toLocaleString('en-IN')}
                                             </span>
-                                            <span className="text-[10px] text-slate-500 font-medium">
+                                            <span className="text-[10px] text-slate-500 font-medium whitespace-nowrap">
                                               ₹{p.principal.toLocaleString('en-IN')} (P) + ₹{p.interest.toLocaleString('en-IN')} (I)
                                             </span>
                                           </div>
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
+                                        {hasLoanPenalties && (
+                                          <td className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 whitespace-nowrap">
+                                            {p.lateFee > 0 ? (
+                                              <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-md text-[10.5px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                                +₹{p.lateFee.toLocaleString('en-IN')} Late
+                                              </span>
+                                            ) : (
+                                              <span className="text-slate-400 font-medium text-[10.5px] sm:text-[11px]">
+                                                ₹0 (On-time)
+                                              </span>
+                                            )}
+                                          </td>
+                                        )}
+                                        <td className="px-2 sm:px-3 py-2.5 sm:py-3 border-r border-slate-200/60 text-center">
                                           <span className={cn(
-                                            "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase inline-block",
+                                            "px-1.5 sm:px-2 py-0.5 rounded-md text-[9.5px] sm:text-[10px] font-bold uppercase inline-block whitespace-nowrap",
                                             p.paymentMode.toLowerCase() === 'cash' 
                                               ? "bg-amber-50 text-amber-700 border border-amber-200" 
                                               : "bg-indigo-50 text-indigo-700 border border-indigo-200"
@@ -14529,7 +14571,7 @@ ${scheduleHighlights}
                                             {p.paymentMode}
                                           </span>
                                         </td>
-                                        <td className="px-3 sm:px-3.5 py-3 text-slate-500">
+                                        <td className="px-2.5 sm:px-3.5 py-2.5 sm:py-3 text-slate-500 text-[10.5px] sm:text-xs whitespace-nowrap">
                                           {p.dateFormatted}
                                         </td>
                                       </tr>
@@ -14537,109 +14579,6 @@ ${scheduleHighlights}
                                   </tbody>
                                 </table>
                               </div>
-
-                              {/* Mobile / Tablet Columnar Table View */}
-                              <div className="lg:hidden">
-                                <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
-                                  <table className="w-full min-w-[500px] text-left border-collapse whitespace-nowrap text-xs">
-                                    <thead>
-                                      <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider select-none">
-                                        <th 
-                                          onClick={() => handleLoanSort('sno')}
-                                          className="px-2.5 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-12 text-center select-none"
-                                        >
-                                          <div className="flex items-center justify-center gap-1">
-                                            Sl no
-                                            {collectionLoanSortConfig.field === 'sno' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleLoanSort('borrower')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            BORROWER
-                                            {collectionLoanSortConfig.field === 'borrower' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleLoanSort('total')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none w-36"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Total paid
-                                            {collectionLoanSortConfig.field === 'total' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleLoanSort('mode')}
-                                          className="px-3 py-2.5 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors select-none w-24"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Mode
-                                            {collectionLoanSortConfig.field === 'mode' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                        <th 
-                                          onClick={() => handleLoanSort('date')}
-                                          className="px-3 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors select-none w-28"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            Date
-                                            {collectionLoanSortConfig.field === 'date' ? (
-                                              collectionLoanSortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />
-                                            ) : <ArrowUpDown className="w-3 h-3 text-slate-300" />}
-                                          </div>
-                                        </th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700 text-xs">
-                                      {sortedLoanPayments.map((p, rowIdx) => (
-                                        <tr key={`coll-loan-mobile-${p.id}-${rowIdx}`} className="hover:bg-slate-50/70 transition-colors">
-                                          <td className="px-2.5 py-2.5 font-bold text-slate-400 border-r border-slate-200/60 text-center">
-                                            {rowIdx + 1}
-                                          </td>
-                                          <td className="px-3 py-2.5 font-bold text-slate-900 border-r border-slate-200/60">
-                                            {p.borrowerName}
-                                          </td>
-                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
-                                            <div className="flex flex-col">
-                                              <span className="font-bold text-emerald-600">
-                                                ₹{p.total.toLocaleString('en-IN')}
-                                              </span>
-                                              <span className="text-[10px] text-slate-500 font-medium">
-                                                ₹{p.principal.toLocaleString('en-IN')} (P) + ₹{p.interest.toLocaleString('en-IN')} (I)
-                                              </span>
-                                            </div>
-                                          </td>
-                                          <td className="px-3 py-2.5 border-r border-slate-200/60">
-                                            <span className={cn(
-                                              "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase inline-block",
-                                              p.paymentMode.toLowerCase() === 'cash' 
-                                                ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                                                : "bg-indigo-50 text-indigo-700 border border-indigo-200"
-                                            )}>
-                                              {p.paymentMode}
-                                            </span>
-                                          </td>
-                                          <td className="px-3 py-2.5 text-slate-500">
-                                            {p.dateFormatted}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            </>
                           )}
                         </div>
                       )}
