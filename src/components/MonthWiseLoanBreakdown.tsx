@@ -731,10 +731,10 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                             <span className={cn(
                                               "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border",
                                               isPaid 
-                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                                                : "bg-blue-50 text-blue-700 border-blue-200"
+                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" 
+                                                : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/80 dark:text-blue-200 dark:border-blue-600"
                                             )}>
-                                              {isPaid ? 'Settled' : 'Active'}
+                                              <span>{isPaid ? 'Settled' : 'Active'}</span>
                                             </span>
                                           </td>
                                         </tr>
@@ -783,10 +783,10 @@ export const MonthWiseLoanBreakdown: React.FC<MonthWiseLoanBreakdownProps> = ({
                                         <span className={cn(
                                           "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border shrink-0",
                                           isPaid 
-                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                                            : "bg-blue-50 text-blue-700 border-blue-200"
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" 
+                                            : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/80 dark:text-blue-200 dark:border-blue-600"
                                         )}>
-                                          {isPaid ? 'Settled' : 'Active'}
+                                          <span>{isPaid ? 'Settled' : 'Active'}</span>
                                         </span>
                                       </div>
 

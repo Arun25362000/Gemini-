@@ -135,7 +135,9 @@ import {
   Info,
   Eye,
   Activity,
-  XCircle
+  XCircle,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Graphs from './components/Graphs';
@@ -731,24 +733,6 @@ export default function App() {
   const [originalEditingEmail, setOriginalEditingEmail] = useState<string | null>(null);
   const [editingContribution, setEditingContribution] = useState<Contribution | null>(null);
   const [activeTab, setActiveTab] = useState<'contributions' | 'members' | 'loans' | 'notices' | 'graphs' | 'monthlyCollection' | 'reports'>('contributions');
-  const [isNavTabsExpanded, setIsNavTabsExpanded] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem('unnati_nav_tabs_expanded');
-      return saved !== null ? saved === 'true' : true;
-    } catch {
-      return true;
-    }
-  });
-
-  const toggleNavTabs = useCallback(() => {
-    setIsNavTabsExpanded(prev => {
-      const next = !prev;
-      try {
-        localStorage.setItem('unnati_nav_tabs_expanded', String(next));
-      } catch {}
-      return next;
-    });
-  }, []);
   const [loanSubTab, setLoanSubTab] = useState<'applications' | 'repayments' | 'breakdown' | 'projection'>('applications');
   const [projectionSelectedUserId, setProjectionSelectedUserId] = useState<string>('');
   const [adminProjectionScheduleExpanded, setAdminProjectionScheduleExpanded] = useState<boolean>(true);
@@ -818,6 +802,30 @@ export default function App() {
   const [isLoanListExpanded, setIsLoanListExpanded] = useState<boolean>(true);
   const [isMonthlyCollectionSummaryExpanded, setIsMonthlyCollectionSummaryExpanded] = useState<boolean>(true);
   const [customPrincipal, setCustomPrincipal] = useState<number>(5000);
+
+  // Theme State: 'light' or 'dark' with persistence and HTML class sync
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('unnati_theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    }
+    return 'light';
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    try {
+      localStorage.setItem('unnati_theme', theme);
+    } catch {
+      // ignore
+    }
+  }, [theme]);
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<'all' | 'cash' | 'online' | 'advance'>('all');
   const [isMemberActionsCollapsed, setIsMemberActionsCollapsed] = useState<boolean>(false);
@@ -9021,8 +9029,43 @@ ${scheduleHighlights}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6"
+            className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative"
           >
+            {/* Top-Right Theme Switcher on Login Screen */}
+            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20">
+              <div className="flex items-center bg-white p-1 rounded-2xl border border-slate-200/90 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  className={cn(
+                    "p-1.5 sm:px-2.5 sm:py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
+                    theme === 'light'
+                      ? "bg-slate-100 text-amber-600 shadow-xs border border-amber-200"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                  title="Switch to Light Theme"
+                  aria-label="Switch to Light Theme"
+                >
+                  <Sun className={cn("w-4 h-4", theme === 'light' ? "text-amber-500 fill-amber-500/20" : "text-slate-400")} />
+                  <span className="hidden sm:inline text-[11px] font-black">Light</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  className={cn(
+                    "p-1.5 sm:px-2.5 sm:py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
+                    theme === 'dark'
+                      ? "bg-slate-900 text-indigo-400 shadow-xs border border-indigo-500/50"
+                      : "text-slate-400 hover:text-slate-600"
+                  )}
+                  title="Switch to Dark Theme"
+                  aria-label="Switch to Dark Theme"
+                >
+                  <Moon className={cn("w-4 h-4", theme === 'dark' ? "text-indigo-400 fill-indigo-400/20" : "text-slate-400")} />
+                  <span className="hidden sm:inline text-[11px] font-black">Dark</span>
+                </button>
+              </div>
+            </div>
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -9265,6 +9308,40 @@ ${scheduleHighlights}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
+            {/* Theme Switcher: Light Theme & Dark Theme Icons */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/90 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setTheme('light')}
+                className={cn(
+                  "p-1.5 sm:px-2 sm:py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
+                  theme === 'light'
+                    ? "bg-white text-amber-600 shadow-xs border border-amber-200"
+                    : "text-slate-400 hover:text-slate-600"
+                )}
+                title="Switch to Light Theme"
+                aria-label="Switch to Light Theme"
+              >
+                <Sun className={cn("w-4 h-4", theme === 'light' ? "text-amber-500 fill-amber-500/20" : "text-slate-400")} />
+                <span className="hidden md:inline text-[11px] font-black">Light</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTheme('dark')}
+                className={cn(
+                  "p-1.5 sm:px-2 sm:py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
+                  theme === 'dark'
+                    ? "bg-slate-900 text-indigo-400 shadow-xs border border-indigo-500/50"
+                    : "text-slate-400 hover:text-slate-600"
+                )}
+                title="Switch to Dark Theme"
+                aria-label="Switch to Dark Theme"
+              >
+                <Moon className={cn("w-4 h-4", theme === 'dark' ? "text-indigo-400 fill-indigo-400/20" : "text-slate-400")} />
+                <span className="hidden md:inline text-[11px] font-black">Dark</span>
+              </button>
+            </div>
+
             {/* Notification Bell */}
             <div className="relative">
               <button 
@@ -9767,98 +9844,56 @@ ${scheduleHighlights}
               label: 'Reports',
             },
           ];
-          const currentAdminTab = adminTabsList.find(t => t.id === activeTab) || adminTabsList[0];
-
           return (
             <div className="w-full mb-6 sm:mb-8 overflow-hidden">
               <div 
                 className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
-                {!isNavTabsExpanded ? (
-                  /* Collapsed Rectangle: Clicking anywhere expands all 7 tabs */
-                  <div 
-                    onClick={toggleNavTabs}
-                    role="button"
-                    tabIndex={0}
-                    title="Click rectangle to expand all 7 tabs"
-                    aria-label="Expand all 7 navigation tabs"
-                    className="inline-flex items-center gap-2 sm:gap-2.5 p-1 sm:p-1.5 bg-slate-100/90 hover:bg-slate-200/80 rounded-xl border border-slate-200/80 shadow-2xs min-w-max cursor-pointer select-none transition-all group active:scale-[0.99]"
-                  >
-                    <div className="relative px-3.5 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 shadow-sm shadow-indigo-600/30">
-                      <span>{currentAdminTab.label}</span>
-                      {currentAdminTab.hasPulse && (
-                        <span className="w-2 h-2 rounded-full animate-pulse bg-amber-300 shrink-0" />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-600 group-hover:text-indigo-600 transition-colors pr-2">
-                      <span className="text-slate-400 font-medium hidden xs:inline">•</span>
-                      <span>Expand Tabs (7)</span>
-                      <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-indigo-600 transition-transform group-hover:translate-y-0.5" />
-                    </div>
-                  </div>
-                ) : (
-                  /* Expanded Rectangle: Shows all 7 tabs + collapse toggle */
-                  <div 
-                    role="tablist"
-                    aria-label="Admin Navigation Tabs"
-                    className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-2xs min-w-max"
-                  >
-                    {adminTabsList.map((tab) => {
-                      const isActive = activeTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          role="tab"
-                          aria-selected={isActive}
-                          title={isActive ? "Active Tab • Click to collapse tabs" : `Switch to ${tab.label}`}
-                          onClick={(e) => {
-                            if (isActive) {
-                              toggleNavTabs();
-                              return;
-                            }
-                            setActiveTab(tab.id);
-                            e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-                          }}
-                          className={cn(
-                            "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
-                            isActive 
-                              ? "text-white" 
-                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                <div 
+                  role="tablist"
+                  aria-label="Admin Navigation Tabs"
+                  className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 dark:bg-slate-800 dark:border-slate-700 rounded-xl border border-slate-200/80 shadow-2xs min-w-max"
+                >
+                  {adminTabsList.map((tab) => {
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        role="tab"
+                        aria-selected={isActive}
+                        title={`Switch to ${tab.label}`}
+                        onClick={(e) => {
+                          setActiveTab(tab.id);
+                          e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                        }}
+                        className={cn(
+                          "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
+                          isActive 
+                            ? "text-white" 
+                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 dark:bg-slate-200 dark:text-slate-950 dark:hover:bg-white dark:hover:text-black dark:border dark:border-slate-300"
+                        )}
+                      >
+                        {isActive && (
+                          <motion.div
+                            layoutId="adminActiveTab"
+                            className="absolute inset-0 bg-indigo-600 rounded-lg shadow-sm shadow-indigo-600/30"
+                            transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                          />
+                        )}
+                        <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                          <span>{tab.label}</span>
+                          {tab.hasPulse && (
+                            <span className={cn(
+                              "w-2 h-2 rounded-full animate-pulse shrink-0",
+                              isActive ? "bg-amber-300" : (tab.pulseColor || "bg-amber-400")
+                            )} />
                           )}
-                        >
-                          {isActive && (
-                            <motion.div
-                              layoutId="adminActiveTab"
-                              className="absolute inset-0 bg-indigo-600 rounded-lg shadow-sm shadow-indigo-600/30"
-                              transition={{ type: "spring", stiffness: 450, damping: 35 }}
-                            />
-                          )}
-                          <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
-                            <span>{tab.label}</span>
-                            {tab.hasPulse && (
-                              <span className={cn(
-                                "w-2 h-2 rounded-full animate-pulse shrink-0",
-                                isActive ? "bg-amber-300" : (tab.pulseColor || "bg-amber-400")
-                              )} />
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {/* Collapse Button inside the Rectangle */}
-                    <button
-                      type="button"
-                      onClick={toggleNavTabs}
-                      title="Collapse 7 tabs"
-                      aria-label="Collapse 7 tabs"
-                      className="relative px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 border-l border-slate-200/90 transition-all flex items-center gap-1 select-none cursor-pointer shrink-0 ml-0.5 active:scale-95"
-                    >
-                      <ChevronUp className="w-3.5 h-3.5 text-slate-500 hover:text-slate-800" />
-                      <span className="text-[11px] text-slate-500 hover:text-slate-800 hidden md:inline">Collapse</span>
-                    </button>
-                  </div>
-                )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           );
@@ -9881,98 +9916,56 @@ ${scheduleHighlights}
               label: 'Graphs',
             }] : []),
           ];
-          const currentMemberTab = memberTabsList.find(t => t.id === activeTab) || memberTabsList[0];
-
           return (
             <div className="w-full mb-6 sm:mb-8 overflow-hidden">
               <div 
                 className="w-full overflow-x-auto scrollbar-hide no-scrollbar py-1.5 px-0.5 -my-1.5 scroll-smooth"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
-                {!isNavTabsExpanded ? (
-                  /* Collapsed Member Rectangle */
-                  <div 
-                    onClick={toggleNavTabs}
-                    role="button"
-                    tabIndex={0}
-                    title="Click rectangle to expand tabs"
-                    aria-label="Expand navigation tabs"
-                    className="inline-flex items-center gap-2 sm:gap-2.5 p-1 sm:p-1.5 bg-slate-100/90 hover:bg-slate-200/80 rounded-xl border border-slate-200/80 shadow-2xs min-w-max cursor-pointer select-none transition-all group active:scale-[0.99]"
-                  >
-                    <div className="relative px-3.5 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 text-white rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1.5 sm:gap-2 shadow-sm shadow-indigo-600/30">
-                      <span>{currentMemberTab.label}</span>
-                      {currentMemberTab.hasPulse && (
-                        <span className="w-2 h-2 rounded-full animate-pulse bg-emerald-400 shrink-0" />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-600 group-hover:text-indigo-600 transition-colors pr-2">
-                      <span className="text-slate-400 font-medium hidden xs:inline">•</span>
-                      <span>Expand Tabs ({memberTabsList.length})</span>
-                      <ChevronDown className="w-4 h-4 text-slate-500 group-hover:text-indigo-600 transition-transform group-hover:translate-y-0.5" />
-                    </div>
-                  </div>
-                ) : (
-                  /* Expanded Member Rectangle */
-                  <div 
-                    role="tablist"
-                    aria-label="Member Navigation Tabs"
-                    className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 rounded-xl border border-slate-200/80 shadow-2xs min-w-max"
-                  >
-                    {memberTabsList.map((tab) => {
-                      const isActive = activeTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          role="tab"
-                          aria-selected={isActive}
-                          title={isActive ? "Active Tab • Click to collapse tabs" : `Switch to ${tab.label}`}
-                          onClick={(e) => {
-                            if (isActive) {
-                              toggleNavTabs();
-                              return;
-                            }
-                            setActiveTab(tab.id);
-                            e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-                          }}
-                          className={cn(
-                            "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
-                            isActive 
-                              ? "text-white" 
-                              : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                <div 
+                  role="tablist"
+                  aria-label="Member Navigation Tabs"
+                  className="inline-flex items-center gap-1 sm:gap-1.5 p-1 sm:p-1.5 bg-slate-100/90 dark:bg-slate-800 dark:border-slate-700 rounded-xl border border-slate-200/80 shadow-2xs min-w-max"
+                >
+                  {memberTabsList.map((tab) => {
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        role="tab"
+                        aria-selected={isActive}
+                        title={`Switch to ${tab.label}`}
+                        onClick={(e) => {
+                          setActiveTab(tab.id);
+                          e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                        }}
+                        className={cn(
+                          "relative px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap select-none cursor-pointer focus:outline-none shrink-0",
+                          isActive 
+                            ? "text-white" 
+                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 dark:bg-slate-200 dark:text-slate-950 dark:hover:bg-white dark:hover:text-black dark:border dark:border-slate-300"
+                        )}
+                      >
+                        {isActive && (
+                          <motion.div
+                            layoutId="memberActiveTab"
+                            className="absolute inset-0 bg-indigo-600 rounded-lg shadow-sm shadow-indigo-600/30"
+                            transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                          />
+                        )}
+                        <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+                          <span>{tab.label}</span>
+                          {tab.hasPulse && (
+                            <span className={cn(
+                              "w-2 h-2 rounded-full animate-pulse shrink-0",
+                              isActive ? "bg-amber-300" : (tab.pulseColor || "bg-emerald-400")
+                            )} />
                           )}
-                        >
-                          {isActive && (
-                            <motion.div
-                              layoutId="memberActiveTab"
-                              className="absolute inset-0 bg-indigo-600 rounded-lg shadow-sm shadow-indigo-600/30"
-                              transition={{ type: "spring", stiffness: 450, damping: 35 }}
-                            />
-                          )}
-                          <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
-                            <span>{tab.label}</span>
-                            {tab.hasPulse && (
-                              <span className={cn(
-                                "w-2 h-2 rounded-full animate-pulse shrink-0",
-                                isActive ? "bg-amber-300" : (tab.pulseColor || "bg-emerald-400")
-                              )} />
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {/* Collapse Button inside the Member Rectangle */}
-                    <button
-                      type="button"
-                      onClick={toggleNavTabs}
-                      title="Collapse tabs"
-                      aria-label="Collapse tabs"
-                      className="relative px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 border-l border-slate-200/90 transition-all flex items-center gap-1 select-none cursor-pointer shrink-0 ml-0.5 active:scale-95"
-                    >
-                      <ChevronUp className="w-3.5 h-3.5 text-slate-500 hover:text-slate-800" />
-                      <span className="text-[11px] text-slate-500 hover:text-slate-800 hidden md:inline">Collapse</span>
-                    </button>
-                  </div>
-                )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           );
@@ -10292,14 +10285,14 @@ ${scheduleHighlights}
         })()}
 
         {isAdmin && activeTab === 'loans' && (
-          <div className="flex flex-wrap gap-2 mb-6 p-2 bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-slate-100/90 border-2 border-indigo-200/80 rounded-2xl w-fit shadow-xs">
+          <div className="flex flex-wrap gap-2 mb-6 p-2 bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-slate-100/90 dark:from-slate-800 dark:via-slate-800 dark:to-slate-800 border-2 border-indigo-200/80 dark:border-slate-700 rounded-2xl w-fit shadow-xs">
             <button 
               onClick={() => setLoanSubTab('applications')}
               className={cn(
                 "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
                 loanSubTab === 'applications' 
                   ? "bg-indigo-600 text-white shadow-md shadow-indigo-200" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 border border-slate-200/80 shadow-2xs"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-indigo-600 dark:bg-slate-200 dark:text-slate-950 dark:hover:bg-white dark:hover:text-black dark:border-slate-300 border border-slate-200/80 shadow-2xs"
               )}
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -10311,7 +10304,7 @@ ${scheduleHighlights}
                 "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
                 loanSubTab === 'repayments' 
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-200" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-emerald-600 border border-slate-200/80 shadow-2xs"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-emerald-600 dark:bg-slate-200 dark:text-slate-950 dark:hover:bg-white dark:hover:text-black dark:border-slate-300 border border-slate-200/80 shadow-2xs"
               )}
             >
               <IndianRupee className="w-3.5 h-3.5" />
@@ -10323,7 +10316,7 @@ ${scheduleHighlights}
                 "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
                 loanSubTab === 'breakdown' 
                   ? "bg-purple-600 text-white shadow-md shadow-purple-200" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-purple-600 border border-slate-200/80 shadow-2xs"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-purple-600 dark:bg-slate-200 dark:text-slate-950 dark:hover:bg-white dark:hover:text-black dark:border-slate-300 border border-slate-200/80 shadow-2xs"
               )}
             >
               <Layers className="w-3.5 h-3.5" />
@@ -10335,7 +10328,7 @@ ${scheduleHighlights}
                 "px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
                 loanSubTab === 'projection' 
                   ? "bg-blue-600 text-white shadow-md shadow-blue-200" 
-                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-blue-600 border border-slate-200/80 shadow-2xs"
+                  : "bg-white/90 text-slate-700 hover:bg-white hover:text-blue-600 dark:bg-slate-200 dark:text-slate-950 dark:hover:bg-white dark:hover:text-black dark:border-slate-300 border border-slate-200/80 shadow-2xs"
               )}
             >
               <Calculator className="w-3.5 h-3.5" />
@@ -10790,13 +10783,13 @@ ${scheduleHighlights}
                               <span className={cn(
                                 "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold border shadow-2xs transition-all select-none",
                                 paidThisMonth 
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20" 
-                                  : "bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20"
+                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" 
+                                  : "bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-600"
                               )}>
                                 <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", paidThisMonth ? "bg-emerald-500 animate-pulse" : "bg-amber-500")} />
                                 <span>{paidThisMonth ? "Paid" : "Pending"}</span>
                               </span>
-                              <span className="text-[9.5px] font-medium text-slate-400 pl-0.5 whitespace-nowrap">
+                              <span className="text-[9.5px] font-medium text-slate-400 dark:text-slate-400 pl-0.5 whitespace-nowrap">
                                 {paidThisMonth ? "This month" : "Due this mo"}
                               </span>
                             </div>
@@ -11210,8 +11203,8 @@ ${scheduleHighlights}
                         <span className={cn(
                           "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black tracking-wide border shadow-2xs select-none",
                           paidThisMonth 
-                            ? "bg-gradient-to-r from-emerald-50 via-emerald-100/60 to-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20" 
-                            : "bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20"
+                            ? "bg-gradient-to-r from-emerald-50 via-emerald-100/60 to-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-500/20 dark:from-emerald-950/80 dark:via-emerald-900/60 dark:to-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" 
+                            : "bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-500/20 dark:from-amber-950/80 dark:via-amber-900/60 dark:to-amber-950/80 dark:text-amber-200 dark:border-amber-600"
                         )}>
                           {paidThisMonth ? (
                             <>
@@ -11219,24 +11212,24 @@ ${scheduleHighlights}
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                               </span>
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              <span>Active</span>
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>Paid</span>
                             </>
                           ) : (
                             <>
                               <span className="relative flex h-2 w-2 shrink-0">
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                               </span>
-                              <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                               <span>Pending</span>
                             </>
                           )}
                         </span>
                         <span className="text-[10px] font-semibold">
                           {paidThisMonth ? (
-                            <span className="text-emerald-700 font-bold">Paid this month</span>
+                            <span className="text-emerald-700 dark:text-emerald-300 font-bold">Paid this month</span>
                           ) : (
-                            <span className="text-amber-700 font-bold">Unpaid this month</span>
+                            <span className="text-amber-700 dark:text-amber-300 font-bold">Unpaid this month</span>
                           )}
                         </span>
                       </div>
@@ -11695,8 +11688,8 @@ ${scheduleHighlights}
                                               <span>Active</span>
                                             </span>
                                           ) : l.status === 'paid' ? (
-                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs">
-                                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600">
+                                              <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                               <span>Completed</span>
                                             </span>
                                           ) : (
@@ -11851,8 +11844,8 @@ ${scheduleHighlights}
                                         <span>Active</span>
                                       </span>
                                     ) : l.status === 'paid' ? (
-                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs">
-                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600">
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                         <span>Completed</span>
                                       </span>
                                     ) : (
@@ -12325,19 +12318,20 @@ ${scheduleHighlights}
                                           </td>
                                           <td className="px-4 py-3.5 border-r border-slate-200/60">
                                             {isSettledTable ? (
-                                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border bg-emerald-50 text-emerald-700 border-emerald-300 shadow-2xs">
-                                                <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                                                Closed
+                                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border bg-emerald-50 text-emerald-700 border-emerald-300 shadow-2xs dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600">
+                                                <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                                <span>Closed</span>
                                               </span>
                                             ) : (
                                               <span className={cn(
                                                 "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border",
-                                                (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
-                                                isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
-                                                loanStartsFuture ? "bg-blue-50 text-blue-600 border-blue-200" :
-                                                isLate ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"
+                                                (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" : 
+                                                isPendingThisMonth ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-600" :
+                                                loanStartsFuture ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/80 dark:text-blue-200 dark:border-blue-600" :
+                                                isLate ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/80 dark:text-red-200 dark:border-red-600" : 
+                                                "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600"
                                               )}>
-                                                {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? `STARTS ${startsMonthLabel}` : isLate ? 'OVERDUE' : 'PENDING'}
+                                                <span>{(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? `STARTS ${startsMonthLabel}` : isLate ? 'OVERDUE' : 'PENDING'}</span>
                                               </span>
                                             )}
                                           </td>
@@ -12800,19 +12794,20 @@ ${scheduleHighlights}
                                       <div className="col-span-2">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">{statusColumnHeader}</p>
                                         {isSettledTable ? (
-                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black border bg-emerald-50 text-emerald-700 border-emerald-300">
-                                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                                            Closed
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black border bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600">
+                                            <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                            <span>Closed</span>
                                           </span>
                                         ) : (
                                           <span className={cn(
                                             "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border",
-                                            (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-600 border-emerald-200" : 
-                                            isPendingThisMonth ? "bg-amber-50 text-amber-600 border-amber-200" :
-                                            loanStartsFuture ? "bg-blue-50 text-blue-600 border-blue-200" :
-                                            isLate ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-100 text-slate-600 border-slate-200"
+                                            (isPaidThisMonth || isFullyPaid) ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" : 
+                                            isPendingThisMonth ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-600" :
+                                            loanStartsFuture ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/80 dark:text-blue-200 dark:border-blue-600" :
+                                            isLate ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/80 dark:text-red-200 dark:border-red-600" : 
+                                            "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600"
                                           )}>
-                                            {(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? `STARTS ${startsMonthLabel}` : isLate ? 'OVERDUE' : 'PENDING'}
+                                            <span>{(isPaidThisMonth || isFullyPaid) ? 'PAID' : isPendingThisMonth ? 'AWAITING APPROVAL' : loanStartsFuture ? `STARTS ${startsMonthLabel}` : isLate ? 'OVERDUE' : 'PENDING'}</span>
                                           </span>
                                         )}
                                       </div>
@@ -15547,11 +15542,13 @@ ${scheduleHighlights}
                               <td className="px-3 sm:px-3.5 py-3 border-r border-slate-200/60">
                                 <div className="flex flex-col items-start gap-1">
                                   <span className={cn(
-                                    "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold w-fit",
-                                    c.status === 'paid' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                                    "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold w-fit border",
+                                    c.status === 'paid' 
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" 
+                                      : "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-600"
                                   )}>
-                                    {c.status === 'paid' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                                    {c.status.toUpperCase()}
+                                    {c.status === 'paid' ? <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> : <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />}
+                                    <span>{c.status.toUpperCase()}</span>
                                   </span>
                                   {c.status === 'paid' && (
                                     <span className={cn(
@@ -15702,9 +15699,11 @@ ${scheduleHighlights}
                             </div>
                             <span className={cn(
                               "px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0 border",
-                              isPaid ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-amber-50 text-amber-600 border-amber-200"
+                              isPaid 
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600" 
+                                : "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-600"
                             )}>
-                              {c.status.toUpperCase()}
+                              <span>{c.status.toUpperCase()}</span>
                             </span>
                           </div>
 

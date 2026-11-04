@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
@@ -79,5 +80,630 @@ div[class*="overflow-x-auto"]::-webkit-scrollbar-thumb {
 .overflow-x-auto::-webkit-scrollbar-thumb:hover,
 .scrollbar-visible::-webkit-scrollbar-thumb:hover {
   background-color: #64748b;
+}
+
+/* ==========================================================================
+   Dark Theme Overrides & Visibility Enhancements
+   ========================================================================== */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0b1120 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Base surface containers */
+html.dark .min-h-screen.bg-slate-50,
+html.dark .bg-slate-50 {
+  background-color: #0b1120 !important;
+}
+
+/* Mild Card Surfaces across application */
+html.dark header.bg-white,
+html.dark .bg-white:not(.keep-white) {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-slate-200 {
+  background-color: #2b3a55 !important;
+}
+
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-50\/70:hover {
+  background-color: #27364f !important;
+}
+
+html.dark .hover\:bg-slate-100:hover,
+html.dark .hover\:bg-slate-100\/80:hover {
+  background-color: #2c3e5d !important;
+}
+
+html.dark .hover\:bg-slate-200:hover {
+  background-color: #33476b !important;
+}
+
+/* ==========================================================================
+   1. The 7 Navigation Tabs & Sub-Tabs in Dark Mode
+   Tabs filled with clear light color so names & letters are 100% visible
+   ========================================================================== */
+
+/* Main navigation tabs container */
+html.dark [role="tablist"],
+html.dark div[role="button"][aria-label*="navigation tabs"],
+html.dark [aria-label="Admin Navigation Tabs"],
+html.dark [aria-label="Member Navigation Tabs"] {
+  background-color: #1e293b !important;
+  border-color: #3b4e76 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Inactive tabs filled with light color and bold dark text */
+html.dark [role="tablist"] button[role="tab"]:not([aria-selected="true"]),
+html.dark [role="tablist"] button:not([aria-selected="true"]):not([title*="Active"]) {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) !important;
+}
+
+html.dark [role="tablist"] button[role="tab"]:not([aria-selected="true"]):hover {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* Inactive tab label text & span elements */
+html.dark [role="tablist"] button[role="tab"]:not([aria-selected="true"]) span {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+/* Active tab button: filled with vivid Indigo with white text */
+html.dark [role="tablist"] button[role="tab"][aria-selected="true"],
+html.dark [role="tablist"] button[role="tab"][title*="Active"] {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+}
+
+html.dark [role="tablist"] button[role="tab"][aria-selected="true"] span,
+html.dark [role="tablist"] button[role="tab"][title*="Active"] span {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+}
+
+/* Sub-tabs inside tabs (e.g. Loan Applications, Loan Repayment, Loan Summary, LoanProjection) */
+html.dark .border-indigo-200\/80.rounded-2xl.w-fit,
+html.dark [class*="border-indigo-200/80 rounded-2xl w-fit"] {
+  background: #1e293b !important;
+  border-color: #3b4e76 !important;
+}
+
+/* Inactive sub-tab buttons filled with crisp light color */
+html.dark [class*="rounded-2xl w-fit"] button:not(.bg-indigo-600):not(.bg-emerald-600):not(.bg-purple-600):not(.bg-blue-600) {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+html.dark [class*="rounded-2xl w-fit"] button:not(.bg-indigo-600):not(.bg-emerald-600):not(.bg-purple-600):not(.bg-blue-600):hover {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+html.dark [class*="rounded-2xl w-fit"] button:not(.bg-indigo-600):not(.bg-emerald-600):not(.bg-purple-600):not(.bg-blue-600) svg {
+  color: #0f172a !important;
+}
+
+/* Active sub-tab buttons: vivid filled colors with bright white text */
+html.dark [class*="rounded-2xl w-fit"] button.bg-indigo-600,
+html.dark [class*="rounded-2xl w-fit"] button.bg-emerald-600,
+html.dark [class*="rounded-2xl w-fit"] button.bg-purple-600,
+html.dark [class*="rounded-2xl w-fit"] button.bg-blue-600 {
+  color: #ffffff !important;
+  font-weight: 800 !important;
+}
+
+html.dark [class*="rounded-2xl w-fit"] button.bg-indigo-600 svg,
+html.dark [class*="rounded-2xl w-fit"] button.bg-emerald-600 svg,
+html.dark [class*="rounded-2xl w-fit"] button.bg-purple-600 svg,
+html.dark [class*="rounded-2xl w-fit"] button.bg-blue-600 svg {
+  color: #ffffff !important;
+}
+
+/* ==========================================================================
+   2. Cards Across Application with Mild Colors & Vivid Details
+   Mild card background colors instead of pitch-black
+   ========================================================================== */
+
+/* Card gradients in dark mode with mild tones */
+html.dark [class*="via-slate-50"],
+html.dark [class*="via-white"],
+html.dark [class*="to-white"] {
+  --tw-gradient-via: #1e293b !important;
+  --tw-gradient-to: #182236 !important;
+}
+
+/* Mild Indigo Cards (Financial Insights, Status, Next Installment) */
+html.dark [class*="from-indigo-50"] {
+  background-color: #1e2c4a !important;
+  border-color: #3b4e78 !important;
+}
+
+/* Mild Emerald Cards (Savings, Paid, Group Funds) */
+html.dark [class*="from-emerald-50"] {
+  background-color: #16362e !important;
+  border-color: #275c4e !important;
+}
+
+/* Mild Amber Cards (Outstanding Loans, Pending, Avg. Monthly) */
+html.dark [class*="from-amber-50"] {
+  background-color: #332918 !important;
+  border-color: #5c4722 !important;
+}
+
+/* Mild Purple / Violet Cards (Advance, Total Sanctioned, Consistency) */
+html.dark [class*="from-purple-50"],
+html.dark [class*="from-violet-50"] {
+  background-color: #2a1f42 !important;
+  border-color: #523b7a !important;
+}
+
+/* Mild Cyan / Blue Cards (Liquid, Available Balance) */
+html.dark [class*="from-blue-50"],
+html.dark [class*="from-cyan-50"] {
+  background-color: #182e44 !important;
+  border-color: #275273 !important;
+}
+
+/* Mild Rose Cards (Outstanding Dues, Overdue) */
+html.dark [class*="from-rose-50"] {
+  background-color: #381a24 !important;
+  border-color: #692a3a !important;
+}
+
+/* ==========================================================================
+   3. Amounts and Values in Timeline, Audit Cards, & All Application Cards
+   Bright, high-contrast colors so numbers pop out with crystalline clarity
+   ========================================================================== */
+
+html.dark .text-indigo-950,
+html.dark .text-indigo-900,
+html.dark .text-indigo-800 {
+  color: #c7d2fe !important;
+}
+
+html.dark .text-indigo-700,
+html.dark .text-indigo-600 {
+  color: #818cf8 !important;
+}
+
+html.dark .text-emerald-950,
+html.dark .text-emerald-900,
+html.dark .text-emerald-800 {
+  color: #a7f3d0 !important;
+}
+
+html.dark .text-emerald-700,
+html.dark .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+html.dark .text-amber-950,
+html.dark .text-amber-900,
+html.dark .text-amber-800 {
+  color: #fde68a !important;
+}
+
+html.dark .text-amber-700,
+html.dark .text-amber-600 {
+  color: #fbbf24 !important;
+}
+
+html.dark .text-purple-950,
+html.dark .text-purple-900,
+html.dark .text-purple-800 {
+  color: #e9d5ff !important;
+}
+
+html.dark .text-purple-700,
+html.dark .text-purple-600 {
+  color: #c084fc !important;
+}
+
+html.dark .text-cyan-950,
+html.dark .text-cyan-900,
+html.dark .text-cyan-800 {
+  color: #a5f3fc !important;
+}
+
+html.dark .text-cyan-700,
+html.dark .text-cyan-600 {
+  color: #38bdf8 !important;
+}
+
+html.dark .text-rose-950,
+html.dark .text-rose-900,
+html.dark .text-rose-800 {
+  color: #fecdd3 !important;
+}
+
+html.dark .text-rose-700,
+html.dark .text-rose-600 {
+  color: #fb7185 !important;
+}
+
+html.dark .text-slate-950,
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-gray-900 {
+  color: #ffffff !important;
+}
+
+html.dark .text-slate-700,
+html.dark .text-slate-600,
+html.dark .text-gray-700 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-400,
+html.dark .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+/* Card inner borders & dividers */
+html.dark .border-indigo-100,
+html.dark .border-emerald-100,
+html.dark .border-purple-100,
+html.dark .border-amber-100,
+html.dark .border-cyan-100,
+html.dark .border-rose-100,
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-300,
+html.dark .border-gray-100,
+html.dark .border-gray-200,
+html.dark [class*="border-indigo-100"],
+html.dark [class*="border-emerald-100"],
+html.dark [class*="border-purple-100"],
+html.dark [class*="border-amber-100"],
+html.dark [class*="border-cyan-100"],
+html.dark [class*="border-rose-100"],
+html.dark [class*="border-slate-100"],
+html.dark [class*="border-slate-200"] {
+  border-color: #334155 !important;
+}
+
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155 !important;
+}
+
+/* Card badges & metric pills in dark mode */
+html.dark .bg-indigo-100,
+html.dark [class*="bg-indigo-100"] {
+  background-color: #27375e !important;
+  color: #c7d2fe !important;
+  border-color: #3d548c !important;
+}
+
+html.dark .bg-emerald-100,
+html.dark [class*="bg-emerald-100"] {
+  background-color: #1a4237 !important;
+  color: #a7f3d0 !important;
+  border-color: #2b6b58 !important;
+}
+
+html.dark .bg-amber-100,
+html.dark [class*="bg-amber-100"] {
+  background-color: #42351c !important;
+  color: #fde68a !important;
+  border-color: #6b5526 !important;
+}
+
+html.dark .bg-purple-100,
+html.dark [class*="bg-purple-100"] {
+  background-color: #352654 !important;
+  color: #e9d5ff !important;
+  border-color: #583e8a !important;
+}
+
+html.dark .bg-cyan-100,
+html.dark [class*="bg-cyan-100"] {
+  background-color: #1c3c52 !important;
+  color: #a5f3fc !important;
+  border-color: #2b5b7a !important;
+}
+
+html.dark .bg-rose-100,
+html.dark [class*="bg-rose-100"] {
+  background-color: #451e2a !important;
+  color: #fecdd3 !important;
+  border-color: #6b293c !important;
+}
+
+/* Status Badges & Table Pills in Dark Mode (Paid, Pending, Completed, Closed, Settled, Active) */
+html.dark .bg-emerald-50,
+html.dark [class*="bg-emerald-50"] {
+  background-color: #14352b !important;
+  color: #6ee7b7 !important;
+  border-color: #059669 !important;
+}
+
+html.dark .bg-emerald-50 span,
+html.dark [class*="bg-emerald-50"] span {
+  color: #a7f3d0 !important;
+  font-weight: 700 !important;
+}
+
+html.dark .bg-emerald-50 svg,
+html.dark [class*="bg-emerald-50"] svg {
+  color: #34d399 !important;
+}
+
+html.dark .bg-amber-50,
+html.dark [class*="bg-amber-50"] {
+  background-color: #3b2b14 !important;
+  color: #fcd34d !important;
+  border-color: #d97706 !important;
+}
+
+html.dark .bg-amber-50 span,
+html.dark [class*="bg-amber-50"] span {
+  color: #fde68a !important;
+  font-weight: 700 !important;
+}
+
+html.dark .bg-amber-50 svg,
+html.dark [class*="bg-amber-50"] svg {
+  color: #fbbf24 !important;
+}
+
+html.dark .bg-blue-50,
+html.dark [class*="bg-blue-50"] {
+  background-color: #1e2e4a !important;
+  color: #93c5fd !important;
+  border-color: #2563eb !important;
+}
+
+html.dark .bg-blue-50 span,
+html.dark [class*="bg-blue-50"] span {
+  color: #bfdbfe !important;
+  font-weight: 700 !important;
+}
+
+html.dark .bg-indigo-50,
+html.dark [class*="bg-indigo-50"] {
+  background-color: #1e2952 !important;
+  color: #c7d2fe !important;
+  border-color: #3730a3 !important;
+}
+
+html.dark .bg-indigo-50 span,
+html.dark [class*="bg-indigo-50"] span {
+  color: #e0e7ff !important;
+  font-weight: 700 !important;
+}
+
+html.dark .bg-cyan-50,
+html.dark [class*="bg-cyan-50"] {
+  background-color: #103847 !important;
+  color: #a5f3fc !important;
+  border-color: #0891b2 !important;
+}
+
+html.dark .bg-cyan-50 span,
+html.dark [class*="bg-cyan-50"] span {
+  color: #cffafe !important;
+  font-weight: 700 !important;
+}
+
+html.dark .bg-sky-50,
+html.dark [class*="bg-sky-50"] {
+  background-color: #0c3656 !important;
+  color: #bae6fd !important;
+  border-color: #0284c7 !important;
+}
+
+html.dark .bg-sky-50 span,
+html.dark [class*="bg-sky-50"] span {
+  color: #e0f2fe !important;
+  font-weight: 700 !important;
+}
+
+html.dark .bg-violet-50,
+html.dark [class*="bg-violet-50"] {
+  background-color: #2b1f52 !important;
+  color: #ddd6fe !important;
+  border-color: #7c3aed !important;
+}
+
+html.dark .bg-violet-50 span,
+html.dark [class*="bg-violet-50"] span {
+  color: #ede9fe !important;
+  font-weight: 700 !important;
+}
+
+html.dark .bg-rose-50,
+html.dark [class*="bg-rose-50"] {
+  background-color: #431628 !important;
+  color: #fecdd3 !important;
+  border-color: #e11d48 !important;
+}
+
+html.dark .bg-rose-50 span,
+html.dark [class*="bg-rose-50"] span {
+  color: #ffe4e6 !important;
+  font-weight: 700 !important;
+}
+
+/* Inputs, textareas & selects in Dark Mode */
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark textarea,
+html.dark select {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+html.dark select option {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Modals & Dialogs */
+html.dark .fixed .bg-white {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+/* Tables in Dark Mode */
+html.dark table thead tr,
+html.dark table thead th {
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+  border-color: #334155 !important;
+}
+
+html.dark table tbody tr:hover {
+  background-color: #27364f !important;
+}
+
+/* ==========================================================================
+   4. Graphs (Financial Health & Recharts) in Dark Mode
+   Grid, axis labels, legends, and top bar value numbers clearly visible
+   ========================================================================== */
+
+/* Grid and Axis lines */
+html.dark .recharts-cartesian-grid line {
+  stroke: #334155 !important;
+}
+
+html.dark .recharts-cartesian-axis line {
+  stroke: #475569 !important;
+}
+
+/* Axis ticks text (e.g. category names, Rupee amounts) */
+html.dark .recharts-text,
+html.dark .recharts-cartesian-axis-tick text,
+html.dark [class*="recharts"] .recharts-cartesian-axis-tick-value {
+  fill: #e2e8f0 !important;
+  font-weight: 600 !important;
+}
+
+/* Top bar value labels (Financial Health & all charts) */
+html.dark .recharts-label,
+html.dark text.recharts-label,
+html.dark .financial-health-bar-label,
+html.dark .recharts-bar-value-label,
+html.dark .recharts-bar-rectangles + text,
+html.dark g.recharts-layer text.recharts-label,
+html.dark text[class*="recharts-label"] {
+  fill: #ffffff !important;
+  font-weight: 800 !important;
+  filter: drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.8)) !important;
+}
+
+/* Default light mode for bar value label */
+.financial-health-bar-label,
+.recharts-bar-value-label {
+  fill: #334155;
+}
+
+/* Tooltip in dark mode */
+html.dark .recharts-default-tooltip,
+html.dark .recharts-tooltip-wrapper [class*="bg-white"],
+html.dark .recharts-tooltip-wrapper div {
+  background-color: #1e293b !important;
+  border-color: #3b4e76 !important;
+  color: #f8fafc !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-slate-900,
+html.dark .recharts-tooltip-wrapper .text-slate-800 {
+  color: #ffffff !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-slate-700,
+html.dark .recharts-tooltip-wrapper .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-indigo-900 {
+  color: #c7d2fe !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-indigo-700 {
+  color: #a5b4fc !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-amber-900 {
+  color: #fde68a !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-amber-700 {
+  color: #fcd34d !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-emerald-900 {
+  color: #a7f3d0 !important;
+}
+
+html.dark .recharts-tooltip-wrapper .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+html.dark .recharts-legend-item-text {
+  color: #e2e8f0 !important;
+}
+
+/* Keep printable receipts crisp white for printing & export */
+.print-receipt,
+[id*="receipt-content"],
+[id*="receipt-container"],
+.keep-white {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Scrollbars in Dark Mode */
+html.dark .overflow-x-auto,
+html.dark .scrollbar-visible,
+html.dark div[class*="overflow-x-auto"] {
+  scrollbar-color: #334155 #0b1120;
+}
+
+html.dark .overflow-x-auto::-webkit-scrollbar-track,
+html.dark .scrollbar-visible::-webkit-scrollbar-track,
+html.dark div[class*="overflow-x-auto"]::-webkit-scrollbar-track {
+  background: #0b1120;
+}
+
+html.dark .overflow-x-auto::-webkit-scrollbar-thumb,
+html.dark .scrollbar-visible::-webkit-scrollbar-thumb,
+html.dark div[class*="overflow-x-auto"]::-webkit-scrollbar-thumb {
+  background-color: #334155;
+  border: 2px solid #0b1120;
+}
+
+html.dark .overflow-x-auto::-webkit-scrollbar-thumb:hover,
+html.dark .scrollbar-visible::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
 }
 

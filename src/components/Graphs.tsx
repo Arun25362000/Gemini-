@@ -1715,18 +1715,18 @@ const Graphs: React.FC<GraphsProps> = ({
 
               {/* Header KPI Badges & Excel Export */}
               <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-800 rounded-xl border border-indigo-300 text-xs font-bold shadow-2xs">
-                  <span className="w-2 h-2 rounded-full bg-indigo-600" />
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-200 rounded-xl border border-indigo-300 dark:border-indigo-700 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
                   <span>Group Funds: ₹{financialHealthData.totalGroupFunds.toLocaleString('en-IN')}</span>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 rounded-xl border border-amber-300 text-xs font-bold shadow-2xs">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 rounded-xl border border-amber-300 dark:border-amber-700 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
                   <span>Interest Received: ₹{financialHealthData.paidInterestInYear.toLocaleString('en-IN')}</span>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-3 py-1 bg-cyan-50 text-cyan-800 rounded-xl border border-cyan-300 text-xs font-bold shadow-2xs">
-                  <span className="w-2 h-2 rounded-full bg-cyan-600" />
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-cyan-50 dark:bg-cyan-950/80 text-cyan-800 dark:text-cyan-200 rounded-xl border border-cyan-300 dark:border-cyan-700 text-xs font-bold shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-cyan-600 shrink-0" />
                   <span>Available: ₹{financialHealthData.availableBalance.toLocaleString('en-IN')}</span>
                 </div>
 
@@ -1829,7 +1829,7 @@ const Graphs: React.FC<GraphsProps> = ({
                           stroke="#64748b" 
                           tick={{ fontSize: isAndroid ? 10 : 11, fill: '#64748b' }}
                           tickFormatter={(val) => formatBarAmountValue(val)}
-                          domain={[0, 'auto']}
+                          domain={[0, (dataMax: number) => Math.ceil((dataMax || 1000) * 1.18)]}
                           tickLine={false}
                           axisLine={{ stroke: '#cbd5e1' }}
                         />
@@ -1839,32 +1839,32 @@ const Graphs: React.FC<GraphsProps> = ({
                             if (active && payload && payload.length) {
                               const d = payload[0].payload;
                               return (
-                                <div className="bg-white/95 backdrop-blur-xs p-3.5 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2 min-w-[240px]">
-                                  <div className="font-bold text-slate-900 border-b border-slate-100 pb-1 flex items-center justify-between">
+                                <div className="bg-white/95 dark:bg-slate-800 dark:border-slate-600 backdrop-blur-xs p-3.5 rounded-2xl shadow-xl border border-slate-200 text-xs space-y-2 min-w-[240px]">
+                                  <div className="font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-1 flex items-center justify-between">
                                     <span>{d.category}</span>
-                                    <span className="text-[10px] text-slate-400 font-normal">{d.subtitle}</span>
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-400 font-normal">{d.subtitle}</span>
                                   </div>
 
                                   <div className="space-y-1.5 pt-1">
                                     <div className="flex items-center justify-between gap-4">
-                                      <span className="font-semibold text-slate-600">Total Bar Amount:</span>
-                                      <span className="font-bold text-slate-900 text-sm">₹{d.totalAmount.toLocaleString('en-IN')}</span>
+                                      <span className="font-semibold text-slate-600 dark:text-slate-300">Total Bar Amount:</span>
+                                      <span className="font-bold text-slate-900 dark:text-white text-sm">₹{d.totalAmount.toLocaleString('en-IN')}</span>
                                     </div>
                                     {d.interestAmount > 0 && (
-                                      <div className="pt-1.5 border-t border-slate-100 space-y-1">
+                                      <div className="pt-1.5 border-t border-slate-100 dark:border-slate-700 space-y-1">
                                         <div className="flex items-center justify-between gap-4 text-[11px]">
-                                          <span className="flex items-center gap-1.5 text-indigo-700 font-semibold">
-                                            <span className="w-2 h-2 rounded-full bg-indigo-600" />
+                                          <span className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 font-semibold">
+                                            <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0" />
                                             Member Contributions:
                                           </span>
-                                          <span className="font-bold text-indigo-900">₹{d.baseAmount.toLocaleString('en-IN')}</span>
+                                          <span className="font-bold text-indigo-900 dark:text-indigo-200">₹{d.baseAmount.toLocaleString('en-IN')}</span>
                                         </div>
                                         <div className="flex items-center justify-between gap-4 text-[11px]">
-                                          <span className="flex items-center gap-1.5 text-amber-700 font-semibold">
-                                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                          <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-300 font-semibold">
+                                            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
                                             Interest Received (0.5%):
                                           </span>
-                                          <span className="font-bold text-amber-900">+₹{d.interestAmount.toLocaleString('en-IN')}</span>
+                                          <span className="font-bold text-amber-900 dark:text-amber-200">+₹{d.interestAmount.toLocaleString('en-IN')}</span>
                                         </div>
                                       </div>
                                     )}
@@ -1876,41 +1876,26 @@ const Graphs: React.FC<GraphsProps> = ({
                           }} 
                         />
 
-                        {/* Base bar: Subscriptions / Principal */}
+                        {/* Financial Health Bars with top amount labels on all bar tips */}
                         <Bar 
-                          dataKey="baseAmount" 
-                          name="Base / Principal (₹)" 
-                          stackId="healthStack"
-                          radius={[4, 4, 0, 0]} 
-                          maxBarSize={56}
-                        >
-                          {financialHealthData.chartData.map((entry, index) => (
-                            <Cell 
-                              key={`cell-health-base-${entry.key || index}`} 
-                              fill={entry.fill} 
-                            />
-                          ))}
-                        </Bar>
-
-                        {/* Stacked top bar: Interest portion for Total Group Funds in distinct warm amber */}
-                        <Bar 
-                          dataKey="interestAmount" 
-                          name="Interest Received (₹)" 
-                          stackId="healthStack"
+                          dataKey="totalAmount" 
+                          name="Total Amount (₹)" 
                           radius={[6, 6, 0, 0]} 
                           maxBarSize={56}
                         >
                           {financialHealthData.chartData.map((entry, index) => (
                             <Cell 
-                              key={`cell-health-interest-${entry.key || index}`} 
-                              fill={entry.interestAmount > 0 ? "url(#healthInterestGradient)" : "transparent"} 
+                              key={`cell-health-${entry.key || index}`} 
+                              fill={entry.fill} 
                             />
                           ))}
                           <LabelList 
                             dataKey="totalAmount" 
                             position="top" 
+                            offset={8}
                             formatter={(val: any) => formatBarAmountValue(val)} 
-                            style={{ fontSize: '10px', fontWeight: 800, fill: '#334155' }} 
+                            className="financial-health-bar-label"
+                            style={{ fontSize: '11px', fontWeight: 800 }} 
                           />
                         </Bar>
                       </BarChart>
@@ -1919,18 +1904,18 @@ const Graphs: React.FC<GraphsProps> = ({
                 </div>
 
                 {/* Bottom Reassurance Strip */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-slate-800 animate-pulse" />
-                    <span className="font-semibold text-slate-700">
+                    <span className="w-2 h-2 rounded-full bg-slate-800 dark:bg-slate-200 animate-pulse shrink-0" />
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">
                       Unrestricted liquidity pool: Available balance equals total group savings minus current outstanding borrowings.
                     </span>
                   </div>
                   <div className="flex items-center gap-3 text-[11px] font-bold">
-                    <span className="text-cyan-700 bg-cyan-50 border border-cyan-200 px-2 py-0.5 rounded-md">
+                    <span className="text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/70 border border-cyan-200 dark:border-cyan-800 px-2 py-0.5 rounded-md">
                       Net Liquidity: ₹{financialHealthData.availableBalance.toLocaleString('en-IN')}
                     </span>
-                    <span className="text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                    <span className="text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/70 border border-rose-200 dark:border-rose-800 px-2 py-0.5 rounded-md">
                       Active Borrowings: ₹{financialHealthData.outstandingLoans.toLocaleString('en-IN')}
                     </span>
                   </div>
