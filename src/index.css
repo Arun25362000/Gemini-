@@ -96,8 +96,16 @@ html.dark body {
 
 /* Base surface containers */
 html.dark .min-h-screen.bg-slate-50,
-html.dark .bg-slate-50 {
+html.dark main.bg-slate-50,
+html.dark body {
   background-color: #0b1120 !important;
+}
+
+/* Nested panels, inner grid boxes, and sub-cards inside cards (Desktop, Tablet, and Mobile) */
+html.dark .bg-slate-50,
+html.dark [class*="bg-slate-50/"] {
+  background-color: #131d2e !important;
+  border-color: #2b3a55 !important;
 }
 
 /* Mild Card Surfaces across application */
@@ -706,4 +714,175 @@ html.dark .overflow-x-auto::-webkit-scrollbar-thumb:hover,
 html.dark .scrollbar-visible::-webkit-scrollbar-thumb:hover {
   background-color: #475569;
 }
+
+/* ==========================================================================
+   5. Mobile & Tablet Views (Admin & Member Login, Cards, Amounts & Labels)
+   Ensures crystal clarity, readability, and contrast on all handheld devices
+   ========================================================================== */
+
+/* Mobile & Tablet Card Shells */
+html.dark .lg\:hidden .bg-white,
+html.dark .lg\:hidden [class*="bg-white"],
+html.dark .lg\:hidden .rounded-3xl,
+html.dark .lg\:hidden > div {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+/* Inner panels & grid boxes inside mobile & tablet cards */
+html.dark .lg\:hidden .bg-slate-50,
+html.dark .lg\:hidden [class*="bg-slate-50/"],
+html.dark .lg\:hidden .bg-slate-100,
+html.dark [class*="rounded-3xl"] .bg-slate-50,
+html.dark [class*="rounded-3xl"] [class*="bg-slate-50/"],
+html.dark [class*="rounded-2xl"] .bg-slate-50,
+html.dark [class*="rounded-2xl"] [class*="bg-slate-50/"] {
+  background-color: #131d2e !important;
+  border-color: #2b3a55 !important;
+}
+
+/* Mobile QuickSort pills */
+html.dark .no-scrollbar button:not(.bg-indigo-600) {
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+  border-color: #334155 !important;
+}
+
+html.dark .no-scrollbar button:not(.bg-indigo-600):hover {
+  background-color: #2b3a55 !important;
+  color: #ffffff !important;
+}
+
+/* Mobile Card Labels (e.g. TOTAL PAID, JOINED, MOBILE NUMBER, LOAN AMOUNT, INTEREST RATE, LOAN TERM, PROGRESS, DETAILS, PAYMENT MODE, PERIOD, PAYMENT DATE) */
+html.dark .lg\:hidden .text-slate-400,
+html.dark .lg\:hidden .text-slate-500,
+html.dark [class*="rounded-3xl"] .text-slate-400,
+html.dark [class*="rounded-3xl"] .text-slate-500,
+html.dark [class*="rounded-2xl"] .text-slate-400,
+html.dark [class*="rounded-2xl"] .text-slate-500 {
+  color: #94a3b8 !important;
+  font-weight: 700 !important;
+}
+
+/* Mobile Card Amounts, Numbers & Primary Text */
+html.dark .lg\:hidden .text-slate-900,
+html.dark .lg\:hidden .text-slate-950,
+html.dark .lg\:hidden .text-slate-800,
+html.dark .lg\:hidden .text-gray-900,
+html.dark [class*="rounded-3xl"] .text-slate-900,
+html.dark [class*="rounded-3xl"] .text-slate-950,
+html.dark [class*="rounded-3xl"] .text-slate-800,
+html.dark [class*="rounded-2xl"] .text-slate-900,
+html.dark [class*="rounded-2xl"] .text-slate-950 {
+  color: #ffffff !important;
+}
+
+/* Mobile Card Secondary Text */
+html.dark .lg\:hidden .text-slate-700,
+html.dark .lg\:hidden .text-slate-600,
+html.dark [class*="rounded-3xl"] .text-slate-700,
+html.dark [class*="rounded-3xl"] .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+/* Mobile Schedule Cards (Admin & Member installment breakdown) */
+html.dark [key*="loan-schedule"] [class*="bg-white/90"],
+html.dark [key*="admin-loan-schedule"] [class*="bg-white/90"],
+html.dark [class*="backdrop-blur"] {
+  background-color: #131d2e !important;
+  border-color: #2b3a55 !important;
+}
+
+html.dark [class*="from-emerald-50/90"][class*="via-teal-50"] {
+  background: linear-gradient(135deg, #133328 0%, #0e2920 100%) !important;
+  border-color: #059669 !important;
+}
+
+html.dark [class*="from-amber-50/95"][class*="via-orange-50"] {
+  background: linear-gradient(135deg, #332612 0%, #261c0d 100%) !important;
+  border-color: #d97706 !important;
+}
+
+html.dark [class*="from-indigo-50"][class*="border-indigo-400"] {
+  background: linear-gradient(135deg, #1e2952 0%, #161e3d 100%) !important;
+  border-color: #6366f1 !important;
+}
+
+html.dark [class*="from-slate-50/95"][class*="border-slate-200/90"] {
+  background: linear-gradient(135deg, #182235 0%, #111a29 100%) !important;
+  border-color: #334155 !important;
+}
+
+html.dark [class*="from-rose-50/90"][class*="via-orange-50"] {
+  background: linear-gradient(135deg, #381622 0%, #291019 100%) !important;
+  border-color: #e11d48 !important;
+}
+
+/* Mobile schedule index pill */
+html.dark .absolute.top-0.right-0.bg-slate-900,
+html.dark .absolute.top-0.right-0.bg-indigo-100 {
+  background-color: #0f172a !important;
+  color: #94a3b8 !important;
+  border-color: #334155 !important;
+}
+
+/* Member Loan Accordion Header (L1, L2, L3) */
+html.dark [class*="from-slate-50/90"][class*="via-white"][class*="to-indigo-50/30"] {
+  background: linear-gradient(90deg, #182438 0%, #1e293b 50%, #1c2742 100%) !important;
+  border-color: #334155 !important;
+}
+
+/* Repayment Schedule Accordion Bar */
+html.dark [class*="from-indigo-50/70"][class*="via-white"][class*="to-indigo-50/30"] {
+  background: linear-gradient(90deg, #1a2540 0%, #1e293b 50%, #1a2540 100%) !important;
+  border-color: #334155 !important;
+}
+
+/* Member Action Buttons on Mobile / Tablet */
+html.dark .border-indigo-100.bg-white,
+html.dark .border-indigo-200\/90.bg-white {
+  background-color: #1e293b !important;
+  border-color: #3b4e78 !important;
+}
+
+/* Member Card Advance Banner */
+html.dark [class*="from-purple-50"][class*="via-indigo-50"][class*="to-purple-50"] {
+  background: linear-gradient(90deg, #2b1d44 0%, #1e2b48 50%, #2b1d44 100%) !important;
+  border-color: #523b7a !important;
+}
+html.dark [class*="from-purple-50"][class*="via-indigo-50"] .bg-white {
+  background-color: #1e293b !important;
+  border-color: #523b7a !important;
+  color: #d8b4fe !important;
+}
+
+/* Search bar on Mobile / Tablet */
+html.dark [class*="via-indigo-50/25"] {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+html.dark [class*="via-indigo-50/25"] input {
+  background-color: transparent !important;
+  color: #ffffff !important;
+}
+html.dark [class*="via-indigo-50/25"] input::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Call Button in Mobile Member Cards */
+html.dark a[href^="tel:"] {
+  background-color: #27375e !important;
+  color: #c7d2fe !important;
+  border: 1px solid #3d548c !important;
+}
+
+/* Member Avatar Badges */
+html.dark .w-10.bg-indigo-100,
+html.dark .w-12.bg-indigo-100 {
+  background-color: #2b3a67 !important;
+  color: #c7d2fe !important;
+  border: 1px solid #3b4e78 !important;
+}
+
 

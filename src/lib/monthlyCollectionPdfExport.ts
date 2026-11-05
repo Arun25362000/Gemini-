@@ -154,13 +154,10 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
   doc.setLineWidth(0.4);
   doc.line(marginX, 27, pageWidth - marginX, 27);
 
-  // ==================== TOP METRIC CARDS (5 Cards) ====================
+  // ==================== TOP METRIC CARDS (Dynamic 4 or 5 Cards) ====================
   const boxY = 30;
   const boxHeight = 13.5;
   const availableWidth = pageWidth - (marginX * 2);
-  const boxCount = 5;
-  const boxGap = 3.5;
-  const boxWidth = (availableWidth - (boxGap * (boxCount - 1))) / boxCount;
 
   const summaryBoxes = [
     {
@@ -172,21 +169,21 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
       text: [4, 120, 87] // emerald-700
     },
     {
-      label: 'BASE CONTRIBUTIONS',
+      label: monthlyLateFeesTotal > 0 ? 'BASE CONTRIBUTIONS' : 'MEMBER CONTRIBUTIONS',
       value: `Rs. ${monthlyBaseContributionsTotal.toLocaleString('en-IN')}`,
       sub: `${monthlyPaidContributions.length} Paid (Cash: Rs. ${monthlyBaseContribCash.toLocaleString('en-IN')} | Online: Rs. ${monthlyBaseContribOnline.toLocaleString('en-IN')})`,
       bg: [238, 242, 255], // indigo-50
       border: [199, 210, 254], // indigo-200
       text: [67, 56, 202] // indigo-700
     },
-    {
+    ...(monthlyLateFeesTotal > 0 ? [{
       label: 'GROUP PENALTIES (LATE FEES)',
       value: `Rs. ${monthlyLateFeesTotal.toLocaleString('en-IN')}`,
       sub: `${monthlyLateFeesCount} Late Fees (Cash: Rs. ${monthlyLateFeesCash.toLocaleString('en-IN')} | Online: Rs. ${monthlyLateFeesOnline.toLocaleString('en-IN')})`,
-      bg: monthlyLateFeesTotal > 0 ? [255, 241, 242] : [248, 250, 252], // rose-50 or slate-50
-      border: monthlyLateFeesTotal > 0 ? [254, 205, 211] : [226, 232, 240],
-      text: monthlyLateFeesTotal > 0 ? [190, 18, 60] : [100, 116, 139] // rose-700 or slate-500
-    },
+      bg: [255, 241, 242], // rose-50
+      border: [254, 205, 211],
+      text: [190, 18, 60] // rose-700
+    }] : []),
     {
       label: 'LOAN REPAYMENTS',
       value: `Rs. ${monthlyLoanTotalCollected.toLocaleString('en-IN')}`,
@@ -204,6 +201,10 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
       text: [180, 83, 9] // amber-700
     }
   ];
+
+  const boxCount = summaryBoxes.length;
+  const boxGap = 3.5;
+  const boxWidth = (availableWidth - (boxGap * (boxCount - 1))) / boxCount;
 
   summaryBoxes.forEach((box, i) => {
     const curX = marginX + (i * (boxWidth + boxGap));
@@ -247,39 +248,40 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
   };
 
   // ==================== PART 1: Monthly Collection Summary ====================
-  const part1SummaryRows = [
+  let summaryItemIdx = 1;
+  const part1SummaryRows: string[][] = [
     [
-      '1',
+      String(summaryItemIdx++),
       'Total Received (Grand Total)',
       `Rs. ${grandTotalMonthlyReceived.toLocaleString('en-IN')}`,
       `Grand Total collections received (Cash: Rs. ${grandTotalCashReceived.toLocaleString('en-IN')}  |  Online: Rs. ${grandTotalOnlineReceived.toLocaleString('en-IN')})`
     ],
     [
-      '2',
-      'Member Base Contributions',
+      String(summaryItemIdx++),
+      monthlyLateFeesTotal > 0 ? 'Member Base Contributions' : 'Member Contributions',
       `Rs. ${monthlyBaseContributionsTotal.toLocaleString('en-IN')}`,
       `${monthlyPaidContributions.length} Paid Subscriptions @ Rs. 1,000 (Cash: Rs. ${monthlyBaseContribCash.toLocaleString('en-IN')}  |  Online: Rs. ${monthlyBaseContribOnline.toLocaleString('en-IN')})`
     ],
-    [
-      '3',
+    ...(monthlyLateFeesTotal > 0 ? [[
+      String(summaryItemIdx++),
       'Group Penalties Earned (Late Fees)',
       `Rs. ${monthlyLateFeesTotal.toLocaleString('en-IN')}`,
       `${monthlyLateFeesCount} Late fee penalty charges collected for payments recorded after due date (10th) (Cash: Rs. ${monthlyLateFeesCash.toLocaleString('en-IN')}  |  Online: Rs. ${monthlyLateFeesOnline.toLocaleString('en-IN')})`
-    ],
+    ]] : []),
     [
-      '4',
+      String(summaryItemIdx++),
       'Total Loan Repayments Collected',
       `Rs. ${monthlyLoanTotalCollected.toLocaleString('en-IN')}`,
       `${monthlyPaidLoanPayments.length} Total Loan Installments (Cash: Rs. ${monthlyLoanCashReceived.toLocaleString('en-IN')}  |  Online: Rs. ${monthlyLoanOnlineReceived.toLocaleString('en-IN')})`
     ],
     [
-      '5',
+      String(summaryItemIdx++),
       'Loan Principal Recovered',
       `Rs. ${monthlyLoanPrincipalCollected.toLocaleString('en-IN')}`,
       'Principal recovered towards member active loan balances'
     ],
     [
-      '6',
+      String(summaryItemIdx++),
       'Loan Interest Received [0.5%]',
       `Rs. ${monthlyLoanInterestCollected.toLocaleString('en-IN')}`,
       '0.5% monthly flat interest earnings on loans'
@@ -338,10 +340,14 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.text(
-    `Total Paid Members: ${monthlyPaidContributions.length}   •   Total: Rs. ${monthlyContributionTotal.toLocaleString('en-IN')} (Base: Rs. ${monthlyBaseContributionsTotal.toLocaleString('en-IN')} | Penalties: Rs. ${monthlyLateFeesTotal.toLocaleString('en-IN')})`,
+    monthlyLateFeesTotal > 0
+      ? `Total Paid Members: ${monthlyPaidContributions.length}   •   Total: Rs. ${monthlyContributionTotal.toLocaleString('en-IN')} (Base: Rs. ${monthlyBaseContributionsTotal.toLocaleString('en-IN')} | Penalties: Rs. ${monthlyLateFeesTotal.toLocaleString('en-IN')})`
+      : `Total Paid Members: ${monthlyPaidContributions.length}   •   Total Collected: Rs. ${monthlyContributionTotal.toLocaleString('en-IN')}`,
     marginX + 60,
     currentY
   );
+
+  const hasLateFees = monthlyLateFeesTotal > 0;
 
   const memberRows = monthlyPaidContributions.map((c, idx) => {
     const member = allUsers.find(u =>
@@ -357,23 +363,37 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
     const mode = (c.paymentMethod || (c as any).paymentMode || 'Online').toUpperCase();
     const split = getContribSplit(c);
 
-    return [
-      String(idx + 1),
-      memberName,
-      `Rs. ${(c.amount || 1000).toLocaleString('en-IN')}`,
-      `Rs. ${split.base.toLocaleString('en-IN')}`,
-      split.lateFee > 0 ? `Rs. ${split.lateFee.toLocaleString('en-IN')}` : 'Rs. 0',
-      mode,
-      dateStr,
-      (c.status || 'PAID').toUpperCase()
-    ];
+    if (hasLateFees) {
+      return [
+        String(idx + 1),
+        memberName,
+        `Rs. ${(c.amount || 1000).toLocaleString('en-IN')}`,
+        `Rs. ${split.base.toLocaleString('en-IN')}`,
+        split.lateFee > 0 ? `Rs. ${split.lateFee.toLocaleString('en-IN')}` : 'Rs. 0',
+        mode,
+        dateStr,
+        (c.status || 'PAID').toUpperCase()
+      ];
+    } else {
+      return [
+        String(idx + 1),
+        memberName,
+        `Rs. ${(c.amount || 1000).toLocaleString('en-IN')}`,
+        mode,
+        dateStr,
+        (c.status || 'PAID').toUpperCase()
+      ];
+    }
   });
 
   if (memberRows.length === 0) {
-    memberRows.push(['-', 'No member contributions recorded for this month', '-', '-', '-', '-', '-', '-']);
+    memberRows.push(hasLateFees
+      ? ['-', 'No member contributions recorded for this month', '-', '-', '-', '-', '-', '-']
+      : ['-', 'No member contributions recorded for this month', '-', '-', '-', '-']
+    );
   }
 
-  const memberFoot = [
+  const memberFoot = hasLateFees ? [
     [
       'TOTAL',
       `${monthlyPaidContributions.length} Paid Members`,
@@ -384,20 +404,56 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
       '-',
       'PAID'
     ]
+  ] : [
+    [
+      'TOTAL',
+      `${monthlyPaidContributions.length} Paid Members`,
+      `Rs. ${monthlyContributionTotal.toLocaleString('en-IN')}`,
+      '',
+      '-',
+      'PAID'
+    ]
   ];
+
+  const memberHead = hasLateFees ? [[
+    '#',
+    'Member Name',
+    'Total Amount (Rs.)',
+    'Base Contrib.',
+    'Late Fee',
+    'Payment Mode',
+    'Payment Date',
+    'Status'
+  ]] : [[
+    '#',
+    'Member Name',
+    'Contribution Amount (Rs.)',
+    'Payment Mode',
+    'Payment Date',
+    'Status'
+  ]];
+
+  const memberColumnStyles: any = hasLateFees ? {
+    0: { halign: 'center', cellWidth: 8 },
+    1: { cellWidth: 68, fontStyle: 'bold' },
+    2: { halign: 'right', cellWidth: 34, fontStyle: 'bold', textColor: [67, 56, 202] },
+    3: { halign: 'right', cellWidth: 30, fontStyle: 'bold', textColor: [30, 41, 59] },
+    4: { halign: 'right', cellWidth: 34, fontStyle: 'bold', textColor: [190, 18, 60] },
+    5: { halign: 'center', cellWidth: 26 },
+    6: { halign: 'center', cellWidth: 28 },
+    7: { halign: 'center', cellWidth: 22, textColor: [4, 120, 87], fontStyle: 'bold' }
+  } : {
+    0: { halign: 'center', cellWidth: 10 },
+    1: { cellWidth: 95, fontStyle: 'bold' },
+    2: { halign: 'right', cellWidth: 48, fontStyle: 'bold', textColor: [67, 56, 202] },
+    3: { halign: 'center', cellWidth: 38 },
+    4: { halign: 'center', cellWidth: 42 },
+    5: { halign: 'center', cellWidth: 36, textColor: [4, 120, 87], fontStyle: 'bold' }
+  };
 
   autoTable(doc, {
     startY: currentY + 3,
-    head: [[
-      '#',
-      'Member Name',
-      'Total Amount (Rs.)',
-      'Base Contrib.',
-      'Late Fee',
-      'Payment Mode',
-      'Payment Date',
-      'Status'
-    ]],
+    head: memberHead,
     body: memberRows,
     foot: memberFoot,
     theme: 'striped',
@@ -427,16 +483,7 @@ export function generateMonthlyCollectionPdfDoc(options: MonthlyCollectionPdfOpt
       lineWidth: 0.3,
       lineColor: [203, 213, 225]
     },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 8 },
-      1: { cellWidth: 68, fontStyle: 'bold' },
-      2: { halign: 'right', cellWidth: 34, fontStyle: 'bold', textColor: [67, 56, 202] },
-      3: { halign: 'right', cellWidth: 30, fontStyle: 'bold', textColor: [30, 41, 59] },
-      4: { halign: 'right', cellWidth: 34, fontStyle: 'bold', textColor: [190, 18, 60] },
-      5: { halign: 'center', cellWidth: 26 },
-      6: { halign: 'center', cellWidth: 28 },
-      7: { halign: 'center', cellWidth: 22, textColor: [4, 120, 87], fontStyle: 'bold' }
-    },
+    columnStyles: memberColumnStyles,
     didDrawPage: attachFooter
   });
 

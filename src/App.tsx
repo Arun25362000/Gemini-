@@ -9033,15 +9033,15 @@ ${scheduleHighlights}
           >
             {/* Top-Right Theme Switcher on Login Screen */}
             <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20">
-              <div className="flex items-center bg-white p-1 rounded-2xl border border-slate-200/90 shadow-sm">
+              <div className="flex items-center bg-white dark:bg-slate-800 p-1 rounded-2xl border border-slate-200/90 dark:border-slate-700 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setTheme('light')}
                   className={cn(
                     "p-1.5 sm:px-2.5 sm:py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
                     theme === 'light'
-                      ? "bg-slate-100 text-amber-600 shadow-xs border border-amber-200"
-                      : "text-slate-400 hover:text-slate-600"
+                      ? "bg-slate-100 dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-xs border border-amber-200 dark:border-amber-500/50"
+                      : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
                   )}
                   title="Switch to Light Theme"
                   aria-label="Switch to Light Theme"
@@ -9055,8 +9055,8 @@ ${scheduleHighlights}
                   className={cn(
                     "p-1.5 sm:px-2.5 sm:py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
                     theme === 'dark'
-                      ? "bg-slate-900 text-indigo-400 shadow-xs border border-indigo-500/50"
-                      : "text-slate-400 hover:text-slate-600"
+                      ? "bg-slate-900 dark:bg-slate-950 text-indigo-400 shadow-xs border border-indigo-500/50"
+                      : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
                   )}
                   title="Switch to Dark Theme"
                   aria-label="Switch to Dark Theme"
@@ -9070,7 +9070,7 @@ ${scheduleHighlights}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className={cn(
-                "max-w-md w-full bg-white p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100",
+                "max-w-md w-full bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl text-center border border-slate-100 dark:border-slate-800",
                 isMobileVisual && "p-6 rounded-[2rem]"
               )}
             >
@@ -9088,8 +9088,8 @@ ${scheduleHighlights}
                 </div>
               </div>
               
-              <h1 className={cn("text-4xl font-black text-gray-900 mb-2 tracking-tighter", isMobileVisual && "text-3xl")}>UNNATI</h1>
-              <p className="text-slate-500 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
+              <h1 className={cn("text-4xl font-black text-gray-900 dark:text-white mb-2 tracking-tighter", isMobileVisual && "text-3xl")}>UNNATI</h1>
+              <p className="text-slate-500 dark:text-slate-400 mb-8 font-medium">Financial Prosperity Through Community Savings.</p>
               
               {isInAppBrowser && isIOS && (
                 <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-left text-xs text-amber-900 space-y-1">
@@ -9103,12 +9103,14 @@ ${scheduleHighlights}
                 </div>
               )}
 
-              <div className="flex gap-2 mb-6 p-1 bg-slate-100 rounded-2xl">
+              <div className="flex gap-2 mb-6 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-transparent dark:border-slate-700/80">
                 <button 
                   onClick={() => setLoginMethod('google')}
                   className={cn(
                     "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
-                    loginMethod === 'google' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+                    loginMethod === 'google' 
+                      ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm" 
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                   )}
                 >
                   Google
@@ -9117,7 +9119,9 @@ ${scheduleHighlights}
                   onClick={() => setLoginMethod('password')}
                   className={cn(
                     "flex-1 py-2 rounded-xl text-sm font-bold transition-all",
-                    loginMethod === 'password' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+                    loginMethod === 'password' 
+                      ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm" 
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                   )}
                 >
                   Password
@@ -9215,22 +9219,22 @@ ${scheduleHighlights}
               ) : (
                 <form onSubmit={handlePasswordLogin} className="space-y-4 text-left">
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Username</label>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-300 uppercase mb-1 ml-1">Username</label>
                     <input 
                       type="text"
                       value={credentials.username}
                       onChange={(e) => setCredentials({...credentials, username: e.target.value})}
-                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-950/80 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-indigo-500 outline-none"
                       placeholder="Enter username"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
+                    <label className="block text-xs font-bold text-slate-500 dark:text-slate-300 uppercase mb-1 ml-1">Password</label>
                     <input 
                       type="password"
                       value={credentials.password}
                       onChange={(e) => setCredentials({...credentials, password: e.target.value})}
-                      className="w-full p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="w-full p-4 bg-slate-50 dark:bg-slate-950/80 rounded-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-indigo-500 outline-none"
                       placeholder="Enter password"
                     />
                   </div>
@@ -9309,15 +9313,15 @@ ${scheduleHighlights}
 
           <div className="flex items-center gap-2 sm:gap-4">
             {/* Theme Switcher: Light Theme & Dark Theme Icons */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/90 shadow-2xs">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs">
               <button
                 type="button"
                 onClick={() => setTheme('light')}
                 className={cn(
                   "p-1.5 sm:px-2 sm:py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
                   theme === 'light'
-                    ? "bg-white text-amber-600 shadow-xs border border-amber-200"
-                    : "text-slate-400 hover:text-slate-600"
+                    ? "bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-xs border border-amber-200 dark:border-amber-500/50"
+                    : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
                 )}
                 title="Switch to Light Theme"
                 aria-label="Switch to Light Theme"
@@ -9331,8 +9335,8 @@ ${scheduleHighlights}
                 className={cn(
                   "p-1.5 sm:px-2 sm:py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer",
                   theme === 'dark'
-                    ? "bg-slate-900 text-indigo-400 shadow-xs border border-indigo-500/50"
-                    : "text-slate-400 hover:text-slate-600"
+                    ? "bg-slate-900 dark:bg-slate-950 text-indigo-400 shadow-xs border border-indigo-500/50"
+                    : "text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200"
                 )}
                 title="Switch to Dark Theme"
                 aria-label="Switch to Dark Theme"
@@ -11304,47 +11308,9 @@ ${scheduleHighlights}
                       </div>
                     )}
 
-                    <div className="space-y-2 pt-2 border-t border-slate-100">
-                      {/* Reminders Row - WhatsApp ALWAYS visible */}
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => sendWhatsAppReminder(u)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300/90 rounded-xl text-xs font-bold active:scale-95 shadow-2xs transition-all"
-                          title="Send WhatsApp Reminder / Message"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>WhatsApp Reminder</span>
-                        </button>
-                        <button 
-                          onClick={() => sendEmailReminder(u)}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/90 rounded-xl text-xs font-bold active:scale-95 shadow-2xs transition-all"
-                          title="Send Email Reminder"
-                        >
-                          <Mail className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Email</span>
-                        </button>
-                      </div>
-
-                      {/* Statements & Quick Tools */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      {/* Member Actions */}
                       <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => generateMemberStatement(u)}
-                          className="flex-1 py-2 px-2 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
-                          title="Export PDF Statement"
-                        >
-                          <FileText className="w-3.5 h-3.5 text-rose-600" />
-                          <span>PDF</span>
-                        </button>
-                        {isAdmin && (
-                          <button 
-                            onClick={() => sendMemberStatementViaWhatsApp(u)}
-                            className="flex-1 py-2 px-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/90 rounded-xl active:scale-95 flex items-center justify-center gap-1 text-xs font-bold shadow-2xs transition-all"
-                            title="Send Statement with PDF attachment via WhatsApp"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Send Statement</span>
-                          </button>
-                        )}
                         {(() => {
                           const memberKey = u.uid || u.email || `mem-mob-${idx}`;
                           const isMenuOpen = memberActionMenu?.memberKey === memberKey;
@@ -11370,49 +11336,25 @@ ${scheduleHighlights}
                                 }
                               }}
                               className={cn(
-                                "flex-1 py-2 px-2.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200/90 rounded-xl text-xs font-bold flex items-center justify-center gap-1 shadow-2xs active:scale-95 transition-all cursor-pointer select-none",
-                                isMenuOpen && "bg-indigo-50/80 border-indigo-300 text-indigo-700 ring-2 ring-indigo-100"
+                                "flex-1 py-2.5 px-3 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white border border-slate-200/90 dark:border-slate-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer select-none",
+                                isMenuOpen && "bg-indigo-50/80 dark:bg-indigo-950/80 border-indigo-300 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-100 dark:ring-indigo-900"
                               )}
                               title="More Member Actions"
                             >
-                              <MoreHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                              <MoreHorizontal className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                               <span>Actions</span>
-                              <ChevronDown className={cn("w-3 h-3 text-slate-400 transition-transform duration-200", isMenuOpen && "rotate-180")} />
+                              <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 dark:text-slate-400 transition-transform duration-200", isMenuOpen && "rotate-180")} />
                             </button>
                           );
                         })()}
                         {isAdmin && (
-                          <>
-                            <button 
-                              onClick={() => toggleAdminRole(u)}
-                              className={cn(
-                                "p-2 rounded-xl border text-xs font-bold active:scale-95 shadow-2xs transition-all",
-                                u.role === 'admin' 
-                                  ? "bg-indigo-600 text-white border-indigo-700" 
-                                  : "bg-white text-slate-500 border-slate-200/90 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200"
-                              )}
-                              title={u.role === 'admin' ? 'Revoke Admin Access' : 'Grant Admin Privileges'}
-                            >
-                              <Shield className="w-3.5 h-3.5" />
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setEditingUser(u);
-                                setOriginalEditingEmail(u.uid || u.email);
-                              }}
-                              className="p-2 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200/90 rounded-xl active:scale-95 shadow-2xs transition-all"
-                              title="Edit Member Details"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button 
-                              onClick={() => setDeletingUserId(u.uid || u.email)}
-                              className="p-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-200/90 rounded-xl active:scale-95 shadow-2xs transition-all"
-                              title="Delete Member"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </>
+                          <button 
+                            onClick={() => setDeletingUserId(u.uid || u.email)}
+                            className="p-2.5 bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 border border-red-200/90 dark:border-red-800/80 rounded-xl active:scale-95 shadow-2xs transition-all shrink-0 cursor-pointer"
+                            title="Delete Member"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
 
