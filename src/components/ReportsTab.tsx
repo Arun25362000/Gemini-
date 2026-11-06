@@ -29,7 +29,6 @@ import {
   generateDividendPayPdfDoc, 
   quickPrintDividendPdf 
 } from '../lib/dividendPayExport';
-import { exportOfflineTrackingWorkbook } from '../lib/offlineTrackingExcelExport';
 
 interface ReportsTabProps {
   exportAllDataToExcel: () => void | Promise<void>;
@@ -106,7 +105,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   const [collapsedReports, setCollapsedReports] = React.useState<Record<string, boolean>>({
     'dividend-pay': false,
     'master': false,
-    'offline-ledger': false,
     'balance-sheet': false,
     'monthly': false,
     'member-statements': false,
@@ -117,28 +115,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   const [dividendYear, setDividendYear] = useState<number | 'all'>(collectionYear || currentSystemYear);
   const [isExportingDividendExcel, setIsExportingDividendExcel] = useState(false);
   const [isPrintingDividend, setIsPrintingDividend] = useState(false);
-
-  const [isExportingOfflineWorkbook, setIsExportingOfflineWorkbook] = useState(false);
-  const [offlineWorkbookYear, setOfflineWorkbookYear] = useState<number>(collectionYear || currentSystemYear);
-
-  const handleExportOfflineWorkbook = async () => {
-    try {
-      setIsExportingOfflineWorkbook(true);
-      const res = await exportOfflineTrackingWorkbook(allUsers, loans, loanPayments, contributions, {
-        isMobileApp,
-        downloadFileMobile,
-        targetYear: offlineWorkbookYear
-      });
-      if (res.success) {
-        notify?.('success', `Master Audit Excel Workbook exported successfully: ${res.fileName}`);
-      }
-    } catch (err: any) {
-      console.error('Failed to export offline tracking workbook:', err);
-      notify?.('error', `Failed to export offline tracking workbook: ${err.message || 'Unknown error'}`);
-    } finally {
-      setIsExportingOfflineWorkbook(false);
-    }
-  };
 
   const dividendCalculation = useMemo(() => {
     return calculateDividendPayout({
@@ -385,101 +361,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           )}
         </motion.div>
 
-        {/* Card: Offline Master Audit & Tracking Ledger */}
-        <motion.div 
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.03 }}
-          className="bg-white rounded-3xl p-6 sm:p-7 border-2 border-blue-200/90 shadow-sm hover:shadow-md hover:border-blue-400 transition-all flex flex-col justify-between"
-          id="report-card-offline-ledger"
-        >
-          <div>
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-700 border border-blue-200/70 flex items-center justify-center font-bold shadow-xs shrink-0">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-200/80">
-                Audit Workbook (.xlsx)
-              </span>
-            </div>
 
-            <button
-              type="button"
-              onClick={() => toggleReport('offline-ledger')}
-              className="w-full flex items-center justify-between gap-2 cursor-pointer select-none group text-left mb-2 focus:outline-none"
-              aria-expanded={!collapsedReports['offline-ledger']}
-              title={collapsedReports['offline-ledger'] ? "Click to expand Month-by-Month Offline Ledger" : "Click to collapse Month-by-Month Offline Ledger"}
-            >
-              <h3 className="text-lg sm:text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors flex items-center gap-2">
-                <span>Month-by-Month Offline Ledger</span>
-                <span className="text-slate-400 group-hover:text-blue-600 transition-colors">
-                  {collapsedReports['offline-ledger'] ? (
-                    <ChevronDown className="w-5 h-5" />
-                  ) : (
-                    <ChevronUp className="w-5 h-5" />
-                  )}
-                </span>
-              </h3>
-              <span className="text-[11px] font-semibold text-slate-400 group-hover:text-blue-600 transition-colors">
-                {collapsedReports['offline-ledger'] ? 'Click to expand' : 'Click to collapse'}
-              </span>
-            </button>
-
-            {!collapsedReports['offline-ledger'] && (
-              <>
-                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-4">
-                  Month-specific sheets (Jan–Dec) for manual tracking of member contributions, loan principal, and 0.5% interest payments. Main page features Financial Insights &amp; Executive Audit Summary with active Excel formulas for disaster recovery.
-                </p>
-
-                <div className="space-y-2 mb-5 bg-blue-50/50 p-3.5 rounded-2xl border border-blue-100 text-xs text-slate-700">
-                  <div className="flex items-center gap-2 font-medium">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
-                    <span><strong>Main Page:</strong> Financial Insights KPI cards &amp; 12-Month Performance Matrix</span>
-                  </div>
-                  <div className="flex items-center gap-2 font-medium">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
-                    <span><strong>12 Month-Specific Sheets:</strong> Jan–Dec monthly registers with live Excel formulas</span>
-                  </div>
-                  <div className="flex items-center gap-2 font-medium">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
-                    <span><strong>Loan Formulas:</strong> 0.5% reducing monthly balance interest &amp; +Add Principal</span>
-                  </div>
-                  <div className="flex items-center gap-2 font-medium">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0" />
-                    <span><strong>Disaster Recovery:</strong> Keeps complete data intact offline if app or phone crashes</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 mb-3">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Year:</label>
-                  <select
-                    value={offlineWorkbookYear}
-                    onChange={(e) => setOfflineWorkbookYear(Number(e.target.value))}
-                    className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {availableYears.map(yr => (
-                      <option key={`offline-yr-${yr}`} value={yr}>{yr}</option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
-          </div>
-
-          {!collapsedReports['offline-ledger'] && (
-            <button
-              type="button"
-              id="btn-export-offline-ledger"
-              onClick={handleExportOfflineWorkbook}
-              disabled={isExportingOfflineWorkbook}
-              className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl font-bold text-sm transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer mt-2"
-              title="Download Month-by-Month Offline Ledger with Live Excel Formulas"
-            >
-              <FileSpreadsheet className="w-4 h-4 shrink-0" />
-              <span>{isExportingOfflineWorkbook ? 'Generating Workbook...' : 'Download Month-by-Month Audit Ledger (.xlsx)'}</span>
-            </button>
-          )}
-        </motion.div>
 
         {/* Card 2: Balance Sheet */}
         <motion.div 

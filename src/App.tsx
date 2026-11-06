@@ -3943,6 +3943,8 @@ export default function App() {
     loanId?: string;
     advanceSpanText?: string;
     isAdvance?: boolean;
+    emiNumber?: number;
+    isExtraPrincipal?: boolean;
   }) => {
     if (!params.targetUser) return;
     const rawPhone = 
@@ -4051,11 +4053,58 @@ export default function App() {
       }
     }
 
+    // Calculate which EMI / Installment is being paid for loan payment acknowledgments
+    let emiNumber: number | undefined = params.emiNumber;
+    if (!emiNumber && (params.type === 'loan_recorded' || params.type === 'loan_approved')) {
+      const targetLoan = (params.loanId ? loans.find(l => l.id === params.loanId) : null) || 
+        loans.find(l => 
+          (params.targetUser?.uid && l.userId === params.targetUser.uid) ||
+          (params.targetUser?.email && l.userEmail && l.userEmail.toLowerCase() === params.targetUser.email.toLowerCase())
+        );
+
+      if (targetLoan) {
+        try {
+          const schedule = getAdjustedLoanSchedule(targetLoan, loanPayments);
+          const matchedItem = schedule.find(item => item.installmentMonth === params.month && item.installmentYear === params.year);
+          if (matchedItem && matchedItem.installmentNum) {
+            emiNumber = matchedItem.installmentNum;
+          }
+        } catch (e) {
+          console.warn("Could not calculate schedule for EMI number:", e);
+        }
+
+        if (!emiNumber || emiNumber <= 0) {
+          const approvedDate = getLoanSanctionDate(targetLoan);
+          const startMonthDate = new Date(approvedDate.getFullYear(), approvedDate.getMonth() + 1, 1);
+          const monthDiff = (params.year - startMonthDate.getFullYear()) * 12 + (params.month - (startMonthDate.getMonth() + 1));
+          if (monthDiff >= 0) {
+            emiNumber = monthDiff + 1;
+          }
+        }
+
+        if (!emiNumber || emiNumber <= 0) {
+          const priorPaidCount = loanPayments.filter(p => p.loanId === targetLoan.id && p.status === 'paid' && !p.isExtraPrincipal).length;
+          emiNumber = Math.max(1, priorPaidCount + 1);
+        }
+      }
+    }
+
+    const getOrdinal = (n: number) => {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
+
+    const isExtra = Boolean(params.isExtraPrincipal);
+    const emiLabel = emiNumber 
+      ? (isExtra ? `${getOrdinal(emiNumber)} EMI (Extra Principal)` : `${getOrdinal(emiNumber)} EMI`)
+      : (isExtra ? 'Extra Principal Payment' : 'Loan EMI');
+
     if (params.type === 'advance_subscription_recorded' || (params.isAdvance && params.type === 'subscription_recorded')) {
       actionBadge = 'Advance Subscription Recorded';
       modalTitle = 'Advance Contribution Recorded';
       const spanStr = params.advanceSpanText || `${monthName} ${params.year}`;
-      message = `*Unnati Trust - Advance Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour advance subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${spanStr}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Confirmed & Recorded\n• Covered Period: ${spanStr}\n• Allocation: Split at ₹1,000 / month to your savings ledger\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you for your prompt advance contribution!`;
+      message = `*Unnati Trust - Advance Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour advance subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${spanStr}* has been successful.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Paid.\n• Covered Period: ${spanStr}\n• Allocation: Split at ₹1,000 / month to your savings ledger\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you for your prompt advance contribution!`;
     } else if (params.type === 'advance_subscription_approved' || (params.isAdvance && params.type === 'subscription_approved')) {
       actionBadge = 'Advance Subscription Approved';
       modalTitle = 'Advance Payment Approved';
@@ -4064,7 +4113,7 @@ export default function App() {
     } else if (params.type === 'subscription_recorded') {
       actionBadge = 'Subscription Recorded';
       modalTitle = 'Subscription Payment Recorded';
-      message = `*Unnati Trust - Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Confirmed & Recorded\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you for your prompt contribution!`;
+      message = `*Unnati Trust - Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour monthly subscription payment of *₹${params.amount.toLocaleString('en-IN')}* for *${monthName} ${params.year}* has been successful.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Paid.\n• Total Subscription Balance: ₹${totalSubscriptionBalance.toLocaleString('en-IN')}\n\nThank you for your prompt contribution!`;
     } else if (params.type === 'subscription_approved') {
       actionBadge = 'Subscription Approved';
       modalTitle = 'Subscription Payment Approved';
@@ -4076,7 +4125,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successfully recorded.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour ${emiLabel} repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successful.\n\n• Installment: ${emiLabel}\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
     } else if (params.type === 'loan_approved') {
       actionBadge = 'Loan Payment Approved';
       modalTitle = 'Loan Payment Approved';
@@ -4084,7 +4133,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour loan repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour ${emiLabel} repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Installment: ${emiLabel}\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
     }
 
     // Do not show or leave WhatsApp dialog modal on screen when recording payment
@@ -8569,7 +8618,8 @@ ${scheduleHighlights}
           remainingLoanPrincipal: remainingPrincipal,
           isLoanFullyPaid,
           totalPrincipalPaid,
-          totalInterestPaid
+          totalInterestPaid,
+          isExtraPrincipal: Boolean(payment.isExtraPrincipal)
         });
       }
     } catch (err: any) {
@@ -8838,7 +8888,8 @@ ${scheduleHighlights}
           remainingLoanPrincipal: remainingPrincipal,
           isLoanFullyPaid,
           totalPrincipalPaid,
-          totalInterestPaid
+          totalInterestPaid,
+          isExtraPrincipal: Boolean(isExtraPrincipal)
         });
       }
     } catch (err: any) {
