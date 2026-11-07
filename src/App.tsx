@@ -14860,10 +14860,10 @@ ${scheduleHighlights}
                               {searchQuery && searchQuery.trim() ? "No contributions match your search." : "No paid contributions recorded for this month."}
                             </p>
                           ) : (
-                            <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
+                            <div className="overflow-x-auto overflow-y-auto max-h-[75vh] w-full touch-pan-x overscroll-x-contain rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
                               <table className="w-full min-w-full text-left border-collapse text-xs">
-                                <thead>
-                                  <tr className="bg-slate-50/90 border-b border-slate-200 text-[10.5px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
+                                <thead className="sticky top-0 z-10 backdrop-blur-md bg-slate-50/90 shadow-2xs">
+                                  <tr className="bg-slate-50/90 backdrop-blur-md border-b border-slate-200 text-[10.5px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
                                     <th 
                                       onClick={() => handleContribSort('sno')}
                                       className="px-2 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-8 sm:w-12 text-center select-none"
@@ -14990,10 +14990,10 @@ ${scheduleHighlights}
                               {searchQuery && searchQuery.trim() ? "No loan repayments match your search." : "No loan repayments collected for this month."}
                             </p>
                           ) : (
-                              <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
+                              <div className="overflow-x-auto overflow-y-auto max-h-[75vh] w-full touch-pan-x overscroll-x-contain rounded-xl sm:rounded-2xl border border-slate-200/90 shadow-2xs bg-white">
                                 <table className="w-full min-w-full text-left border-collapse text-xs">
-                                  <thead>
-                                    <tr className="bg-slate-50/90 border-b border-slate-200 text-[10.5px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
+                                  <thead className="sticky top-0 z-10 backdrop-blur-md bg-slate-50/90 shadow-2xs">
+                                    <tr className="bg-slate-50/90 backdrop-blur-md border-b border-slate-200 text-[10.5px] sm:text-xs font-bold text-slate-500 uppercase tracking-wider select-none">
                                       <th 
                                         onClick={() => handleLoanSort('sno')}
                                         className="px-2 sm:px-3.5 py-2.5 sm:py-3 border-r border-slate-200/60 cursor-pointer hover:bg-slate-100 transition-colors w-8 sm:w-12 text-center select-none"
@@ -15417,10 +15417,10 @@ ${scheduleHighlights}
               <>
                 {/* Desktop Table View */}
                 <div className="hidden lg:block bg-white rounded-3xl shadow-sm border border-slate-200 w-full max-w-full overflow-hidden">
-                  <div className="overflow-x-auto w-full touch-pan-x overscroll-x-contain">
+                  <div className="overflow-x-auto overflow-y-auto max-h-[75vh] w-full touch-pan-x overscroll-x-contain">
                     <table className="w-full min-w-[760px] text-left border-collapse whitespace-nowrap">
-                      <thead>
-                        <tr className="bg-slate-50/75 border-b border-slate-200/80">
+                      <thead className="sticky top-0 z-10 backdrop-blur-md bg-slate-50/90 shadow-2xs">
+                        <tr className="bg-slate-50/90 backdrop-blur-md border-b border-slate-200/80">
                           <th className="px-3 sm:px-3.5 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-10 border-r border-slate-200/60 select-none">#</th>
                           {isAdmin && (
                             <th 
@@ -15653,7 +15653,8 @@ ${scheduleHighlights}
                     onSort={handleSort}
                     className="mb-1"
                   />
-                  {sortedContributions.map((c, idx) => {
+                  <div className="space-y-4 overflow-y-auto max-h-[75vh] pr-1">
+                    {sortedContributions.map((c, idx) => {
                     const member = allUsers.find(u => 
                       isContribMatchUser(c, u) ||
                       (c.userId && u.uid === c.userId) || 
@@ -15800,13 +15801,14 @@ ${scheduleHighlights}
                       </motion.div>
                     );
                   })}
-                  {sortedContributions.length === 0 && (
-                    <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
-                      <p className="text-slate-400 italic">No records found for {appliedFilter.year === 'all' 
-                        ? (appliedFilter.month === 'all' ? 'any recorded year' : `all years in ${format(new Date(2024, (appliedFilter.month as number) - 1), 'MMMM')}`)
-                        : (appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, (appliedFilter.month as number) - 1), 'MMMM yyyy'))}.</p>
-                    </div>
-                  )}
+                    {sortedContributions.length === 0 && (
+                      <div className="bg-white p-12 rounded-3xl border border-slate-200 text-center">
+                        <p className="text-slate-400 italic">No records found for {appliedFilter.year === 'all' 
+                          ? (appliedFilter.month === 'all' ? 'any recorded year' : `all years in ${format(new Date(2024, (appliedFilter.month as number) - 1), 'MMMM')}`)
+                          : (appliedFilter.month === 'all' ? `year ${appliedFilter.year}` : format(new Date(appliedFilter.year, (appliedFilter.month as number) - 1), 'MMMM yyyy'))}.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </>
             ) : (

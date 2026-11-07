@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { 
   CreditCard, CheckCircle2, Calendar, AlertCircle, ChevronDown, Search, Check, IndianRupee, Layers,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, TrendingUp
 } from 'lucide-react';
 import { Loan, LoanPayment, UserProfile } from '../types';
 import { cn, getSafeMemberDisplayName } from '../lib/utils';
@@ -262,6 +262,10 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     );
     const memberName = getSafeMemberDisplayName(borrower || currentLoan.userEmail, borrower?.phoneNumber, borrower?.email);
 
+    const percentRepaid = sanctionedAmount > 0 
+      ? Math.min(100, Math.max(0, (repaidPrincipalAllTime / sanctionedAmount) * 100)) 
+      : 0;
+
     return {
       loan: currentLoan,
       loanSeqNum,
@@ -271,6 +275,8 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       sanctionedDateStr,
       isStartsNextMonth,
       repaidPrincipal: currentMonthPrincipal,
+      repaidPrincipalAllTime,
+      percentRepaid,
       repaidInterest: currentMonthInterest,
       totalPaid: currentMonthTotalPaid,
       remainingPrincipal,
@@ -613,6 +619,53 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
             <span className="font-semibold text-slate-500">Balance Due:</span>
             <span className="font-bold text-rose-700">{stats.remainingInstallmentsCount} Installments Left</span>
           </div>
+        </div>
+      </div>
+
+      {/* Dynamic Principal Repayment Progress Bar with Color Gradient (Orange 0% to Green 100%) */}
+      <div className="mt-5 pt-4.5 border-t border-indigo-100/90">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+              Principal Recovery Progress
+            </span>
+            <span className={cn(
+              "text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border shadow-2xs",
+              stats.percentRepaid >= 100 
+                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                : stats.percentRepaid >= 50
+                  ? "bg-amber-50 text-amber-900 border-amber-300"
+                  : "bg-orange-50 text-orange-900 border-orange-300"
+            )}>
+              {stats.percentRepaid >= 100 ? "Fully Repaid (100%)" : `${stats.percentRepaid.toFixed(1)}% Repaid`}
+            </span>
+          </div>
+          <div className="text-[11px] sm:text-xs text-slate-600 font-medium flex items-center gap-2">
+            <span>
+              Repaid: <strong className="text-emerald-700 font-bold">₹{stats.repaidPrincipalAllTime.toLocaleString('en-IN')}</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* Progress Bar Track with Gradient Fill from Orange (0%) to Green (100%) */}
+        <div className="relative w-full h-3.5 sm:h-4 bg-slate-200/80 rounded-full overflow-hidden p-0.5 border border-slate-300/70 shadow-inner">
+          <div 
+            className="h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-500 shadow-xs relative"
+            style={{ width: `${Math.max(stats.percentRepaid, stats.percentRepaid > 0 ? 2 : 0)}%` }}
+          >
+            {/* Subtle gloss highlight */}
+            <div className="absolute inset-0 bg-white/20 rounded-full" />
+          </div>
+        </div>
+
+        {/* Milestone Percentage Indicators */}
+        <div className="flex justify-between items-center text-[10px] text-slate-400 font-semibold mt-1.5 px-0.5 select-none">
+          <span className="text-orange-600 font-bold">0% (Sanctioned)</span>
+          <span className="hidden sm:inline">25%</span>
+          <span>50%</span>
+          <span className="hidden sm:inline">75%</span>
+          <span className="text-emerald-700 font-bold">100% (Cleared)</span>
         </div>
       </div>
     </div>

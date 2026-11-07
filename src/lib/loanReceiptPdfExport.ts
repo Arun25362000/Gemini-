@@ -48,8 +48,8 @@ export interface CumulativeLoanReceiptPdfResult {
 }
 
 const MONTH_NAMES = [
-  '', 'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
+  '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
 /**
@@ -198,10 +198,10 @@ export function generateLoanReceiptPdfDoc(options: LoanReceiptPdfOptions): LoanR
         { content: `Inst. #${installmentNum} (${MONTH_NAMES[installmentMonth]} ${installmentYear})` }
       ],
       [
-        { content: 'Repayment Mode:', styles: { fontStyle: 'bold' } },
+        { content: 'Payment Mode:', styles: { fontStyle: 'bold' } },
         { content: (p.paymentMode || (p as any).mode || 'Online / UPI').toUpperCase() },
         { content: 'Payment Status:', styles: { fontStyle: 'bold' } },
-        { content: 'SUCCESSFULLY RECEIVED & RECORDED', styles: { textColor: emeraldColor as any, fontStyle: 'bold' } }
+        { content: 'PAID', styles: { textColor: emeraldColor as any, fontStyle: 'bold' } }
       ]
     ]
   });
@@ -213,12 +213,12 @@ export function generateLoanReceiptPdfDoc(options: LoanReceiptPdfOptions): LoanR
     startY: finalY1 + 6,
     margin: { left: marginX + 6, right: marginX + 6 },
     theme: 'striped',
-    head: [['Sl No.', 'Description', 'Installment Schedule', 'Principal Amount', 'Interest (0.5%)', 'Net Amount (Rs.)']],
+    head: [['Sl No.', 'Particulars', 'Installment', 'Principal', 'Interest', 'Net Amount']],
     body: [
       [
         '1',
-        'Monthly Loan Principal & Interest Repayment',
-        `Installment #${installmentNum} / ${l.installments || 10}`,
+        'Principal & Interest Repayment',
+        `#${installmentNum}/${l.installments || 10}`,
         `Rs. ${principal.toLocaleString('en-IN')}`,
         `Rs. ${interest.toLocaleString('en-IN')}`,
         `Rs. ${total.toLocaleString('en-IN')}`
@@ -250,27 +250,35 @@ export function generateLoanReceiptPdfDoc(options: LoanReceiptPdfOptions): LoanR
 
   // Total Summary Box
   const summaryBoxY = finalY2 + 6;
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(slate200[0], slate200[1], slate200[2]);
-  doc.roundedRect(marginX + 6, summaryBoxY, contentWidth - 12, 28, 2, 2, 'FD');
+  doc.setFillColor(245, 247, 255);
+  doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(marginX + 6, summaryBoxY, contentWidth - 12, 18, 1.5, 1.5, 'FD');
 
+  // Amount in Figures
   doc.setFontSize(9);
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
-  doc.text('Amount in Words:', marginX + 10, summaryBoxY + 8);
+  doc.text('TOTAL AMOUNT RECEIVED:', marginX + 8, summaryBoxY + 6.5);
 
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(9);
+  doc.setFontSize(13);
   doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
-  doc.text(numberToIndianWords(total), marginX + 10, summaryBoxY + 15);
-
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
-  doc.text(`Total Received: Rs. ${total.toLocaleString('en-IN')}/-`, pageWidth - marginX - 10, summaryBoxY + 15, { align: 'right' });
+  doc.text(`Rs. ${total.toLocaleString('en-IN')}`, marginX + contentWidth - 10, summaryBoxY + 7, { align: 'right' });
+
+  // Amount in Words
+  doc.setFontSize(8.5);
+  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text('AMOUNT IN WORDS:', marginX + 8, summaryBoxY + 13.5);
+
+  doc.setFontSize(9);
+  doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text(numberToIndianWords(total), marginX + 44, summaryBoxY + 13.5);
 
   // Verification Note
-  const noteY = summaryBoxY + 36;
+  const noteY = summaryBoxY + 24;
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);

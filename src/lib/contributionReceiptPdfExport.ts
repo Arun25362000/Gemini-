@@ -24,8 +24,8 @@ export interface PaymentReceiptPdfResult {
 }
 
 const MONTH_NAMES = [
-  '', 'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
+  '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
 /**
@@ -271,7 +271,7 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
         { content: 'Payment Mode:', styles: { fontStyle: 'bold' } },
         { content: (c.paymentMethod || 'Online').toUpperCase() },
         { content: 'Payment Status:', styles: { fontStyle: 'bold' } },
-        { content: 'SUCCESSFULLY RECEIVED & RECORDED', styles: { textColor: emeraldColor as any, fontStyle: 'bold' } }
+        { content: 'PAID', styles: { textColor: emeraldColor as any, fontStyle: 'bold' } }
       ]
     ]
   });
@@ -286,13 +286,11 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
     const periodLabel = `${monthName} ${item.year}`;
     const desc = isAdvance 
       ? `Advance Group Contribution (${periodLabel})`
-      : `Monthly member Contribution (${periodLabel})`;
+      : 'Monthly Contribution';
 
     return [
       String(index + 1),
       desc,
-      periodLabel,
-      (c.paymentMethod || 'Online').toUpperCase(),
       `Rs. ${(item.amount || 0).toLocaleString('en-IN')}`
     ];
   });
@@ -300,7 +298,7 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
   autoTable(doc, {
     startY: tableStartY,
     margin: { left: marginX + 6, right: marginX + 6 },
-    head: [['#', 'Particulars / Description', 'Period', 'Payment Mode', 'Amount']],
+    head: [['#', 'Particulars', 'Amount']],
     body: tableRows,
     theme: 'grid',
     headStyles: {
@@ -317,11 +315,9 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
       cellPadding: 3
     },
     columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
-      1: { cellWidth: 68 },
-      2: { cellWidth: 36, halign: 'center' },
-      3: { cellWidth: 26, halign: 'center' },
-      4: { cellWidth: 28, halign: 'right', fontStyle: 'bold' }
+      0: { cellWidth: 16, halign: 'center' },
+      1: { cellWidth: 118, halign: 'left' },
+      2: { cellWidth: 36, halign: 'right', fontStyle: 'bold' }
     }
   });
 
@@ -332,37 +328,32 @@ export function generatePaymentReceiptPdfDoc(options: PaymentReceiptPdfOptions):
   doc.setFillColor(245, 247, 255);
   doc.setDrawColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
   doc.setLineWidth(0.4);
-  doc.roundedRect(marginX + 6, totalsBoxY, contentWidth - 12, 22, 1.5, 1.5, 'FD');
+  doc.roundedRect(marginX + 6, totalsBoxY, contentWidth - 12, 18, 1.5, 1.5, 'FD');
 
   // Amount in Figures
   doc.setFontSize(9);
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.setFont('helvetica', 'bold');
-  doc.text('TOTAL AMOUNT RECEIVED:', marginX + 8, totalsBoxY + 7);
+  doc.text('TOTAL AMOUNT RECEIVED:', marginX + 8, totalsBoxY + 6.5);
 
-  doc.setFontSize(14);
+  doc.setFontSize(13);
   doc.setTextColor(primaryIndigo[0], primaryIndigo[1], primaryIndigo[2]);
   doc.setFont('helvetica', 'bold');
-  doc.text(`Rs. ${totalAmount.toLocaleString('en-IN')}`, marginX + contentWidth - 10, totalsBoxY + 7.5, { align: 'right' });
+  doc.text(`Rs. ${totalAmount.toLocaleString('en-IN')}`, marginX + contentWidth - 10, totalsBoxY + 7, { align: 'right' });
 
   // Amount in Words
   doc.setFontSize(8.5);
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);
   doc.setFont('helvetica', 'bold');
-  doc.text('AMOUNT IN WORDS:', marginX + 8, totalsBoxY + 14);
+  doc.text('AMOUNT IN WORDS:', marginX + 8, totalsBoxY + 13.5);
 
   doc.setFontSize(9);
   doc.setTextColor(brandDark[0], brandDark[1], brandDark[2]);
   doc.setFont('helvetica', 'bold');
-  doc.text(numberToIndianWords(totalAmount), marginX + 44, totalsBoxY + 14);
-
-  doc.setFontSize(7.5);
-  doc.setTextColor(slate600[0], slate600[1], slate600[2]);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Total Months Covered: ${coveredMonthsList.length} month(s)  •  Payment Status: Formally Approved and Verified`, marginX + 8, totalsBoxY + 19);
+  doc.text(numberToIndianWords(totalAmount), marginX + 44, totalsBoxY + 13.5);
 
   // ==================== 6. PAYMENT NOTES & AUDIT FOOTER ====================
-  const notesY = totalsBoxY + 27;
+  const notesY = totalsBoxY + 24;
 
   doc.setFontSize(8);
   doc.setTextColor(slate600[0], slate600[1], slate600[2]);
