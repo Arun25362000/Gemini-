@@ -2077,7 +2077,7 @@ export default function App() {
     const firstMember = targetMembers[0];
     const firstPhone = formatWhatsAppNumber(firstMember.phoneNumber || (firstMember as any).phone);
     if (firstPhone) {
-      const msg = `Hi ${firstMember.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
+      const msg = `Hi ${firstMember.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please make your payment. Ignore if already paid. Thanks!`;
       launchWhatsApp(firstPhone, msg);
     }
 
@@ -2088,7 +2088,7 @@ export default function App() {
           const rawPhone = member.phoneNumber || (member as any).phone;
           const phone = formatWhatsAppNumber(rawPhone);
           if (phone) {
-            const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
+            const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please make your payment. Ignore if already paid. Thanks!`;
             launchWhatsApp(phone, msg);
           }
         }, (idx + 1) * 800);
@@ -2112,7 +2112,7 @@ export default function App() {
       return;
     }
     const monthName = format(new Date(), 'MMMM yyyy');
-    const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please record your payment. Ignore if already paid. Thanks!`;
+    const msg = `Hi ${member.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${monthName}. Please make your payment. Ignore if already paid. Thanks!`;
     const memberKey = member.uid || member.email;
     setSentBatchMemberIds(prev => prev.includes(memberKey) ? prev : [...prev, memberKey]);
     launchWhatsApp(formattedPhone, msg);
@@ -4100,6 +4100,33 @@ export default function App() {
       ? (isExtra ? `${getOrdinal(emiNumber)} EMI (Extra Principal)` : `${getOrdinal(emiNumber)} EMI`)
       : (isExtra ? 'Extra Principal Payment' : 'Loan EMI');
 
+    // Determine loan sequence label (L#1, L#2, etc.) for loan payment acknowledgment details
+    let loanLabel = 'L#1';
+    if (params.type === 'loan_recorded' || params.type === 'loan_approved') {
+      const targetLoan = (params.loanId ? loans.find(l => l.id === params.loanId) : null) || 
+        loans.find(l => 
+          (params.targetUser?.uid && l.userId === params.targetUser.uid) ||
+          (params.targetUser?.email && l.userEmail && l.userEmail.toLowerCase() === params.targetUser.email.toLowerCase())
+        );
+
+      if (targetLoan) {
+        const seq = getMemberLoanSequenceInfo(targetLoan, loans, allUsers);
+        loanLabel = seq.label || `L#${seq.loanNumber || 1}`;
+      } else if (params.targetUser) {
+        const memberLoans = loans.filter(l => 
+          isLoanMatchUser(l, params.targetUser) ||
+          (params.targetUser?.uid && l.userId === params.targetUser.uid) ||
+          (params.targetUser?.email && l.userEmail && l.userEmail.toLowerCase().trim() === params.targetUser.email.toLowerCase().trim())
+        );
+        const sortedMemberLoans = [...memberLoans].sort((a, b) => getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime());
+        const loanIdx = params.loanId ? sortedMemberLoans.findIndex(l => l.id === params.loanId) : -1;
+        const loanNum = loanIdx >= 0 ? loanIdx + 1 : 1;
+        loanLabel = `L#${loanNum}`;
+      }
+    }
+
+    const installmentDetail = `${emiLabel} (${loanLabel})`;
+
     if (params.type === 'advance_subscription_recorded' || (params.isAdvance && params.type === 'subscription_recorded')) {
       actionBadge = 'Advance Subscription Recorded';
       modalTitle = 'Advance Contribution Recorded';
@@ -4125,7 +4152,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour ${emiLabel} repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successful.\n\n• Installment: ${emiLabel}\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Acknowledgment* ✅\n\nDear *${memberName}*,\nYour ${emiLabel} repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been successful.\n\n• Installment: ${installmentDetail}\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you for your prompt repayment!`;
     } else if (params.type === 'loan_approved') {
       actionBadge = 'Loan Payment Approved';
       modalTitle = 'Loan Payment Approved';
@@ -4133,7 +4160,7 @@ export default function App() {
       const interestStr = params.interest !== undefined ? `₹${params.interest.toLocaleString('en-IN')}` : '';
       const breakdown = (principalStr && interestStr) ? ` (Principal: ${principalStr} + Interest: ${interestStr})` : '';
 
-      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour ${emiLabel} repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Installment: ${emiLabel}\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Remaining Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
+      message = `*Unnati Trust - Loan Payment Approved* ✅\n\nDear *${memberName}*,\nYour ${emiLabel} repayment of *₹${params.amount.toLocaleString('en-IN')}*${breakdown} for *${monthName} ${params.year}* has been verified and approved.\n\n• Installment: ${installmentDetail}\n• Payment Mode: ${modeStr}\n• Date: ${dateStr}\n• Status: Verified & Approved\n• Total Principal Paid: ₹${(totalPrincipalPaid ?? 0).toLocaleString('en-IN')}\n• Total Interest Paid: ₹${(totalInterestPaid ?? 0).toLocaleString('en-IN')}\n${params.isLoanFullyPaid ? '🎉 *Loan Status: Fully Paid & Closed!*' : (params.remainingLoanPrincipal !== undefined ? `• Loan Balance: ₹${params.remainingLoanPrincipal.toLocaleString('en-IN')}` : '')}${nextEmiField}\n\nThank you!`;
     }
 
     // Do not show or leave WhatsApp dialog modal on screen when recording payment
@@ -4805,7 +4832,7 @@ export default function App() {
       notify('error', "Invalid phone number for WhatsApp.");
       return;
     }
-    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please record your payment.Ignore if already paid. Thanks!`;
+    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati contribution of ₹1,000 for ${format(new Date(), 'MMMM yyyy')}. Please make your payment. Ignore if already paid. Thanks!`;
     launchWhatsApp(formattedPhone, message);
   };
 
@@ -4845,7 +4872,13 @@ export default function App() {
     window.location.href = mailtoUrl;
   };
   
-  const sendLoanWhatsAppReminder = (u: UserProfile, amount: number, month: string) => {
+  const sendLoanWhatsAppReminder = (
+    u: UserProfile, 
+    amount: number, 
+    month: string, 
+    loan?: Loan, 
+    details?: { principal?: number; interest?: number; balance?: number; loanLabel?: string }
+  ) => {
     const rawPhone = u.phoneNumber || (u as any).phone;
     if (!rawPhone) {
       notify('error', "No phone number found for this user.");
@@ -4856,7 +4889,23 @@ export default function App() {
       notify('error', "Invalid phone number for WhatsApp.");
       return;
     }
-    const message = `Hi ${u.displayName || 'Member'}, this is a reminder for your Unnati Loan Repayment of ₹${amount.toLocaleString('en-IN')} for ${month}. Please pay before the 10th to avoid late fees.Ignore if already paid. Thanks!`;
+
+    const borrowerName = u.displayName || 'Member';
+    const loanSeq = loan ? getMemberLoanSequenceInfo(loan, loans, allUsers) : null;
+    const loanLabel = details?.loanLabel || (loanSeq ? loanSeq.label : 'L#1');
+
+    let remainingPrincipal = details?.balance;
+    if (remainingPrincipal === undefined && loan) {
+      const payments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
+      const paidPrincipal = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      remainingPrincipal = Math.max(0, (loan.approvedAmount || loan.amount || 0) - paidPrincipal);
+    }
+    const remPrincipal = remainingPrincipal ?? 0;
+    const principalDue = details?.principal ?? Math.min(5000, remPrincipal);
+    const interestDue = details?.interest ?? Math.round(remPrincipal * 0.005);
+    const totalDue = amount || (principalDue + interestDue);
+
+    const message = `Hi ${borrowerName}, this is a reminder for your Unnati Loan Repayment (${loanLabel}) of ₹${totalDue.toLocaleString('en-IN')} for ${month}. (Principal: ₹${principalDue.toLocaleString('en-IN')}, Interest: ₹${interestDue.toLocaleString('en-IN')}, Balance: ₹${remPrincipal.toLocaleString('en-IN')}). Please pay before the 10th to avoid late fees. Ignore if already paid. Thanks!`;
     launchWhatsApp(formattedPhone, message);
   };
 
@@ -6275,7 +6324,37 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, wsMember, "Member Collection Details");
 
     // 3. Sheet 3: Loan Repayments Collected
-    const loanRepaymentRows = monthlyPaidLoanPayments.map((p, idx) => {
+    // Helper to get payment timestamp in milliseconds
+    const getPaymentDateObj = (p: any): Date | null => {
+      if (p.approvedAt?.toDate) return p.approvedAt.toDate();
+      if (p.approvedAt?.seconds) return new Date(p.approvedAt.seconds * 1000);
+      if (p.timestamp?.toDate) return p.timestamp.toDate();
+      if (p.timestamp?.seconds) return new Date(p.timestamp.seconds * 1000);
+      if (p.timestamp instanceof Date) return p.timestamp;
+      if (p.approvedAt instanceof Date) return p.approvedAt;
+      if (typeof p.timestamp === 'string') {
+        const d = new Date(p.timestamp);
+        if (!isNaN(d.getTime())) return d;
+      }
+      if (typeof p.approvedAt === 'string') {
+        const d = new Date(p.approvedAt);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
+
+    // Sort repayments chronologically so consecutive payments in the same month are evaluated in sequence
+    const sortedMonthlyPaidLoanPayments = [...monthlyPaidLoanPayments].sort((a, b) => {
+      const timeA = getPaymentDateObj(a)?.getTime() || 0;
+      const timeB = getPaymentDateObj(b)?.getTime() || 0;
+      if (timeA !== timeB) return timeA - timeB;
+      return (Number((a as any).installmentNumber) || 0) - (Number((b as any).installmentNumber) || 0);
+    });
+
+    // Track running balance per loan for multiple repayments made within the same month
+    const loanRunningBalances = new Map<string, number>();
+
+    const loanRepaymentRows = sortedMonthlyPaidLoanPayments.map((p, idx) => {
       const parentLoan = loans.find(l => l.id === p.loanId);
       const borrower = allUsers.find(u => 
         (u.uid && parentLoan?.userId && u.uid === parentLoan.userId) ||
@@ -6293,44 +6372,94 @@ export default function App() {
       const sortedBorrowerLoans = [...borrowerLoans].sort((a, b) => getLoanSanctionDate(a).getTime() - getLoanSanctionDate(b).getTime());
       const payToNum = getRepaymentPayToNumber(p, sortedBorrowerLoans, loans, allUsers);
       const borrowerName = `${rawBorrowerName} (L#${payToNum})`;
+
+      const targetLoan = parentLoan || sortedBorrowerLoans[payToNum - 1] || sortedBorrowerLoans[0];
+      const loanKey = targetLoan?.id || `${borrower?.uid || p.userId || borrower?.email || p.userEmail || rawBorrowerName}_L${payToNum}`;
+
+      // Calculate Loan Due (if already had a payment earlier this month, use running balance; else compute opening balance at start of month)
+      let loanDue = 0;
+      if (!loanRunningBalances.has(loanKey)) {
+        if (targetLoan) {
+          const principalAmount = targetLoan.approvedAmount || targetLoan.amount || 0;
+          const priorPaidPrincipal = loanPayments
+            .filter(lp => {
+              if (lp.status !== 'paid') return false;
+              const isPrior = lp.year < collectionYear || (lp.year === collectionYear && lp.month < collectionMonth);
+              if (!isPrior) return false;
+              if (lp.loanId && targetLoan.id) {
+                return lp.loanId === targetLoan.id;
+              }
+              if (sortedBorrowerLoans.length > 1) {
+                return getRepaymentPayToNumber(lp, sortedBorrowerLoans, loans, allUsers) === payToNum;
+              }
+              return (
+                (targetLoan.userId && lp.userId && lp.userId === targetLoan.userId) ||
+                (targetLoan.userEmail && lp.userEmail && targetLoan.userEmail.toLowerCase().trim() === lp.userEmail.toLowerCase().trim()) ||
+                (borrower && isPaymentMatchUser(lp, borrower, loans))
+              );
+            })
+            .reduce((sum, lp) => sum + (lp.amount || 0), 0);
+          loanDue = Math.max(0, principalAmount - priorPaidPrincipal);
+        }
+        if (loanDue === 0 && p.interest && p.interest > 0) {
+          // Fallback: 0.5% flat monthly interest
+          loanDue = Math.round(p.interest / 0.005);
+        }
+      } else {
+        loanDue = loanRunningBalances.get(loanKey)!;
+      }
+
       const principal = p.amount || 0;
       const interest = p.interest || 0;
       const total = principal + interest;
       const paymentMode = (p.paymentMode || (p as any)?.paymentMethod || 'Online').toUpperCase();
-      const dateObj = p.approvedAt?.toDate ? p.approvedAt.toDate() : (p.timestamp?.toDate ? p.timestamp.toDate() : (p.timestamp?.seconds ? new Date(p.timestamp.seconds * 1000) : null));
+      const dateObj = getPaymentDateObj(p);
+
+      // Calculate Loan Bal (remaining loan principal post current installment repayment)
+      const loanBal = Math.max(0, loanDue - principal);
+
+      // Update running balance for this loan so subsequent payments in this same month carry forward the new balance
+      loanRunningBalances.set(loanKey, loanBal);
 
       return [
         idx + 1,
         borrowerName,
+        loanDue,
         principal,
         interest,
         total,
         paymentMode,
         dateObj ? format(dateObj, 'dd-MMM-yyyy HH:mm') : 'N/A',
-        (p.status || 'PAID').toUpperCase()
+        (p.status || 'PAID').toUpperCase(),
+        loanBal
       ];
     });
+
+    const monthlyLoanDueTotal = loanRepaymentRows.reduce((acc, row) => acc + (typeof row[2] === 'number' ? row[2] : 0), 0);
+    const monthlyLoanBalTotal = loanRepaymentRows.reduce((acc, row) => acc + (typeof row[9] === 'number' ? row[9] : 0), 0);
 
     const loansSheetAoa: any[][] = [
       ['UNNATI TRUST (R)'],
       [`MONTHLY LOAN REPAYMENTS COLLECTED - ${monthLabel.toUpperCase()}`],
       [`Total Records: ${monthlyPaidLoanPayments.length} | Export Date: ${exportDateStr}`],
       [],
-      ['S.No', 'Borrower\nName', 'Principal Amount\n(₹)', 'Interest Amount\n(₹)', 'Total Repayment\nPaid (₹)', 'Payment\nMode', 'Payment\nDate', 'Status'],
-      ...(loanRepaymentRows.length > 0 ? loanRepaymentRows : [[1, 'No loan repayments found for this month', 0, 0, 0, '', '', '']]),
-      ['TOTAL', '', monthlyLoanPrincipalCollected, monthlyLoanInterestCollected, monthlyLoanTotalCollected, '', '', `${monthlyPaidLoanPayments.length} Payments`]
+      ['S.No', 'Borrower\nName', 'Loan Due\n(₹)', 'Principal Amount\n(₹)', 'Interest Amount\n(₹)', 'Total Repayment\nPaid (₹)', 'Payment\nMode', 'Payment\nDate', 'Status', 'Loan Bal\n(₹)'],
+      ...(loanRepaymentRows.length > 0 ? loanRepaymentRows : [[1, 'No loan repayments found for this month', 0, 0, 0, 0, '', '', '', 0]]),
+      ['TOTAL', '', monthlyLoanDueTotal, monthlyLoanPrincipalCollected, monthlyLoanInterestCollected, monthlyLoanTotalCollected, '', '', `${monthlyPaidLoanPayments.length} Payments`, monthlyLoanBalTotal]
     ];
 
     const wsLoans = XLSX.utils.aoa_to_sheet(loansSheetAoa);
     wsLoans['!cols'] = [
       { wch: 7 },  // S.No
-      { wch: 20 }, // Borrower Name
-      { wch: 15 }, // Principal Amount (₹)
-      { wch: 14 }, // Interest Amount (₹)
+      { wch: 22 }, // Borrower Name
+      { wch: 15 }, // Loan Due (₹)
+      { wch: 16 }, // Principal Amount (₹)
+      { wch: 15 }, // Interest Amount (₹)
       { wch: 16 }, // Total Repayment Paid (₹)
       { wch: 13 }, // Payment Mode
       { wch: 16 }, // Payment Date
-      { wch: 11 }  // Status
+      { wch: 11 }, // Status
+      { wch: 15 }  // Loan Bal (₹)
     ];
     wsLoans['!rows'] = [
       { hpt: 26 },
@@ -6341,9 +6470,9 @@ export default function App() {
     ];
     const lastLoanRow = loansSheetAoa.length - 1;
     wsLoans['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
-      { s: { r: 2, c: 0 }, e: { r: 2, c: 7 } },
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 9 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 9 } },
       { s: { r: lastLoanRow, c: 0 }, e: { r: lastLoanRow, c: 1 } }
     ];
 
@@ -6366,7 +6495,7 @@ export default function App() {
     };
 
     for (let r = 0; r < loansSheetAoa.length; r++) {
-      for (let c = 0; c < 8; c++) {
+      for (let c = 0; c < 10; c++) {
         const ref = XLSX.utils.encode_cell({ r, c });
         if (!wsLoans[ref]) wsLoans[ref] = { t: 's', v: '' };
         const cell = wsLoans[ref];
@@ -6377,13 +6506,13 @@ export default function App() {
         else if (r === 4) {
           cell.s = {
             ...styleHeader,
-            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 5 || c === 7 ? 'center' : 'left'), vertical: 'center', wrapText: true }
+            alignment: { horizontal: ((c >= 2 && c <= 5) || c === 9) ? 'right' : (c === 0 || c === 6 || c === 8 ? 'center' : 'left'), vertical: 'center', wrapText: true }
           };
         } else if (r === lastLoanRow) {
           cell.s = {
             font: { name: 'Segoe UI', sz: 11, bold: true, color: { rgb: '065F46' } },
             fill: { fgColor: { rgb: 'D1FAE5' } },
-            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 7 ? 'center' : 'left'), vertical: 'center' },
+            alignment: { horizontal: ((c >= 2 && c <= 5) || c === 9) ? 'right' : (c === 0 || c === 8 ? 'center' : 'left'), vertical: 'center' },
             border: borderThin,
             numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
           };
@@ -6391,7 +6520,7 @@ export default function App() {
           cell.s = {
             font: { name: 'Segoe UI', sz: 10.5, color: { rgb: '0F172A' } },
             fill: { fgColor: { rgb: r % 2 === 0 ? 'F8FAFC' : 'FFFFFF' } },
-            alignment: { horizontal: (c >= 2 && c <= 4) ? 'right' : (c === 0 || c === 5 || c === 7 ? 'center' : 'left'), vertical: 'center' },
+            alignment: { horizontal: ((c >= 2 && c <= 5) || c === 9) ? 'right' : (c === 0 || c === 6 || c === 8 ? 'center' : 'left'), vertical: 'center' },
             border: borderThin,
             numFmt: typeof cell.v === 'number' ? '#,##0' : undefined
           };
@@ -12342,7 +12471,7 @@ ${scheduleHighlights}
                                                    {!loanStartsFuture && (
                                                      <>
                                                        <button 
-                                                         onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                                         onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy'), l, { principal, interest, balance: remainingPrincipal, loanLabel: loanSeq.label })}
                                                          className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/70 rounded-lg transition-all cursor-pointer"
                                                          title="WhatsApp Reminder"
                                                        >
@@ -12819,7 +12948,7 @@ ${scheduleHighlights}
                                           {!loanStartsFuture && (
                                             <>
                                               <button 
-                                                onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(), 'MMMM yyyy'))}
+                                                onClick={() => sendLoanWhatsAppReminder(targetUser, currentTotal, format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy'), l, { principal, interest, balance: remainingPrincipal, loanLabel: loanSeq.label })}
                                                 className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-100/70 rounded-lg transition-all"
                                                 title="WhatsApp Reminder"
                                               >
@@ -16704,7 +16833,7 @@ ${scheduleHighlights}
               <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs shrink-0">
                 <span className="font-bold text-slate-700 block mb-1">WhatsApp Message Preview:</span>
                 <p className="text-slate-600 italic bg-white p-2.5 rounded-xl border border-slate-200/60 leading-relaxed font-mono text-[11px]">
-                  "Hi [Member Name], this is a reminder for your Unnati contribution of ₹1,000 for {format(new Date(), 'MMMM yyyy')}. Please record your payment. Ignore if already paid. Thanks!"
+                  "Hi [Member Name], this is a reminder for your Unnati contribution of ₹1,000 for {format(new Date(), 'MMMM yyyy')}. Please make your payment. Ignore if already paid. Thanks!"
                 </p>
               </div>
 
