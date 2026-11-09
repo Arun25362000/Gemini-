@@ -1053,6 +1053,12 @@ export default function App() {
     };
   }, [loanAmount]);
 
+  const formatOrdinal = (n: number) => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
   const [adminManualRepayment, setAdminManualRepayment] = useState<{
     isOpen: boolean;
     loan: Loan | null;
@@ -1074,6 +1080,9 @@ export default function App() {
     paymentDate: format(new Date(), 'yyyy-MM-dd'),
     isExtraPrincipal: false
   });
+
+  const [loanBorrowerSearch, setLoanBorrowerSearch] = useState('');
+  const [contribMemberSearch, setContribMemberSearch] = useState('');
 
   // Handle hardware back button on Android/iOS natively via Capacitor
   useEffect(() => {
@@ -9026,6 +9035,107 @@ ${scheduleHighlights}
     }
   };
 
+  // Common option to record any active borrower loan repayment (Option 1)
+  const openQuickRecordLoanPayment = (targetLoanId?: string) => {
+    if (profile?.role !== 'admin') return;
+    setLoanBorrowerSearch('');
+    const activeLoans = loans.filter(l => l.status === 'approved');
+    if (activeLoans.length === 0) {
+      notify('info', 'No active loans found to record repayment.');
+      return;
+    }
+
+    let selected = targetLoanId ? activeLoans.find(l => l.id === targetLoanId) : null;
+    if (!selected) {
+      // Prioritize loan with pending installment
+      selected = activeLoans.find(l => {
+        const pmts = loanPayments.filter(p => p.loanId === l.id);
+        const sched = getAdjustedLoanSchedule(l, pmts);
+        return sched.some(item => !item.isPaid && !item.isPending);
+      }) || activeLoans[0];
+    }
+
+    const pmts = loanPayments.filter(p => p.loanId === selected.id);
+    const sched = getAdjustedLoanSchedule(selected, pmts);
+    const nextDue = sched.find(item => !item.isPaid && !item.isPending);
+
+    const totalPaid = pmts.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
+    const remainingPrincipal = Math.max(0, (selected.approvedAmount || selected.amount || 0) - totalPaid);
+
+    if (nextDue) {
+      setAdminManualRepayment({
+        isOpen: true,
+        loan: selected,
+        month: nextDue.installmentMonth,
+        year: nextDue.installmentYear,
+        amount: nextDue.principalToDisplay,
+        interest: nextDue.interestToDisplay,
+        method: 'online',
+        paymentDate: format(new Date(), 'yyyy-MM-dd'),
+        isExtraPrincipal: false
+      });
+    } else if (remainingPrincipal > 0) {
+      const now = new Date();
+      setAdminManualRepayment({
+        isOpen: true,
+        loan: selected,
+        month: now.getMonth() + 1,
+        year: now.getFullYear(),
+        amount: Math.min(5000, remainingPrincipal),
+        interest: 0,
+        method: 'online',
+        paymentDate: format(new Date(), 'yyyy-MM-dd'),
+        isExtraPrincipal: true
+      });
+    } else {
+      notify('info', 'This loan is already fully settled.');
+    }
+  };
+
+  // Quick Record Contribution for Admin under Members tab
+  const openQuickRecordContribution = (preselectedUserId?: string) => {
+    if (profile?.role !== 'admin') return;
+    const eligibleMembers = allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase());
+    if (eligibleMembers.length === 0) {
+      notify('info', 'No members found.');
+      return;
+    }
+    
+    let targetU = preselectedUserId ? eligibleMembers.find(u => (u.uid === preselectedUserId || u.email === preselectedUserId)) : null;
+    if (!targetU) {
+      // Find first member who has an unpaid contribution in current year
+      const curYear = new Date().getFullYear();
+      const curMo = new Date().getMonth() + 1;
+      targetU = eligibleMembers.find(u => {
+        const uContribs = contributions.filter(c => 
+          ((u.uid && c.userId === u.uid) || (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) &&
+          c.year === curYear && c.status === 'paid'
+        );
+        return !uContribs.some(c => c.month === curMo);
+      }) || eligibleMembers[0];
+    }
+
+    const uid = targetU.uid || targetU.email;
+    setSelectedUserId(uid);
+    setContribMemberSearch('');
+    
+    // Set earliest unpaid month in current year
+    const curYear = new Date().getFullYear();
+    const curMo = new Date().getMonth() + 1;
+    const userContribs = contributions.filter(c => 
+      ((targetU.uid && c.userId === targetU.uid) || (targetU.email && c.userEmail?.toLowerCase() === targetU.email.toLowerCase())) &&
+      c.year === curYear && c.status === 'paid'
+    );
+    const firstMissing = Array.from({ length: curMo }, (_, i) => i + 1).find(m => !userContribs.some(c => c.month === m));
+    setSelectedMonth(firstMissing || curMo);
+    setSelectedYear(curYear);
+    setContribPayMode('single');
+    setSelectedMultiMonthKeys([]);
+    setPaymentDate(format(new Date(), 'yyyy-MM-dd'));
+    setPaymentMethod('online');
+    setIsAdding(true);
+  };
+
   // Helper to calculate real-time collection counts for any given month and year
   const getCollectionCountsForMonth = useCallback((targetMonth: number, targetYear: number) => {
     // 1. Contribution real-time Paid and Due member counts for targetMonth/targetYear
@@ -10247,6 +10357,24 @@ ${scheduleHighlights}
                 <Plus className="w-5 h-5" /> Apply for Loan
               </button>
             )}
+            {activeTab === 'loans' && isAdmin && (
+              <button 
+                onClick={() => openQuickRecordLoanPayment()}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700 cursor-pointer text-sm"
+                title="Record loan repayment for any active borrower"
+              >
+                <PlusCircle className="w-5 h-5" /> Record Repayment
+              </button>
+            )}
+            {activeTab === 'members' && isAdmin && (
+              <button 
+                onClick={() => openQuickRecordContribution()}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95 bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700 cursor-pointer text-sm"
+                title="Record monthly contribution for any member"
+              >
+                <PlusCircle className="w-5 h-5" /> Record Contribution
+              </button>
+            )}
             {activeTab === 'contributions' && !isAdmin && (
               <button 
                 onClick={() => {
@@ -10721,11 +10849,10 @@ ${scheduleHighlights}
                   type="button"
                   onClick={() => exportMemberDetailsPdf(true)}
                   disabled={isExportingMemberPdf}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                   title="Quick print member details list"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  <span>Quick Print</span>
                 </button>
                 <button
                   type="button"
@@ -11612,11 +11739,10 @@ ${scheduleHighlights}
                           type="button"
                           onClick={() => exportLoanApplicationsPdf(true)}
                           disabled={isExportingLoanApplicationsPdf}
-                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                           title="Quick print loan applications list"
                         >
                           <Printer className="w-3.5 h-3.5" />
-                          <span>Quick Print</span>
                         </button>
                         <button
                           type="button"
@@ -13316,11 +13442,10 @@ ${scheduleHighlights}
                                 type="button"
                                 onClick={() => exportLoanListPdf('active', true)}
                                 disabled={isExportingLoanPdf}
-                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                                 title="Quick print active loans list"
                               >
                                 <Printer className="w-3.5 h-3.5" />
-                                <span>Quick Print</span>
                               </button>
                               <button
                                 type="button"
@@ -13583,11 +13708,10 @@ ${scheduleHighlights}
                                 type="button"
                                 onClick={() => exportLoanProjectionPdf(true)}
                                 disabled={isExportingProjectionPdf || loanProjection.principal <= 0}
-                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                                 title="Quick print schedule"
                               >
                                 <Printer className="w-3.5 h-3.5" />
-                                <span>Quick Print</span>
                               </button>
                               <button
                                 type="button"
@@ -14924,11 +15048,10 @@ ${scheduleHighlights}
                         type="button"
                         onClick={() => exportMonthlyCollectionPdf(true)}
                         disabled={isExportingMonthlyPdf}
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                         title="Quick print monthly collection statement"
                       >
                         <Printer className="w-3.5 h-3.5" />
-                        <span>Quick Print</span>
                       </button>
                       <button
                         type="button"
@@ -19739,26 +19862,103 @@ ${scheduleHighlights}
 
               <div className="space-y-5">
                 {/* Admin Select Member */}
-                {isAdmin && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Member</label>
-                    <select 
-                      value={selectedUserId || ''}
-                      onChange={(e) => {
-                        setSelectedUserId(e.target.value);
-                        setSelectedMultiMonthKeys([]);
-                      }}
-                      className="w-full py-3 px-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                    >
-                      <option value="">Select a member...</option>
-                      {allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase()).map((u, uidx) => (
-                        <option key={`contrib-reg-opt-${u.email?.toLowerCase() || 'email'}-${uidx}`} value={u.uid || u.email}>
-                          {u.displayName || u.email} {u.phoneNumber ? `(${u.phoneNumber})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {isAdmin && (() => {
+                  const eligibleSocietyMembers = allUsers.filter(u => u.email?.toLowerCase() !== SYSTEM_ADMIN_EMAIL.toLowerCase());
+                  const q = contribMemberSearch.toLowerCase().trim();
+                  const filteredContribMembers = !q ? eligibleSocietyMembers : eligibleSocietyMembers.filter(u => {
+                    const name = (u.displayName || '').toLowerCase();
+                    const phone = (u.phoneNumber || '').toLowerCase();
+                    const email = (u.email || '').toLowerCase();
+                    return name.includes(q) || phone.includes(q) || email.includes(q);
+                  });
+
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-bold text-slate-700">Select Member</label>
+                        {eligibleSocietyMembers.length > 3 && (
+                          <span className="text-[10px] font-medium text-slate-400">
+                            {filteredContribMembers.length} of {eligibleSocietyMembers.length} members
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Search box for members */}
+                      <div className="relative mb-2">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Search member by name, phone or email..."
+                          value={contribMemberSearch}
+                          onChange={(e) => {
+                            const query = e.target.value;
+                            setContribMemberSearch(query);
+                            if (query.trim()) {
+                              const term = query.toLowerCase().trim();
+                              const matches = eligibleSocietyMembers.filter(u => {
+                                const name = (u.displayName || '').toLowerCase();
+                                const phone = (u.phoneNumber || '').toLowerCase();
+                                const email = (u.email || '').toLowerCase();
+                                return name.includes(term) || phone.includes(term) || email.includes(term);
+                              });
+                              if (matches.length > 0 && !matches.some(m => (m.uid === selectedUserId || m.email === selectedUserId))) {
+                                const newUid = matches[0].uid || matches[0].email;
+                                setSelectedUserId(newUid);
+                                setSelectedMultiMonthKeys([]);
+                                const curYear = selectedYear || new Date().getFullYear();
+                                const curMo = new Date().getMonth() + 1;
+                                const uContribs = contributions.filter(c => 
+                                  ((matches[0].uid && c.userId === matches[0].uid) || (matches[0].email && c.userEmail?.toLowerCase() === matches[0].email.toLowerCase())) &&
+                                  c.year === curYear && c.status === 'paid'
+                                );
+                                const firstMissing = Array.from({ length: curMo }, (_, i) => i + 1).find(m => !uContribs.some(c => c.month === m));
+                                if (firstMissing) setSelectedMonth(firstMissing);
+                              }
+                            }
+                          }}
+                          className="w-full pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-400"
+                        />
+                        {contribMemberSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setContribMemberSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      <select 
+                        value={selectedUserId || ''}
+                        onChange={(e) => {
+                          const newUid = e.target.value;
+                          setSelectedUserId(newUid);
+                          setSelectedMultiMonthKeys([]);
+                          const targetU = allUsers.find(u => (u.uid === newUid || u.id === newUid || u.email === newUid));
+                          if (targetU) {
+                            const curYear = selectedYear || new Date().getFullYear();
+                            const curMo = new Date().getMonth() + 1;
+                            const uContribs = contributions.filter(c => 
+                              ((targetU.uid && c.userId === targetU.uid) || (targetU.email && c.userEmail?.toLowerCase() === targetU.email.toLowerCase())) &&
+                              c.year === curYear && c.status === 'paid'
+                            );
+                            const firstMissing = Array.from({ length: curMo }, (_, i) => i + 1).find(m => !uContribs.some(c => c.month === m));
+                            if (firstMissing) setSelectedMonth(firstMissing);
+                          }
+                        }}
+                        className="w-full py-2.5 px-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
+                      >
+                        <option value="">Select a member...</option>
+                        {filteredContribMembers.map((u, uidx) => (
+                          <option key={`contrib-reg-opt-${u.email?.toLowerCase() || 'email'}-${uidx}`} value={u.uid || u.email}>
+                            {u.displayName || u.email} {u.phoneNumber ? `(${u.phoneNumber})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
 
                 {/* SINGLE MONTH MODE */}
                 {contribPayMode === 'single' && (
@@ -21066,23 +21266,28 @@ ${scheduleHighlights}
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8"
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 sm:p-8 max-h-[90vh] overflow-y-auto"
             >
               {(() => {
                 const loan = adminManualRepayment.loan!;
+                const activeLoans = loans.filter(l => l.status === 'approved');
                 const payments = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
                 const totalPaid = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
                 const approved = loan.approvedAmount || loan.amount || 0;
                 const remainingPrincipal = Math.max(0, approved - totalPaid);
                 const isExtra = adminManualRepayment.isExtraPrincipal;
+                const loanSchedule = getAdjustedLoanSchedule(loan, loanPayments.filter(p => p.loanId === loan.id));
+                const curCalMonth = new Date().getMonth() + 1;
+                const curCalYear = new Date().getFullYear();
+                const currentMonthPayment = loanPayments.find(p => p.loanId === loan.id && p.month === curCalMonth && p.year === curCalYear && !p.isExtraPrincipal && p.status === 'paid');
 
                 return (
                   <>
-                    <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center justify-between mb-4">
                       <div>
                         <div className="flex items-center gap-2">
                           <h2 className="text-xl font-black text-slate-900">
-                            {isExtra ? "Record Extra Principal" : "Record Loan Payment"}
+                            {isExtra ? "Record Extra Principal" : "Record Loan Repayment"}
                           </h2>
                           {isExtra && (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
@@ -21092,8 +21297,8 @@ ${scheduleHighlights}
                         </div>
                         <p className="text-xs text-slate-500 font-medium mt-0.5">
                           {isExtra 
-                            ? `Multiple Payments in ${format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')} (₹0 Interest)`
-                            : `For ${format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')}`}
+                            ? `Additional payment in ${format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')} (₹0 Interest)`
+                            : `Installment for ${format(new Date(adminManualRepayment.year, adminManualRepayment.month - 1), 'MMMM yyyy')}`}
                         </p>
                       </div>
                       <button 
@@ -21104,22 +21309,220 @@ ${scheduleHighlights}
                       </button>
                     </div>
 
-                    <div className="space-y-4">
-                      {isExtra && (
-                        <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-200/90 text-xs text-indigo-900 space-y-1">
-                          <div className="flex items-center gap-1.5 font-black text-indigo-950 text-xs">
-                            <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
-                            <span>Additional Principal Payment in Same Month</span>
-                          </div>
-                          <p className="text-[11px] text-indigo-700 leading-relaxed font-medium">
-                            Monthly EMI and 0.5% interest are already recorded. This payment applies 100% towards principal reduction with ₹0 interest.
-                          </p>
-                          <p className="text-xs font-black text-indigo-950 pt-0.5">
-                            Remaining Outstanding Principal: ₹{remainingPrincipal.toLocaleString('en-IN')}
-                          </p>
-                        </div>
-                      )}
+                    <div className="space-y-3.5">
+                      {/* Borrower & Active Loan Selector with Search */}
+                      {(() => {
+                        const qLoan = loanBorrowerSearch.toLowerCase().trim();
+                        const filteredActiveLoans = !qLoan ? activeLoans : activeLoans.filter(al => {
+                          const u = allUsers.find(usr => 
+                            (al.userId && usr.uid === al.userId) || 
+                            (al.userEmail && usr.email.toLowerCase() === al.userEmail.toLowerCase())
+                          );
+                          const seq = getMemberLoanSequenceInfo(al, loans, allUsers);
+                          const name = (u?.displayName || '').toLowerCase();
+                          const phone = (u?.phoneNumber || '').toLowerCase();
+                          const email = (al.userEmail || '').toLowerCase();
+                          const lbl = (seq?.label || '').toLowerCase();
+                          return name.includes(qLoan) || phone.includes(qLoan) || email.includes(qLoan) || lbl.includes(qLoan);
+                        });
 
+                        return (
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                Borrower &amp; Loan
+                              </label>
+                              {activeLoans.length > 3 && (
+                                <span className="text-[10px] font-medium text-slate-400">
+                                  {filteredActiveLoans.length} of {activeLoans.length}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Search input for borrower */}
+                            <div className="relative mb-2">
+                              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                              <input
+                                type="text"
+                                placeholder="Search borrower name, phone or L#..."
+                                value={loanBorrowerSearch}
+                                onChange={(e) => {
+                                  const query = e.target.value;
+                                  setLoanBorrowerSearch(query);
+                                  if (query.trim()) {
+                                    const term = query.toLowerCase().trim();
+                                    const matches = activeLoans.filter(al => {
+                                      const u = allUsers.find(usr => 
+                                        (al.userId && usr.uid === al.userId) || 
+                                        (al.userEmail && usr.email.toLowerCase() === al.userEmail.toLowerCase())
+                                      );
+                                      const seq = getMemberLoanSequenceInfo(al, loans, allUsers);
+                                      const name = (u?.displayName || '').toLowerCase();
+                                      const phone = (u?.phoneNumber || '').toLowerCase();
+                                      const email = (al.userEmail || '').toLowerCase();
+                                      const lbl = (seq?.label || '').toLowerCase();
+                                      return name.includes(term) || phone.includes(term) || email.includes(term) || lbl.includes(term);
+                                    });
+                                    if (matches.length > 0 && !matches.some(m => m.id === loan.id)) {
+                                      const targetLoan = matches[0];
+                                      const pmts = loanPayments.filter(p => p.loanId === targetLoan.id);
+                                      const sched = getAdjustedLoanSchedule(targetLoan, pmts);
+                                      const nextDue = sched.find(item => !item.isPaid && !item.isPending);
+                                      const pd = pmts.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
+                                      const remPrin = Math.max(0, (targetLoan.approvedAmount || targetLoan.amount || 0) - pd);
+                                      if (nextDue) {
+                                        setAdminManualRepayment(prev => ({
+                                          ...prev,
+                                          loan: targetLoan,
+                                          month: nextDue.installmentMonth,
+                                          year: nextDue.installmentYear,
+                                          amount: nextDue.principalToDisplay,
+                                          interest: nextDue.interestToDisplay,
+                                          isExtraPrincipal: false
+                                        }));
+                                      } else if (remPrin > 0) {
+                                        const now = new Date();
+                                        setAdminManualRepayment(prev => ({
+                                          ...prev,
+                                          loan: targetLoan,
+                                          month: now.getMonth() + 1,
+                                          year: now.getFullYear(),
+                                          amount: Math.min(5000, remPrin),
+                                          interest: 0,
+                                          isExtraPrincipal: true
+                                        }));
+                                      }
+                                    }
+                                  }
+                                }}
+                                className="w-full pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-400"
+                              />
+                              {loanBorrowerSearch && (
+                                <button
+                                  type="button"
+                                  onClick={() => setLoanBorrowerSearch('')}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+
+                            <select
+                              value={loan.id}
+                              onChange={(e) => {
+                                const selectedId = e.target.value;
+                                const targetLoan = activeLoans.find(al => al.id === selectedId);
+                                if (!targetLoan) return;
+                                const pmts = loanPayments.filter(p => p.loanId === targetLoan.id);
+                                const sched = getAdjustedLoanSchedule(targetLoan, pmts);
+                                const nextDue = sched.find(item => !item.isPaid && !item.isPending);
+                                const pd = pmts.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
+                                const remPrin = Math.max(0, (targetLoan.approvedAmount || targetLoan.amount || 0) - pd);
+                                if (nextDue) {
+                                  setAdminManualRepayment(prev => ({
+                                    ...prev,
+                                    loan: targetLoan,
+                                    month: nextDue.installmentMonth,
+                                    year: nextDue.installmentYear,
+                                    amount: nextDue.principalToDisplay,
+                                    interest: nextDue.interestToDisplay,
+                                    isExtraPrincipal: false
+                                  }));
+                                } else if (remPrin > 0) {
+                                  const now = new Date();
+                                  setAdminManualRepayment(prev => ({
+                                    ...prev,
+                                    loan: targetLoan,
+                                    month: now.getMonth() + 1,
+                                    year: now.getFullYear(),
+                                    amount: Math.min(5000, remPrin),
+                                    interest: 0,
+                                    isExtraPrincipal: true
+                                  }));
+                                }
+                              }}
+                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer"
+                            >
+                              {filteredActiveLoans.length === 0 ? (
+                                <option value="" disabled>No matching borrowers found</option>
+                              ) : (
+                                filteredActiveLoans.map(al => {
+                                  const u = allUsers.find(usr => 
+                                    (al.userId && usr.uid === al.userId) || 
+                                    (al.userEmail && usr.email.toLowerCase() === al.userEmail.toLowerCase())
+                                  );
+                                  const seq = getMemberLoanSequenceInfo(al, loans, allUsers);
+                                  const pList = loanPayments.filter(p => p.loanId === al.id && p.status === 'paid');
+                                  const pd = pList.reduce((acc, p) => acc + (p.amount || 0), 0);
+                                  const bal = Math.max(0, (al.approvedAmount || al.amount || 0) - pd);
+                                  const bName = u?.displayName || al.userEmail || 'Member';
+                                  return (
+                                    <option key={al.id} value={al.id}>
+                                      {bName} ({seq.label} • Bal: ₹{bal.toLocaleString('en-IN')})
+                                    </option>
+                                  );
+                                })
+                              )}
+                            </select>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Installment Selector */}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                          Installment
+                        </label>
+                        <select
+                          value={isExtra ? `extra-${adminManualRepayment.year}-${adminManualRepayment.month}` : `regular-${adminManualRepayment.year}-${adminManualRepayment.month}`}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val.startsWith('extra-')) {
+                              const [_, yr, mo] = val.split('-');
+                              setAdminManualRepayment(prev => ({
+                                ...prev,
+                                year: Number(yr),
+                                month: Number(mo),
+                                amount: Math.min(5000, remainingPrincipal),
+                                interest: 0,
+                                isExtraPrincipal: true
+                              }));
+                            } else {
+                              const [_, yr, mo] = val.split('-');
+                              const item = loanSchedule.find(s => s.installmentYear === Number(yr) && s.installmentMonth === Number(mo));
+                              if (item) {
+                                setAdminManualRepayment(prev => ({
+                                  ...prev,
+                                  year: item.installmentYear,
+                                  month: item.installmentMonth,
+                                  amount: item.principalToDisplay,
+                                  interest: item.interestToDisplay,
+                                  isExtraPrincipal: false
+                                }));
+                              }
+                            }
+                          }}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer"
+                        >
+                          {loanSchedule.filter(s => !s.isPaid || (s.installmentYear === adminManualRepayment.year && s.installmentMonth === adminManualRepayment.month)).map(s => {
+                            const sSuffix = formatOrdinal(s.installmentNum);
+                            const dueLabel = (s.principalToDisplay + s.interestToDisplay).toLocaleString('en-IN');
+                            return (
+                              <option key={`sched-${s.installmentYear}-${s.installmentMonth}`} value={`regular-${s.installmentYear}-${s.installmentMonth}`}>
+                                {sSuffix} EMI — {format(s.installmentDate, 'MMM yyyy')} (Due: ₹{dueLabel})
+                              </option>
+                            );
+                          })}
+                          {currentMonthPayment && remainingPrincipal > 0 && (
+                            <option value={`extra-${curCalYear}-${curCalMonth}`}>
+                              Extra Principal — {format(new Date(), 'MMM yyyy')} (₹0 Interest)
+                            </option>
+                          )}
+                        </select>
+                      </div>
+
+                      {/* Principal Amount Input */}
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -21143,37 +21546,17 @@ ${scheduleHighlights}
                               amount: remainingPrincipal > 0 ? Math.min(val, remainingPrincipal) : val
                             }));
                           }}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-base sm:text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
                         />
-                        {isExtra && remainingPrincipal > 0 && (
-                          <div className="flex flex-wrap gap-1.5 pt-2">
-                            {[2000, 5000, 10000].filter(amt => amt <= remainingPrincipal).map(amt => (
-                              <button
-                                key={`admin-quick-chip-${amt}`}
-                                type="button"
-                                onClick={() => setAdminManualRepayment(prev => ({ ...prev, amount: amt }))}
-                                className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold hover:bg-indigo-100 transition-colors cursor-pointer"
-                              >
-                                ₹{amt.toLocaleString('en-IN')}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => setAdminManualRepayment(prev => ({ ...prev, amount: remainingPrincipal }))}
-                              className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold hover:bg-emerald-100 transition-colors cursor-pointer"
-                            >
-                              Full Balance (₹{remainingPrincipal.toLocaleString('en-IN')})
-                            </button>
-                          </div>
-                        )}
                       </div>
 
+                      {/* Interest Input */}
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                           Interest (₹)
                         </label>
                         {isExtra ? (
-                          <div className="px-4 py-3 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-between text-slate-600">
+                          <div className="px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-between text-slate-600">
                             <span className="text-base font-bold text-slate-500">₹0</span>
                             <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
                               Cleared in 1st monthly EMI
@@ -21184,30 +21567,33 @@ ${scheduleHighlights}
                             type="number"
                             value={adminManualRepayment.interest}
                             onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, interest: Number(e.target.value) }))}
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-emerald-600"
+                            className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-base sm:text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-emerald-600"
                           />
                         )}
                       </div>
 
+                      {/* Payment Date */}
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Payment Date</label>
                         <input
                           type="date"
                           value={adminManualRepayment.paymentDate}
                           onChange={(e) => setAdminManualRepayment(prev => ({ ...prev, paymentDate: e.target.value }))}
-                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
+                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-slate-900"
                         />
                       </div>
 
+                      {/* Payment Mode */}
                       <div>
                         <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Payment Mode</label>
                         <div className="grid grid-cols-2 gap-3">
                           {['cash', 'online'].map(m => (
                             <button
                               key={`manual-repayment-mode-${m}`}
+                              type="button"
                               onClick={() => setAdminManualRepayment(prev => ({ ...prev, method: m as 'cash' | 'online' }))}
                               className={cn(
-                                "py-3 rounded-2xl text-sm font-bold border-2 transition-all capitalize",
+                                "py-2.5 rounded-2xl text-xs sm:text-sm font-bold border-2 transition-all capitalize",
                                 adminManualRepayment.method === m 
                                   ? "bg-indigo-50 border-indigo-600 text-indigo-600 shadow-xs" 
                                   : "bg-white border-slate-100 text-slate-400 hover:border-slate-200"
@@ -21219,29 +21605,33 @@ ${scheduleHighlights}
                         </div>
                       </div>
 
-                      <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                      {/* Total Amount Summary */}
+                      <div className="p-3.5 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">
                         <span className="text-xs font-bold text-indigo-700 uppercase">
-                          {isExtra ? "Total Principal to Record" : "Total to Record"}
+                          {isExtra ? "Total Principal" : "Total Repayment"}
                         </span>
-                        <span className="text-xl font-black text-indigo-900">
+                        <span className="text-lg sm:text-xl font-black text-indigo-900">
                           ₹{(adminManualRepayment.amount + (isExtra ? 0 : adminManualRepayment.interest)).toLocaleString('en-IN')}
                         </span>
                       </div>
 
-                      <div className="flex gap-3 pt-3">
+                      {/* Actions */}
+                      <div className="flex gap-3 pt-2">
                         <button 
+                          type="button"
                           onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
-                          className="flex-1 py-3.5 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all text-sm"
+                          className="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all text-xs sm:text-sm"
                         >
                           Cancel
                         </button>
                         <button 
+                          type="button"
                           disabled={adminManualRepayment.amount <= 0}
                           onClick={submitAdminManualRepayment}
-                          className="flex-[1.5] py-3.5 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="flex-[1.5] py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <CheckCircle2 className="w-4 h-4" /> 
-                          <span>{isExtra ? "Record Extra Principal" : "Confirm Payment"}</span>
+                          <span>Confirm Payment</span>
                         </button>
                       </div>
                     </div>

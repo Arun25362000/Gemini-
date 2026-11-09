@@ -275,8 +275,11 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                 className="w-full py-3 px-3 bg-slate-800 hover:bg-slate-900 active:scale-[0.98] disabled:opacity-50 text-white rounded-xl font-bold text-xs sm:text-sm transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                 title="Quick Print Dividend Report"
               >
-                <Printer className="w-4 h-4 shrink-0" />
-                <span>{isPrintingDividend ? 'Printing...' : 'Quick Print'}</span>
+                {isPrintingDividend ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Printer className="w-4 h-4 shrink-0" />
+                )}
               </button>
             </div>
           )}
@@ -767,15 +770,9 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                 title="Open print preview for 1-click quick printing"
               >
                 {isPrinting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Preparing Print...</span>
-                  </>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
-                  <>
-                    <Printer className="w-4 h-4 shrink-0" />
-                    <span>Quick Print</span>
-                  </>
+                  <Printer className="w-4 h-4 shrink-0" />
                 )}
               </button>
 
