@@ -215,7 +215,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             {!collapsedReports['dividend-pay'] && (
               <>
                 <p className="text-xs sm:text-sm text-slate-600 leading-relaxed mb-5">
-                  Annual member dividend payout rounded off to nearest ₹10.
+                  Annual member dividend payout rounded off to lower ₹10.
                 </p>
 
                 <div className="space-y-2 mb-6 bg-amber-50/40 p-3.5 rounded-2xl border border-amber-100 text-xs text-slate-700">
@@ -790,19 +790,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                   }
                 }}
                 disabled={isPrinting || isDownloading || isExportingLoanPdf}
-                className="py-3 px-3 bg-slate-100 hover:bg-slate-200 active:scale-[0.98] text-slate-800 border border-slate-300 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-2xs flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                className="py-3 px-3 bg-blue-50 hover:bg-blue-100 text-blue-700 active:scale-[0.98] border border-blue-200/90 rounded-xl font-bold text-xs sm:text-sm transition-all shadow-2xs flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 title="Download Loan List as PDF"
               >
                 {isDownloading ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-slate-400 border-t-slate-800 rounded-full animate-spin" />
-                    <span>Generating PDF...</span>
-                  </>
+                  <div className="w-4 h-4 border-2 border-blue-400 border-t-blue-700 rounded-full animate-spin" />
                 ) : (
-                  <>
-                    <FileDown className="w-4 h-4 shrink-0" />
-                    <span>Download PDF</span>
-                  </>
+                  <FileDown className="w-4 h-4 shrink-0 stroke-[2.2] text-blue-600" />
                 )}
               </button>
             </div>

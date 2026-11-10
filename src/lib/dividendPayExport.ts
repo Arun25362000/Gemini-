@@ -50,7 +50,7 @@ export interface MemberDividendRow {
   paidAmountYear: number;
   interestPaidByMemberYear: number;
   rawDividendPay: number; // Raw exact dividend before rounding
-  dividendPay: number; // Dividend amount rounded off to nearest Rs 10
+  dividendPay: number; // Dividend amount rounded off to lower Rs 10 (floor)
   denominations: Denominations;
   status: string;
 }
@@ -60,7 +60,7 @@ export interface DividendCalculationResult {
   isAllTime: boolean;
   totalRegisteredMembers: number;
   totalInterestEarned: number;
-  dividendPerMember: number; // Rounded to nearest Rs 10
+  dividendPerMember: number; // Rounded to lower Rs 10 (floor)
   exactDividendPerMember: number; // Raw exact calculation
   totalDividendDistributed: number;
   totalSavingsCorpusYear: number;
@@ -74,7 +74,7 @@ export interface DividendCalculationResult {
  * Calculates the exact dividend distribution for registered members.
  * Core Formula:
  * Dividend Per Member = Total Interest Earned ÷ Total Registered Members
- * Rounded off to nearest Rs 10 for cash disbursement with exact denomination breakdown.
+ * Rounded off using floor to lower Rs 10 for cash disbursement with exact denomination breakdown.
  */
 export function calculateDividendPayout(params: {
   allUsers: UserProfile[];
@@ -120,13 +120,13 @@ export function calculateDividendPayout(params: {
 
   const totalInterestEarned = relevantLoanPayments.reduce((sum, p) => sum + (Number(p.interest) || 0), 0);
 
-  // 3. Exact dividend per member calculation & nearest Rs 10 rounding
+  // 3. Exact dividend per member calculation & lower Rs 10 rounding (floor)
   const exactDividendPerMember = totalRegisteredMembers > 0 
     ? (totalInterestEarned / totalRegisteredMembers) 
     : 0;
 
-  // Round off to nearest Rs 10 (e.g. 153 -> 150, 156 -> 160)
-  const dividendPerMember = Math.round(exactDividendPerMember / 10) * 10;
+  // Round off to lower Rs 10 using floor (e.g. 197.92 -> 190) so total payout never exceeds available interest
+  const dividendPerMember = Math.floor(exactDividendPerMember / 10) * 10;
   const totalDividendDistributed = dividendPerMember * totalRegisteredMembers;
 
   // 4. Inflows & loans context for the target year
@@ -310,7 +310,7 @@ export async function exportDividendPayExcel(
   const aoa: any[][] = [
     ['UNNATI TRUST (R) - DIVIDEND PAY REPORT'],
     [`Period: ${yearLabel} | Generated on: ${exportDateStr}`],
-    [`Formula: Total Interest Earned (₹${calculation.totalInterestEarned.toLocaleString('en-IN')}) ÷ ${calculation.totalRegisteredMembers} Registered Members = ₹${calculation.exactDividendPerMember.toFixed(2)} → Rounded off to nearest ₹10: ₹${calculation.dividendPerMember}`],
+    [`Formula: Total Interest Earned (₹${calculation.totalInterestEarned.toLocaleString('en-IN')}) ÷ ${calculation.totalRegisteredMembers} Registered Members = ₹${calculation.exactDividendPerMember.toFixed(2)} → Rounded off to lower ₹10: ₹${calculation.dividendPerMember}`],
     [],
     ['Sl.No', 'MemberName', 'Dividend', '500', '200', '100', '50', '20', '10'],
     ...memberDataRows,
@@ -486,7 +486,7 @@ export function generateDividendPayPdfDoc(calculation: DividendCalculationResult
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.text(
-    `Total Interest (₹${calculation.totalInterestEarned.toLocaleString('en-IN')}) ÷ Registered Members (${calculation.totalRegisteredMembers}) = ₹${calculation.exactDividendPerMember.toFixed(2)} → Rounded off to nearest ₹10: ₹${calculation.dividendPerMember} / member`,
+    `Total Interest (₹${calculation.totalInterestEarned.toLocaleString('en-IN')}) ÷ Registered Members (${calculation.totalRegisteredMembers}) = ₹${calculation.exactDividendPerMember.toFixed(2)} → Rounded off to lower ₹10: ₹${calculation.dividendPerMember} / member`,
     58,
     33
   );
@@ -579,7 +579,7 @@ export function generateDividendPayPdfDoc(calculation: DividendCalculationResult
         287
       );
       doc.text(
-        `Dividend rounded to nearest ₹10 with cash currency denomination breakdown`,
+        `Dividend rounded off to lower ₹10 with cash currency denomination breakdown`,
         196,
         287,
         { align: 'right' }

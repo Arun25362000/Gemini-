@@ -98,6 +98,8 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
 
       const payments = loanPayments.filter(p => isPaymentBelongingToLoan(p, loan));
       const paidPayments = payments.filter(p => p.status === 'paid');
+      const regularPaidPayments = paidPayments.filter(p => !p.isExtraPrincipal);
+      const paidInstallmentsCount = regularPaidPayments.reduce((acc, p) => acc + (p.isAdvance && p.coveredMonths?.length ? p.coveredMonths.length : 1), 0);
       const totalPrincipalPaid = paidPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
       const totalInterestPaid = paidPayments.reduce((acc, p) => acc + (Number(p.interest) || 0), 0);
       const approvedAmount = loan.approvedAmount || loan.amount || 0;
@@ -195,7 +197,7 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
         sanctionDateStr,
         sanctionDateObj,
         approvedAmount,
-        paidInstallmentsCount: paidPayments.length,
+        paidInstallmentsCount,
         totalInstallments: installments,
         totalPrincipalPaid,
         totalInterestPaid,

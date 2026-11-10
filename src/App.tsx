@@ -73,6 +73,7 @@ import {
   User as UserIcon, 
   TrendingUp, 
   Calendar, 
+  Check,
   CheckCircle2, 
   Clock, 
   AlertCircle,
@@ -1083,6 +1084,31 @@ export default function App() {
 
   const [loanBorrowerSearch, setLoanBorrowerSearch] = useState('');
   const [contribMemberSearch, setContribMemberSearch] = useState('');
+  const [isContribMemberDropdownOpen, setIsContribMemberDropdownOpen] = useState(false);
+  const [isLoanBorrowerDropdownOpen, setIsLoanBorrowerDropdownOpen] = useState(false);
+
+  // Render Status Badge Pill matching Loan Summary Active Loan Member dropdown pattern
+  const renderDropdownStatusBadge = (statusInfo: { label: string; code: 'paid' | 'due' | 'future' }) => {
+    if (statusInfo.code === 'paid') {
+      return (
+        <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+          Paid
+        </span>
+      );
+    }
+    if (statusInfo.code === 'due') {
+      return (
+        <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+          Due
+        </span>
+      );
+    }
+    return (
+      <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide bg-sky-100 text-sky-800 border border-sky-300 shadow-2xs">
+        Starts next mo.
+      </span>
+    );
+  };
 
   // Handle hardware back button on Android/iOS natively via Capacitor
   useEffect(() => {
@@ -9039,6 +9065,7 @@ ${scheduleHighlights}
   const openQuickRecordLoanPayment = (targetLoanId?: string) => {
     if (profile?.role !== 'admin') return;
     setLoanBorrowerSearch('');
+    setIsLoanBorrowerDropdownOpen(false);
     const activeLoans = loans.filter(l => l.status === 'approved');
     if (activeLoans.length === 0) {
       notify('info', 'No active loans found to record repayment.');
@@ -9118,6 +9145,7 @@ ${scheduleHighlights}
     const uid = targetU.uid || targetU.email;
     setSelectedUserId(uid);
     setContribMemberSearch('');
+    setIsContribMemberDropdownOpen(false);
     
     // Set earliest unpaid month in current year
     const curYear = new Date().getFullYear();
@@ -10858,11 +10886,10 @@ ${scheduleHighlights}
                   type="button"
                   onClick={() => exportMemberDetailsPdf(false)}
                   disabled={isExportingMemberPdf}
-                  className="px-3 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                   title="Download member details PDF"
                 >
-                  <FileDown className="w-3.5 h-3.5" />
-                  <span>Download PDF</span>
+                  <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
                 </button>
               </div>
             </div>
@@ -11748,11 +11775,10 @@ ${scheduleHighlights}
                           type="button"
                           onClick={() => exportLoanApplicationsPdf(false)}
                           disabled={isExportingLoanApplicationsPdf}
-                          className="px-3.5 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                           title="Download PDF statement"
                         >
-                          <FileDown className="w-3.5 h-3.5" />
-                          <span>Download PDF</span>
+                          <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
                         </button>
                       </div>
                     </div>
@@ -12505,6 +12531,7 @@ ${scheduleHighlights}
                                     const remainingTotal = calculateLoanRemainingTotal(l, payments);
                                     const loanSchedule = getAdjustedLoanSchedule(l, payments);
                                     const totalTenure = loanSchedule.length;
+                                    const paidInstallments = loanSchedule.filter(item => item.isPaid).length;
                                     const targetUser = allUsers.find(u => 
                                       (l.userId && u.uid === l.userId) || 
                                       (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
@@ -12555,11 +12582,11 @@ ${scheduleHighlights}
                                           </td>
                                           <td className="px-4 py-3.5 border-r border-slate-200/60">
                                             <div>
-                                              <p className="font-bold text-slate-900 text-xs">{paidPayments.length} / {totalTenure} Paid</p>
+                                              <p className="font-bold text-slate-900 text-xs">{paidInstallments} / {totalTenure} Paid</p>
                                               <div className="w-24 bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
                                                 <div 
                                                   className="bg-indigo-600 h-full rounded-full transition-all duration-300" 
-                                                  style={{ width: `${Math.min(100, (paidPayments.length / totalTenure) * 100)}%` }}
+                                                  style={{ width: `${Math.min(100, (paidInstallments / totalTenure) * 100)}%` }}
                                                 />
                                               </div>
                                             </div>
@@ -12704,7 +12731,7 @@ ${scheduleHighlights}
                                                     </div>
                                                     <span className="text-xs font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-2xs">
                                                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                                      {paidPayments.length} / {totalTenure} Paid
+                                                      {paidInstallments} / {totalTenure} Paid
                                                     </span>
                                                   </div>
                                                 </div>
@@ -12973,6 +13000,7 @@ ${scheduleHighlights}
                               const remainingTotal = calculateLoanRemainingTotal(l, payments);
                               const loanSchedule = getAdjustedLoanSchedule(l, payments);
                               const totalTenure = loanSchedule.length;
+                              const paidInstallments = loanSchedule.filter(item => item.isPaid).length;
                               const targetUser = allUsers.find(u => 
                                 (l.userId && u.uid === l.userId) || 
                                 (l.userEmail && u.email.toLowerCase() === l.userEmail.toLowerCase())
@@ -13037,7 +13065,7 @@ ${scheduleHighlights}
                                       </div>
                                       <div>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase">Progress</p>
-                                        <p className="font-bold text-slate-900">{paidPayments.length} / {totalTenure} Paid</p>
+                                        <p className="font-bold text-slate-900">{paidInstallments} / {totalTenure} Paid</p>
                                       </div>
                                       <div className="col-span-2">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">{statusColumnHeader}</p>
@@ -13177,7 +13205,7 @@ ${scheduleHighlights}
                                           </div>
                                           <span className="text-[11px] font-black bg-emerald-100/90 text-emerald-800 border border-emerald-300 px-3 py-1 rounded-xl flex items-center gap-1 shadow-2xs">
                                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                            {paidPayments.length} / {totalTenure} Paid
+                                            {paidInstallments} / {totalTenure} Paid
                                           </span>
                                         </div>
                                       </div>
@@ -13451,11 +13479,10 @@ ${scheduleHighlights}
                                 type="button"
                                 onClick={() => exportLoanListPdf('active', false)}
                                 disabled={isExportingLoanPdf}
-                                className="px-3 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                                 title="Download active loans PDF"
                               >
-                                <FileDown className="w-3.5 h-3.5" />
-                                <span>Download PDF</span>
+                                <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
                               </button>
                             </div>
                           </div>
@@ -13717,11 +13744,10 @@ ${scheduleHighlights}
                                 type="button"
                                 onClick={() => exportLoanProjectionPdf(false)}
                                 disabled={isExportingProjectionPdf || loanProjection.principal <= 0}
-                                className="px-3 py-2 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                className="px-3 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                                 title="Download PDF schedule"
                               >
-                                <FileDown className="w-3.5 h-3.5" />
-                                <span>Download PDF</span>
+                                <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
                               </button>
                             </div>
                           </div>
@@ -13826,6 +13852,7 @@ ${scheduleHighlights}
                       const loanSchedule = getAdjustedLoanSchedule(l, payments);
                       const isCurrentMonthCleared = loanSchedule.some(item => item.isCurrentMonth && item.isPaid);
                       const totalTenure = loanSchedule.length;
+                      const paidInstallments = loanSchedule.filter(item => item.isPaid).length;
                       const loanKey = l.id || `loan-${idx}`;
                       const isGroupExpanded = expandedMemberLoanGroups[loanKey] !== false; // expanded by default
                       const isScheduleExpanded = !!expandedMemberLoanSchedules[loanKey];
@@ -14048,7 +14075,7 @@ ${scheduleHighlights}
                                         </div>
                                         <div className="flex items-center gap-1.5 text-emerald-800 bg-emerald-100/80 px-3 py-1.5 rounded-xl text-xs font-black border border-emerald-300 shadow-2xs shrink-0">
                                           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                          <span>{paidPayments.length} / {totalTenure} Paid</span>
+                                          <span>{paidInstallments} / {totalTenure} Paid</span>
                                         </div>
                                         <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-slate-600 border border-slate-200 shadow-2xs shrink-0">
                                           {isScheduleExpanded ? (
@@ -15057,11 +15084,10 @@ ${scheduleHighlights}
                         type="button"
                         onClick={() => exportMonthlyCollectionPdf(false)}
                         disabled={isExportingMonthlyPdf}
-                        className="px-3 py-1.5 bg-white hover:bg-slate-50 active:scale-95 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                         title="Download monthly collection statement PDF"
                       >
-                        <FileDown className="w-3.5 h-3.5" />
-                        <span>Download PDF</span>
+                        <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
                       </button>
                     </div>
                   </div>
@@ -19149,10 +19175,14 @@ ${scheduleHighlights}
                       type="button"
                       onClick={() => handleDownloadReceipt(c, targetMember)}
                       disabled={isExportingReceiptPdf}
-                      className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-200 active:scale-95 flex items-center justify-center disabled:opacity-50"
+                      title="Download PDF"
                     >
-                      <FileDown className="w-4 h-4" />
-                      <span>{isExportingReceiptPdf ? 'Generating...' : 'Download PDF'}</span>
+                      {isExportingReceiptPdf ? (
+                        <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <FileDown className="w-4 h-4 stroke-[2.2]" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -19413,10 +19443,14 @@ ${scheduleHighlights}
                       type="button"
                       onClick={() => handleDownloadLoanReceipt(selectedReceiptLoanPayment, targetMember)}
                       disabled={isExportingReceiptPdf}
-                      className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-200 active:scale-95 flex items-center justify-center disabled:opacity-50"
+                      title="Download PDF"
                     >
-                      <FileDown className="w-4 h-4" />
-                      <span>{isExportingReceiptPdf ? 'Generating...' : 'Download PDF'}</span>
+                      {isExportingReceiptPdf ? (
+                        <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <FileDown className="w-4 h-4 stroke-[2.2]" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -19753,10 +19787,14 @@ ${scheduleHighlights}
                         borrower: targetMember
                       })}
                       disabled={isExportingReceiptPdf}
-                      className="flex-1 sm:flex-none px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-200 active:scale-95 flex items-center justify-center disabled:opacity-50"
+                      title="Download PDF"
                     >
-                      <FileDown className="w-4 h-4" />
-                      <span>{isExportingReceiptPdf ? 'Generating...' : 'Download PDF'}</span>
+                      {isExportingReceiptPdf ? (
+                        <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <FileDown className="w-4 h-4 stroke-[2.2]" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -19777,6 +19815,8 @@ ${scheduleHighlights}
                 setSelectedUserId(null);
                 setSelectedMultiMonthKeys([]);
                 setContribPayMode('single');
+                setIsContribMemberDropdownOpen(false);
+                setContribMemberSearch('');
               }}
               className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
             />
@@ -19817,6 +19857,8 @@ ${scheduleHighlights}
                     setSelectedUserId(null);
                     setSelectedMultiMonthKeys([]);
                     setContribPayMode('single');
+                    setIsContribMemberDropdownOpen(false);
+                    setContribMemberSearch('');
                   }}
                   className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer shrink-0"
                   title="Close"
@@ -19883,79 +19925,161 @@ ${scheduleHighlights}
                         )}
                       </div>
 
-                      {/* Search box for members */}
-                      <div className="relative mb-2">
-                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <input
-                          type="text"
-                          placeholder="Search member by name, phone or email..."
-                          value={contribMemberSearch}
-                          onChange={(e) => {
-                            const query = e.target.value;
-                            setContribMemberSearch(query);
-                            if (query.trim()) {
-                              const term = query.toLowerCase().trim();
-                              const matches = eligibleSocietyMembers.filter(u => {
-                                const name = (u.displayName || '').toLowerCase();
-                                const phone = (u.phoneNumber || '').toLowerCase();
-                                const email = (u.email || '').toLowerCase();
-                                return name.includes(term) || phone.includes(term) || email.includes(term);
-                              });
-                              if (matches.length > 0 && !matches.some(m => (m.uid === selectedUserId || m.email === selectedUserId))) {
-                                const newUid = matches[0].uid || matches[0].email;
-                                setSelectedUserId(newUid);
-                                setSelectedMultiMonthKeys([]);
-                                const curYear = selectedYear || new Date().getFullYear();
-                                const curMo = new Date().getMonth() + 1;
-                                const uContribs = contributions.filter(c => 
-                                  ((matches[0].uid && c.userId === matches[0].uid) || (matches[0].email && c.userEmail?.toLowerCase() === matches[0].email.toLowerCase())) &&
-                                  c.year === curYear && c.status === 'paid'
-                                );
-                                const firstMissing = Array.from({ length: curMo }, (_, i) => i + 1).find(m => !uContribs.some(c => c.month === m));
-                                if (firstMissing) setSelectedMonth(firstMissing);
-                              }
-                            }
-                          }}
-                          className="w-full pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-400"
-                        />
-                        {contribMemberSearch && (
-                          <button
-                            type="button"
-                            onClick={() => setContribMemberSearch('')}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
+                      {(() => {
+                        const selectedMemberObj = eligibleSocietyMembers.find(u => (u.uid === selectedUserId || u.email === selectedUserId));
+                        const getMemberMonthContribStatus = (u: UserProfile | { uid?: string; email?: string }): { label: string; code: 'paid' | 'due' } => {
+                          const m = selectedMonth || (new Date().getMonth() + 1);
+                          const y = selectedYear || (new Date().getFullYear());
+                          const uid = u.uid;
+                          const email = (u.email || '').toLowerCase().trim();
+                          const isPaid = contributions.some(c => 
+                            ((uid && c.userId === uid) || (email && c.userEmail?.toLowerCase().trim() === email)) &&
+                            c.month === m &&
+                            c.year === y &&
+                            (c.status === 'paid' || !c.status)
+                          );
+                          return isPaid ? { label: 'Paid', code: 'paid' } : { label: 'Due', code: 'due' };
+                        };
 
-                      <select 
-                        value={selectedUserId || ''}
-                        onChange={(e) => {
-                          const newUid = e.target.value;
-                          setSelectedUserId(newUid);
-                          setSelectedMultiMonthKeys([]);
-                          const targetU = allUsers.find(u => (u.uid === newUid || u.id === newUid || u.email === newUid));
-                          if (targetU) {
-                            const curYear = selectedYear || new Date().getFullYear();
-                            const curMo = new Date().getMonth() + 1;
-                            const uContribs = contributions.filter(c => 
-                              ((targetU.uid && c.userId === targetU.uid) || (targetU.email && c.userEmail?.toLowerCase() === targetU.email.toLowerCase())) &&
-                              c.year === curYear && c.status === 'paid'
-                            );
-                            const firstMissing = Array.from({ length: curMo }, (_, i) => i + 1).find(m => !uContribs.some(c => c.month === m));
-                            if (firstMissing) setSelectedMonth(firstMissing);
-                          }
-                        }}
-                        className="w-full py-2.5 px-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-900 font-medium text-xs sm:text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer"
-                      >
-                        <option value="">Select a member...</option>
-                        {filteredContribMembers.map((u, uidx) => (
-                          <option key={`contrib-reg-opt-${u.email?.toLowerCase() || 'email'}-${uidx}`} value={u.uid || u.email}>
-                            {u.displayName || u.email} {u.phoneNumber ? `(${u.phoneNumber})` : ''}
-                          </option>
-                        ))}
-                      </select>
+                        const selectedStatus = selectedMemberObj ? getMemberMonthContribStatus(selectedMemberObj) : null;
+
+                        return (
+                          <div className="relative">
+                            {/* Custom Dropdown Trigger */}
+                            <button
+                              type="button"
+                              onClick={() => setIsContribMemberDropdownOpen(!isContribMemberDropdownOpen)}
+                              className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl transition-all cursor-pointer shadow-2xs group text-left"
+                              title="Select Member"
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                {selectedMemberObj ? (
+                                  <>
+                                    <span className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
+                                      {selectedMemberObj.displayName || selectedMemberObj.email}
+                                    </span>
+                                    {selectedMemberObj.phoneNumber && (
+                                      <span className="text-[11px] font-medium text-slate-400 shrink-0 hidden xs:inline">
+                                        ({selectedMemberObj.phoneNumber})
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="text-xs sm:text-sm font-medium text-slate-400">
+                                    Select a member...
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {selectedStatus && renderDropdownStatusBadge(selectedStatus)}
+                                <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isContribMemberDropdownOpen && "rotate-180")} />
+                              </div>
+                            </button>
+
+                            {/* Already Paid Warning Alert */}
+                            {selectedMemberObj && contribPayMode === 'single' && selectedStatus?.code === 'paid' && (
+                              <div className="mt-2 flex items-center gap-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold">
+                                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span>Already recorded as <strong>PAID</strong> for {format(new Date(2024, selectedMonth - 1, 1), 'MMMM')} {selectedYear} to prevent duplicate entry.</span>
+                              </div>
+                            )}
+
+                            {/* Custom Dropdown Popover */}
+                            {isContribMemberDropdownOpen && (
+                              <>
+                                <div 
+                                  className="fixed inset-0 z-40" 
+                                  onClick={() => {
+                                    setIsContribMemberDropdownOpen(false);
+                                    setContribMemberSearch('');
+                                  }} 
+                                />
+                                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 p-2 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                                  {/* Search inside dropdown */}
+                                  <div className="p-1 border-b border-slate-100 mb-1">
+                                    <div className="relative">
+                                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                      <input
+                                        type="text"
+                                        placeholder="Search member by name, phone or email..."
+                                        value={contribMemberSearch}
+                                        onChange={(e) => setContribMemberSearch(e.target.value)}
+                                        className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                                        autoFocus
+                                      />
+                                      {contribMemberSearch && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setContribMemberSearch('')}
+                                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md cursor-pointer"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* List of Members */}
+                                  <div className="max-h-60 overflow-y-auto divide-y divide-slate-50 py-1">
+                                    {filteredContribMembers.length === 0 ? (
+                                      <p className="text-center py-3 text-xs text-slate-400 font-medium">No matching members</p>
+                                    ) : (
+                                      filteredContribMembers.map((u, uidx) => {
+                                        const uid = u.uid || u.email;
+                                        const isSelected = selectedUserId === uid;
+                                        const statusInfo = getMemberMonthContribStatus(u);
+                                        return (
+                                          <button
+                                            key={`contrib-member-opt-${u.email?.toLowerCase() || 'email'}-${uidx}`}
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedUserId(uid);
+                                              setSelectedMultiMonthKeys([]);
+                                              setIsContribMemberDropdownOpen(false);
+                                              setContribMemberSearch('');
+                                              const curYear = selectedYear || new Date().getFullYear();
+                                              const curMo = new Date().getMonth() + 1;
+                                              const uContribs = contributions.filter(c => 
+                                                ((u.uid && c.userId === u.uid) || (u.email && c.userEmail?.toLowerCase() === u.email.toLowerCase())) &&
+                                                c.year === curYear && c.status === 'paid'
+                                              );
+                                              const firstMissing = Array.from({ length: curMo }, (_, i) => i + 1).find(m => !uContribs.some(c => c.month === m));
+                                              if (firstMissing) setSelectedMonth(firstMissing);
+                                            }}
+                                            className={cn(
+                                              "w-full flex items-center justify-between gap-3 px-3 py-2 text-left rounded-xl transition-all cursor-pointer group",
+                                              isSelected 
+                                                ? "bg-indigo-50/90 text-indigo-950 font-bold" 
+                                                : "hover:bg-slate-50 text-slate-700"
+                                            )}
+                                          >
+                                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                              {isSelected && (
+                                                <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                              )}
+                                              <span className={cn("text-xs truncate", isSelected ? "font-black text-indigo-950" : "font-semibold text-slate-800")}>
+                                                {u.displayName || u.email}
+                                              </span>
+                                              {u.phoneNumber && (
+                                                <span className="text-slate-400 font-medium text-[11px] shrink-0">
+                                                  ({u.phoneNumber})
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="shrink-0 ml-2">
+                                              {renderDropdownStatusBadge(statusInfo)}
+                                            </div>
+                                          </button>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })()}
@@ -21259,7 +21383,11 @@ ${scheduleHighlights}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
+              onClick={() => {
+                setAdminManualRepayment(prev => ({ ...prev, isOpen: false }));
+                setIsLoanBorrowerDropdownOpen(false);
+                setLoanBorrowerSearch('');
+              }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
@@ -21302,8 +21430,12 @@ ${scheduleHighlights}
                         </p>
                       </div>
                       <button 
-                        onClick={() => setAdminManualRepayment(prev => ({ ...prev, isOpen: false }))}
-                        className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+                        onClick={() => {
+                          setAdminManualRepayment(prev => ({ ...prev, isOpen: false }));
+                          setIsLoanBorrowerDropdownOpen(false);
+                          setLoanBorrowerSearch('');
+                        }}
+                        className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
                       >
                         <X className="w-5 h-5" />
                       </button>
@@ -21326,6 +21458,72 @@ ${scheduleHighlights}
                           return name.includes(qLoan) || phone.includes(qLoan) || email.includes(qLoan) || lbl.includes(qLoan);
                         });
 
+                        const getLoanRepaymentStatus = (al: Loan): { label: string; code: 'paid' | 'due' | 'future' } => {
+                          const targetM = repaymentMonth || (new Date().getMonth() + 1);
+                          const targetY = repaymentYear || (new Date().getFullYear());
+                          
+                          const isFuture = isLoanRepaymentStartingInFuture(al, targetM, targetY);
+                          if (isFuture) {
+                            return { label: 'Starts next mo.', code: 'future' };
+                          }
+
+                          const thisMonthPayment = loanPayments.find(p => 
+                            p.loanId === al.id && 
+                            p.status === 'paid' && 
+                            p.month === targetM && 
+                            p.year === targetY
+                          );
+
+                          if (thisMonthPayment) {
+                            return { label: 'Paid', code: 'paid' };
+                          }
+
+                          return { label: 'Due', code: 'due' };
+                        };
+
+                        const selectedBorrower = allUsers.find(usr => 
+                          (loan.userId && usr.uid === loan.userId) || 
+                          (loan.userEmail && usr.email.toLowerCase() === loan.userEmail.toLowerCase())
+                        );
+                        const selectedSeq = getMemberLoanSequenceInfo(loan, loans, allUsers);
+                        const selectedPList = loanPayments.filter(p => p.loanId === loan.id && p.status === 'paid');
+                        const selectedPaidAmt = selectedPList.reduce((acc, p) => acc + (p.amount || 0), 0);
+                        const selectedBal = Math.max(0, (loan.approvedAmount || loan.amount || 0) - selectedPaidAmt);
+                        const selectedBName = selectedBorrower?.displayName || loan.userEmail || 'Borrower';
+                        const selectedStatus = getLoanRepaymentStatus(loan);
+
+                        const handleSelectLoanInModal = (targetLoan: Loan) => {
+                          const pmts = loanPayments.filter(p => p.loanId === targetLoan.id);
+                          const sched = getAdjustedLoanSchedule(targetLoan, pmts);
+                          const nextDue = sched.find(item => !item.isPaid && !item.isPending);
+                          const pd = pmts.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
+                          const remPrin = Math.max(0, (targetLoan.approvedAmount || targetLoan.amount || 0) - pd);
+                          if (nextDue) {
+                            setAdminManualRepayment(prev => ({
+                              ...prev,
+                              loan: targetLoan,
+                              month: nextDue.installmentMonth,
+                              year: nextDue.installmentYear,
+                              amount: nextDue.principalToDisplay,
+                              interest: nextDue.interestToDisplay,
+                              isExtraPrincipal: false
+                            }));
+                          } else if (remPrin > 0) {
+                            const now = new Date();
+                            setAdminManualRepayment(prev => ({
+                              ...prev,
+                              loan: targetLoan,
+                              month: now.getMonth() + 1,
+                              year: now.getFullYear(),
+                              amount: Math.min(5000, remPrin),
+                              interest: 0,
+                              isExtraPrincipal: true
+                            }));
+                          }
+                          setIsLoanBorrowerDropdownOpen(false);
+                          setLoanBorrowerSearch('');
+                        };
+
                         return (
                           <div>
                             <div className="flex items-center justify-between mb-1.5">
@@ -21339,132 +21537,130 @@ ${scheduleHighlights}
                               )}
                             </div>
 
-                            {/* Search input for borrower */}
-                            <div className="relative mb-2">
-                              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                              <input
-                                type="text"
-                                placeholder="Search borrower name, phone or L#..."
-                                value={loanBorrowerSearch}
-                                onChange={(e) => {
-                                  const query = e.target.value;
-                                  setLoanBorrowerSearch(query);
-                                  if (query.trim()) {
-                                    const term = query.toLowerCase().trim();
-                                    const matches = activeLoans.filter(al => {
-                                      const u = allUsers.find(usr => 
-                                        (al.userId && usr.uid === al.userId) || 
-                                        (al.userEmail && usr.email.toLowerCase() === al.userEmail.toLowerCase())
-                                      );
-                                      const seq = getMemberLoanSequenceInfo(al, loans, allUsers);
-                                      const name = (u?.displayName || '').toLowerCase();
-                                      const phone = (u?.phoneNumber || '').toLowerCase();
-                                      const email = (al.userEmail || '').toLowerCase();
-                                      const lbl = (seq?.label || '').toLowerCase();
-                                      return name.includes(term) || phone.includes(term) || email.includes(term) || lbl.includes(term);
-                                    });
-                                    if (matches.length > 0 && !matches.some(m => m.id === loan.id)) {
-                                      const targetLoan = matches[0];
-                                      const pmts = loanPayments.filter(p => p.loanId === targetLoan.id);
-                                      const sched = getAdjustedLoanSchedule(targetLoan, pmts);
-                                      const nextDue = sched.find(item => !item.isPaid && !item.isPending);
-                                      const pd = pmts.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
-                                      const remPrin = Math.max(0, (targetLoan.approvedAmount || targetLoan.amount || 0) - pd);
-                                      if (nextDue) {
-                                        setAdminManualRepayment(prev => ({
-                                          ...prev,
-                                          loan: targetLoan,
-                                          month: nextDue.installmentMonth,
-                                          year: nextDue.installmentYear,
-                                          amount: nextDue.principalToDisplay,
-                                          interest: nextDue.interestToDisplay,
-                                          isExtraPrincipal: false
-                                        }));
-                                      } else if (remPrin > 0) {
-                                        const now = new Date();
-                                        setAdminManualRepayment(prev => ({
-                                          ...prev,
-                                          loan: targetLoan,
-                                          month: now.getMonth() + 1,
-                                          year: now.getFullYear(),
-                                          amount: Math.min(5000, remPrin),
-                                          interest: 0,
-                                          isExtraPrincipal: true
-                                        }));
-                                      }
-                                    }
-                                  }
-                                }}
-                                className="w-full pl-8 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-400"
-                              />
-                              {loanBorrowerSearch && (
-                                <button
-                                  type="button"
-                                  onClick={() => setLoanBorrowerSearch('')}
-                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md cursor-pointer"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
+                            <div className="relative">
+                              {/* Custom Dropdown Trigger */}
+                              <button
+                                type="button"
+                                onClick={() => setIsLoanBorrowerDropdownOpen(!isLoanBorrowerDropdownOpen)}
+                                className="w-full flex items-center justify-between gap-3 px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl transition-all cursor-pointer shadow-2xs group text-left"
+                                title="Select Borrower & Active Loan"
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <span className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-indigo-600 transition-colors truncate">
+                                    {selectedBName}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 rounded-md text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">
+                                    {selectedSeq?.label || 'L#1'}
+                                  </span>
+                                  <span className="text-[11px] font-semibold text-slate-500 shrink-0 hidden xs:inline">
+                                    Bal: ₹{selectedBal.toLocaleString('en-IN')}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {renderDropdownStatusBadge(selectedStatus)}
+                                  <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isLoanBorrowerDropdownOpen && "rotate-180")} />
+                                </div>
+                              </button>
+
+                              {/* Custom Dropdown Popover */}
+                              {isLoanBorrowerDropdownOpen && (
+                                <>
+                                  <div 
+                                    className="fixed inset-0 z-40" 
+                                    onClick={() => {
+                                      setIsLoanBorrowerDropdownOpen(false);
+                                      setLoanBorrowerSearch('');
+                                    }} 
+                                  />
+                                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 p-2 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                                    {/* Search input inside dropdown */}
+                                    <div className="p-1 border-b border-slate-100 mb-1">
+                                      <div className="relative">
+                                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                        <input
+                                          type="text"
+                                          placeholder="Search borrower name, phone or L#..."
+                                          value={loanBorrowerSearch}
+                                          onChange={(e) => setLoanBorrowerSearch(e.target.value)}
+                                          className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                                          autoFocus
+                                        />
+                                        {loanBorrowerSearch && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setLoanBorrowerSearch('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-md cursor-pointer"
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* List of Active Loans */}
+                                    <div className="max-h-60 overflow-y-auto divide-y divide-slate-50 py-1">
+                                      {filteredActiveLoans.length === 0 ? (
+                                        <p className="text-center py-3 text-xs text-slate-400 font-medium">No matching borrowers found</p>
+                                      ) : (
+                                        filteredActiveLoans.map(al => {
+                                          const u = allUsers.find(usr => 
+                                            (al.userId && usr.uid === al.userId) || 
+                                            (al.userEmail && usr.email.toLowerCase() === al.userEmail.toLowerCase())
+                                          );
+                                          const seq = getMemberLoanSequenceInfo(al, loans, allUsers);
+                                          const pList = loanPayments.filter(p => p.loanId === al.id && p.status === 'paid');
+                                          const pd = pList.reduce((acc, p) => acc + (p.amount || 0), 0);
+                                          const bal = Math.max(0, (al.approvedAmount || al.amount || 0) - pd);
+                                          const bName = u?.displayName || al.userEmail || 'Member';
+                                          const statusInfo = getLoanRepaymentStatus(al);
+                                          const isSelected = al.id === loan.id;
+
+                                          return (
+                                            <button
+                                              key={al.id}
+                                              type="button"
+                                              onClick={() => handleSelectLoanInModal(al)}
+                                              className={cn(
+                                                "w-full flex items-center justify-between gap-3 px-3 py-2 text-left rounded-xl transition-all cursor-pointer group",
+                                                isSelected 
+                                                  ? "bg-indigo-50/90 text-indigo-950 font-bold" 
+                                                  : "hover:bg-slate-50 text-slate-700"
+                                              )}
+                                            >
+                                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                {isSelected && (
+                                                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                                )}
+                                                <span className={cn("text-xs truncate", isSelected ? "font-black text-indigo-950" : "font-semibold text-slate-800")}>
+                                                  {bName}
+                                                </span>
+                                                <span className="text-indigo-600 font-extrabold text-[11px] shrink-0">
+                                                  {seq.label}
+                                                </span>
+                                                <span className="text-slate-400 text-[10px] shrink-0 font-medium hidden sm:inline">
+                                                  Bal: ₹{bal.toLocaleString('en-IN')}
+                                                </span>
+                                              </div>
+                                              <div className="shrink-0 ml-2">
+                                                {renderDropdownStatusBadge(statusInfo)}
+                                              </div>
+                                            </button>
+                                          );
+                                        })
+                                      )}
+                                    </div>
+                                  </div>
+                                </>
                               )}
                             </div>
 
-                            <select
-                              value={loan.id}
-                              onChange={(e) => {
-                                const selectedId = e.target.value;
-                                const targetLoan = activeLoans.find(al => al.id === selectedId);
-                                if (!targetLoan) return;
-                                const pmts = loanPayments.filter(p => p.loanId === targetLoan.id);
-                                const sched = getAdjustedLoanSchedule(targetLoan, pmts);
-                                const nextDue = sched.find(item => !item.isPaid && !item.isPending);
-                                const pd = pmts.filter(p => p.status === 'paid').reduce((s, p) => s + (p.amount || 0), 0);
-                                const remPrin = Math.max(0, (targetLoan.approvedAmount || targetLoan.amount || 0) - pd);
-                                if (nextDue) {
-                                  setAdminManualRepayment(prev => ({
-                                    ...prev,
-                                    loan: targetLoan,
-                                    month: nextDue.installmentMonth,
-                                    year: nextDue.installmentYear,
-                                    amount: nextDue.principalToDisplay,
-                                    interest: nextDue.interestToDisplay,
-                                    isExtraPrincipal: false
-                                  }));
-                                } else if (remPrin > 0) {
-                                  const now = new Date();
-                                  setAdminManualRepayment(prev => ({
-                                    ...prev,
-                                    loan: targetLoan,
-                                    month: now.getMonth() + 1,
-                                    year: now.getFullYear(),
-                                    amount: Math.min(5000, remPrin),
-                                    interest: 0,
-                                    isExtraPrincipal: true
-                                  }));
-                                }
-                              }}
-                              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all cursor-pointer"
-                            >
-                              {filteredActiveLoans.length === 0 ? (
-                                <option value="" disabled>No matching borrowers found</option>
-                              ) : (
-                                filteredActiveLoans.map(al => {
-                                  const u = allUsers.find(usr => 
-                                    (al.userId && usr.uid === al.userId) || 
-                                    (al.userEmail && usr.email.toLowerCase() === al.userEmail.toLowerCase())
-                                  );
-                                  const seq = getMemberLoanSequenceInfo(al, loans, allUsers);
-                                  const pList = loanPayments.filter(p => p.loanId === al.id && p.status === 'paid');
-                                  const pd = pList.reduce((acc, p) => acc + (p.amount || 0), 0);
-                                  const bal = Math.max(0, (al.approvedAmount || al.amount || 0) - pd);
-                                  const bName = u?.displayName || al.userEmail || 'Member';
-                                  return (
-                                    <option key={al.id} value={al.id}>
-                                      {bName} ({seq.label} • Bal: ₹{bal.toLocaleString('en-IN')})
-                                    </option>
-                                  );
-                                })
-                              )}
-                            </select>
+                            {/* Status info banner */}
+                            {selectedStatus.code === 'paid' && (
+                              <div className="mt-2 flex items-center gap-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold">
+                                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span>Repayment for {format(new Date(repaymentYear, repaymentMonth - 1, 1), 'MMMM yyyy')} is already recorded as <strong>PAID</strong>.</span>
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
