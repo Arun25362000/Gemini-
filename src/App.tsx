@@ -10886,7 +10886,7 @@ ${scheduleHighlights}
                   type="button"
                   onClick={() => exportMemberDetailsPdf(false)}
                   disabled={isExportingMemberPdf}
-                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
+                  className="px-3 py-1.5 bg-sky-100 hover:bg-sky-200 active:scale-95 text-sky-700 border border-sky-300 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                   title="Download member details PDF"
                 >
                   <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
@@ -11775,7 +11775,7 @@ ${scheduleHighlights}
                           type="button"
                           onClick={() => exportLoanApplicationsPdf(false)}
                           disabled={isExportingLoanApplicationsPdf}
-                          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
+                          className="px-3 py-1.5 bg-sky-100 hover:bg-sky-200 active:scale-95 text-sky-700 border border-sky-300 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                           title="Download PDF statement"
                         >
                           <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
@@ -13479,7 +13479,7 @@ ${scheduleHighlights}
                                 type="button"
                                 onClick={() => exportLoanListPdf('active', false)}
                                 disabled={isExportingLoanPdf}
-                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
+                                className="px-3 py-1.5 bg-sky-100 hover:bg-sky-200 active:scale-95 text-sky-700 border border-sky-300 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                                 title="Download active loans PDF"
                               >
                                 <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
@@ -13744,7 +13744,7 @@ ${scheduleHighlights}
                                 type="button"
                                 onClick={() => exportLoanProjectionPdf(false)}
                                 disabled={isExportingProjectionPdf || loanProjection.principal <= 0}
-                                className="px-3 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
+                                className="px-3 py-2 bg-sky-100 hover:bg-sky-200 active:scale-95 text-sky-700 border border-sky-300 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                                 title="Download PDF schedule"
                               >
                                 <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
@@ -15084,7 +15084,7 @@ ${scheduleHighlights}
                         type="button"
                         onClick={() => exportMonthlyCollectionPdf(false)}
                         disabled={isExportingMonthlyPdf}
-                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
+                        className="px-3 py-1.5 bg-sky-100 hover:bg-sky-200 active:scale-95 text-sky-700 border border-sky-300 font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center cursor-pointer disabled:opacity-50"
                         title="Download monthly collection statement PDF"
                       >
                         <FileDown className="w-3.5 h-3.5 stroke-[2.2]" />
@@ -19175,11 +19175,11 @@ ${scheduleHighlights}
                       type="button"
                       onClick={() => handleDownloadReceipt(c, targetMember)}
                       disabled={isExportingReceiptPdf}
-                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-200 active:scale-95 flex items-center justify-center disabled:opacity-50"
+                      className="px-4 py-2.5 bg-sky-100 hover:bg-sky-200 text-sky-700 border border-sky-300 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center disabled:opacity-50"
                       title="Download PDF"
                     >
                       {isExportingReceiptPdf ? (
-                        <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        <div className="w-4 h-4 border-2 border-sky-400 border-t-sky-700 rounded-full animate-spin" />
                       ) : (
                         <FileDown className="w-4 h-4 stroke-[2.2]" />
                       )}
@@ -19443,11 +19443,11 @@ ${scheduleHighlights}
                       type="button"
                       onClick={() => handleDownloadLoanReceipt(selectedReceiptLoanPayment, targetMember)}
                       disabled={isExportingReceiptPdf}
-                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-200 active:scale-95 flex items-center justify-center disabled:opacity-50"
+                      className="px-4 py-2.5 bg-sky-100 hover:bg-sky-200 text-sky-700 border border-sky-300 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center disabled:opacity-50"
                       title="Download PDF"
                     >
                       {isExportingReceiptPdf ? (
-                        <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        <div className="w-4 h-4 border-2 border-sky-400 border-t-sky-700 rounded-full animate-spin" />
                       ) : (
                         <FileDown className="w-4 h-4 stroke-[2.2]" />
                       )}
@@ -19787,11 +19787,11 @@ ${scheduleHighlights}
                         borrower: targetMember
                       })}
                       disabled={isExportingReceiptPdf}
-                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-red-200 active:scale-95 flex items-center justify-center disabled:opacity-50"
+                      className="px-4 py-2.5 bg-sky-100 hover:bg-sky-200 text-sky-700 border border-sky-300 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center disabled:opacity-50"
                       title="Download PDF"
                     >
                       {isExportingReceiptPdf ? (
-                        <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                        <div className="w-4 h-4 border-2 border-sky-400 border-t-sky-700 rounded-full animate-spin" />
                       ) : (
                         <FileDown className="w-4 h-4 stroke-[2.2]" />
                       )}

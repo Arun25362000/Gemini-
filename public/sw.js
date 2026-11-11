@@ -60,17 +60,26 @@ self.addEventListener('fetch', (event) => {
     return; // Pass through to network directly
   }
 
-  // Exclude development server, Vite assets, source files, and API endpoints
-  if (
+  // Exclude development server, preview environments (Cloud Run/AI Studio), Vite assets, and API endpoints
+  const isDevOrPreview = 
     url.hostname.includes('localhost') ||
     url.hostname.includes('ais-dev') ||
+    url.hostname.includes('ais-pre') ||
+    url.hostname.includes('run.app') ||
+    url.hostname.includes('webcontainer') ||
+    self.location.hostname.includes('run.app') ||
+    self.location.hostname.includes('ais-') ||
+    self.location.hostname.includes('localhost');
+
+  if (
+    isDevOrPreview ||
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/src/') ||
     url.pathname.startsWith('/@') ||
     url.pathname.startsWith('/node_modules/') ||
     url.pathname.includes('hot-update')
   ) {
-    return; // Pass through to network directly
+    return; // Pass through to network directly without any SW caching
   }
 
   // For navigation requests, try network first, then cache

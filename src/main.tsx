@@ -89,37 +89,17 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
   }
 }
 
-const isDevOrigin = typeof window !== 'undefined' && (
+const isPreviewOrDev = typeof window !== 'undefined' && (
+  window.self !== window.top ||
   window.location.hostname.includes('ais-dev') || 
+  window.location.hostname.includes('ais-pre') || 
+  window.location.hostname.includes('run.app') ||
   window.location.hostname.includes('localhost')
 );
 
 if ('serviceWorker' in navigator) {
-  if (import.meta.env.PROD && !isDevOrigin) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => {
-          console.log('SW registered:', registration);
-          registration.addEventListener('updatefound', () => {
-            const installingWorker = registration.installing;
-            if (installingWorker) {
-              installingWorker.addEventListener('statechange', () => {
-                if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('Newer service worker version installed. Reloading for immediate updates...');
-                  caches.keys().then((names) => {
-                    for (const name of names) caches.delete(name);
-                  }).finally(() => {
-                    window.location.reload();
-                  });
-                }
-              });
-            }
-          });
-        })
-        .catch(error => console.log('SW registration failed:', error));
-    });
-  } else {
-    // In development or on ais-dev preview, aggressively unregister any service worker so Vite isn't hijacked
+  if (isPreviewOrDev) {
+    // In development, AI Studio iframe, or Cloud Run preview, aggressively unregister any service worker so Vite and live previews are never hijacked or stuck
     navigator.serviceWorker.getRegistrations().then(registrations => {
       for (const registration of registrations) {
         registration.unregister();
@@ -132,6 +112,14 @@ if ('serviceWorker' in navigator) {
         }
       });
     }
+  } else if (import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          console.log('SW registered:', registration);
+        })
+        .catch(error => console.log('SW registration failed:', error));
+    });
   }
 }
 
