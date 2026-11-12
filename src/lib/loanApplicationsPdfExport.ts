@@ -237,9 +237,9 @@ export function generateLoanApplicationsPdfDoc(options: LoanApplicationsPdfOptio
 
     let statusText = 'ACTIVE';
     if (l.status === 'paid') {
-      statusText = 'CLOSED / REPAID';
+      statusText = 'CLOSED';
     } else if (l.status === 'approved') {
-      statusText = 'ACTIVE / APPROVED';
+      statusText = 'ACTIVE';
     } else if (l.status === 'pending') {
       statusText = 'PENDING';
     } else if (l.status) {

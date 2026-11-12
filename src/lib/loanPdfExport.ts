@@ -163,10 +163,17 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
         (sanctionDateObj.getFullYear() === currentYear && (sanctionDateObj.getMonth() + 1) >= currentMonth)
       ));
 
-      // Next installment due calculation (Principal installment + current interest)
-      // If loan starts next month, current month due is 0
-      const currentMonthInterest = Math.round(remainingPrincipal * 0.005);
-      const currentMonthDue = (remainingPrincipal > 0 && !loanStartsFuture) ? (Math.min(5000, remainingPrincipal) + currentMonthInterest) : 0;
+      // Calculate principal balance at the start of the current month (before current month repayments)
+      const priorPaidPayments = paidPayments.filter(p => (p.year < currentYear) || (p.year === currentYear && p.month < currentMonth));
+      const priorPrincipalPaid = priorPaidPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+      const startOfCurrentMonthPrincipal = Math.max(0, approvedAmount - priorPrincipalPaid);
+
+      // Current month total EMI calculation (Principal installment + interest for current month)
+      const currentMonthInterest = Math.round(startOfCurrentMonthPrincipal * 0.005);
+      const currentMonthPrincipal = Math.min(5000, startOfCurrentMonthPrincipal);
+      const currentMonthDue = (startOfCurrentMonthPrincipal > 0 && !loanStartsFuture) 
+        ? (currentMonthPrincipal + currentMonthInterest) 
+        : 0;
 
       // Monthly payment check for current month
       const isPaidThisMonth = payments.some(p => p.month === currentMonth && p.year === currentYear && p.status === 'paid');
@@ -178,11 +185,15 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
       if (isFullyPaid) {
         statusLabel = 'CLOSED / SETTLED';
       } else if (isPaidThisMonth) {
-        statusLabel = 'PAID (THIS MONTH)';
+        statusLabel = 'PAID';
       } else if (isPendingThisMonth) {
         statusLabel = 'AWAITING APPROVAL';
       } else if (loanStartsFuture) {
-        statusLabel = 'STARTS NEXT MONTH';
+        const startMonthDate = sanctionDateObj 
+          ? new Date(sanctionDateObj.getFullYear(), sanctionDateObj.getMonth() + 1, 1)
+          : new Date(currentYear, currentMonth, 1);
+        const startsMonthLabel = format(startMonthDate, 'MMM').toUpperCase();
+        statusLabel = `STARTS ${startsMonthLabel}`;
       } else if (isLate) {
         statusLabel = 'OVERDUE';
       } else {
@@ -205,6 +216,7 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
         remainingTotal,
         currentMonthDue,
         isFullyPaid,
+        isPaidThisMonth,
         isLate,
         statusLabel
       };
@@ -316,7 +328,7 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
       `Rs. ${item.totalPrincipalPaid.toLocaleString('en-IN')}`,
       `Rs. ${item.remainingPrincipal.toLocaleString('en-IN')}`,
       `Rs. ${Math.round(item.totalInterestPaid).toLocaleString('en-IN')}`,
-      item.remainingPrincipal > 0 ? `Rs. ${Math.round(item.currentMonthDue).toLocaleString('en-IN')}` : '-',
+      item.currentMonthDue > 0 ? `Rs. ${Math.round(item.currentMonthDue).toLocaleString('en-IN')}` : '-',
       item.statusLabel
     ];
   });
@@ -408,6 +420,9 @@ export function generateLoanListPdfDoc(options: LoanListPdfOptions): LoanListPdf
           data.cell.styles.fontStyle = 'bold';
         } else if (text.includes('PAID')) {
           data.cell.styles.textColor = [16, 185, 129];
+          data.cell.styles.fontStyle = 'bold';
+        } else if (text.includes('STARTS')) {
+          data.cell.styles.textColor = [2, 132, 199]; // sky blue
           data.cell.styles.fontStyle = 'bold';
         } else {
           data.cell.styles.textColor = [79, 70, 229];

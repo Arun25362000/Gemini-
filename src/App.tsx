@@ -1105,7 +1105,7 @@ export default function App() {
     }
     return (
       <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide bg-sky-100 text-sky-800 border border-sky-300 shadow-2xs">
-        Starts next mo.
+        {statusInfo.label}
       </span>
     );
   };
@@ -11964,7 +11964,7 @@ ${scheduleHighlights}
                                           ) : l.status === 'paid' ? (
                                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600">
                                               <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                              <span>Completed</span>
+                                              <span>SETTLED</span>
                                             </span>
                                           ) : (
                                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90 shadow-2xs">
@@ -12120,7 +12120,7 @@ ${scheduleHighlights}
                                     ) : l.status === 'paid' ? (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/90 shadow-2xs dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-600">
                                         <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                        <span>Completed</span>
+                                        <span>SETTLED</span>
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/90 shadow-2xs">
@@ -13905,7 +13905,7 @@ ${scheduleHighlights}
                             <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
                               {l.status === 'paid' ? (
                                 <span className="px-3 py-1 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  Completed
+                                  SETTLED
                                 </span>
                               ) : (
                                 <span className="px-3 py-1 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200">
@@ -13979,7 +13979,7 @@ ${scheduleHighlights}
                                         {l.status === 'paid' ? (
                                           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest border border-emerald-400/50 shadow-sm animate-pulse-slow">
                                             <CheckCircle2 className="w-3.5 h-3.5" />
-                                            Completed
+                                            SETTLED
                                           </div>
                                         ) : (
                                           <span className="px-3 py-1.5 bg-white/20 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest">Active</span>
@@ -21464,7 +21464,10 @@ ${scheduleHighlights}
                           
                           const isFuture = isLoanRepaymentStartingInFuture(al, targetM, targetY);
                           if (isFuture) {
-                            return { label: 'Starts next mo.', code: 'future' };
+                            const sanctionedDate = getLoanSanctionDate(al);
+                            const startMonthDate = new Date(sanctionedDate.getFullYear(), sanctionedDate.getMonth() + 1, 1);
+                            const startsMonthName = format(startMonthDate, 'MMM');
+                            return { label: `Starts ${startsMonthName}`, code: 'future' };
                           }
 
                           const thisMonthPayment = loanPayments.find(p => 

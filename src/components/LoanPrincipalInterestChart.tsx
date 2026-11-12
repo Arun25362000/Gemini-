@@ -197,11 +197,14 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     };
   }, [loans, loanPayments, currentCalMonth, currentCalYear]);
 
-  // Helper to determine dropdown status for each active loan member: Paid, Due, or Starts next mo.
+  // Helper to determine dropdown status for each active loan member: Paid, Due, or Starts <Month>
   const getLoanMonthStatus = (loan: Loan): { label: string; code: 'paid' | 'due' | 'future' } => {
     const isFuture = isLoanRepaymentStartingInFuture(loan, currentCalMonth, currentCalYear);
     if (isFuture) {
-      return { label: 'Starts next mo.', code: 'future' };
+      const sanctionedDate = getLoanSanctionDate(loan);
+      const startMonthDate = new Date(sanctionedDate.getFullYear(), sanctionedDate.getMonth() + 1, 1);
+      const startsMonthName = format(startMonthDate, 'MMM');
+      return { label: `Starts ${startsMonthName}`, code: 'future' };
     }
 
     const thisMonthPayment = loanPayments.find(p => 
@@ -327,7 +330,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
     }
     return (
       <span className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide bg-sky-100 text-sky-800 border border-sky-300 shadow-2xs">
-        Starts next mo.
+        {statusInfo.label}
       </span>
     );
   };
