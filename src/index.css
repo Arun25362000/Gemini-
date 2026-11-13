@@ -233,27 +233,45 @@ html.dark [class*="rounded-2xl w-fit"] button.bg-blue-600 svg {
    ========================================================================== */
 
 /* Card gradients in dark mode with mild tones */
+html.dark [class*="from-slate-50"],
+html.dark [class*="from-white"] {
+  --tw-gradient-from: #2b384e !important;
+  background-color: #293548 !important;
+}
+
 html.dark [class*="via-slate-50"],
 html.dark [class*="via-white"],
-html.dark [class*="to-white"] {
+html.dark [class*="to-white"],
+html.dark [class*="to-slate-50"] {
   --tw-gradient-via: #293548 !important;
   --tw-gradient-to: #243044 !important;
 }
 
+html.dark [class*="via-indigo-50"] {
+  --tw-gradient-via: #29385c !important;
+}
+
+html.dark [class*="to-indigo-50"] {
+  --tw-gradient-to: #29385c !important;
+}
+
 /* Mild Indigo Cards (Financial Insights, Status, Next Installment) */
 html.dark [class*="from-indigo-50"] {
+  --tw-gradient-from: #29385c !important;
   background-color: #29385c !important;
   border-color: #475d94 !important;
 }
 
 /* Mild Emerald Cards (Savings, Paid, Group Funds) */
 html.dark [class*="from-emerald-50"] {
+  --tw-gradient-from: #21473d !important;
   background-color: #21473d !important;
   border-color: #356e5e !important;
 }
 
 /* Mild Amber Cards (Outstanding Loans, Pending, Avg. Monthly) */
 html.dark [class*="from-amber-50"] {
+  --tw-gradient-from: #423521 !important;
   background-color: #423521 !important;
   border-color: #6e5735 !important;
 }
@@ -261,6 +279,7 @@ html.dark [class*="from-amber-50"] {
 /* Mild Purple / Violet Cards (Advance, Total Sanctioned, Consistency) */
 html.dark [class*="from-purple-50"],
 html.dark [class*="from-violet-50"] {
+  --tw-gradient-from: #382b57 !important;
   background-color: #382b57 !important;
   border-color: #604b94 !important;
 }
@@ -268,12 +287,14 @@ html.dark [class*="from-violet-50"] {
 /* Mild Cyan / Blue Cards (Liquid, Available Balance) */
 html.dark [class*="from-blue-50"],
 html.dark [class*="from-cyan-50"] {
+  --tw-gradient-from: #213c57 !important;
   background-color: #213c57 !important;
   border-color: #37628c !important;
 }
 
 /* Mild Rose Cards (Outstanding Dues, Overdue) */
 html.dark [class*="from-rose-50"] {
+  --tw-gradient-from: #472633 !important;
   background-color: #472633 !important;
   border-color: #783e54 !important;
 }
@@ -349,6 +370,17 @@ html.dark .text-rose-600 {
   color: #fb7185 !important;
 }
 
+html.dark .text-blue-950,
+html.dark .text-blue-900,
+html.dark .text-blue-800 {
+  color: #dbeafe !important;
+}
+
+html.dark .text-blue-700,
+html.dark .text-blue-600 {
+  color: #93c5fd !important;
+}
+
 html.dark .text-slate-950,
 html.dark .text-slate-900,
 html.dark .text-slate-800,
@@ -358,14 +390,19 @@ html.dark .text-gray-900 {
 
 html.dark .text-slate-700,
 html.dark .text-slate-600,
-html.dark .text-gray-700 {
-  color: #e2e8f0 !important;
+html.dark .text-gray-700,
+html.dark .text-gray-600 {
+  color: #f1f5f9 !important;
 }
 
 html.dark .text-slate-500,
-html.dark .text-slate-400,
 html.dark .text-gray-500 {
-  color: #94a3b8 !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .text-slate-400,
+html.dark .text-gray-400 {
+  color: #cbd5e1 !important;
 }
 
 /* Card inner borders & dividers */
@@ -758,15 +795,18 @@ html.dark .no-scrollbar button:not(.bg-indigo-600):hover {
   color: #ffffff !important;
 }
 
-/* Mobile Card Labels (e.g. TOTAL PAID, JOINED, MOBILE NUMBER, LOAN AMOUNT, INTEREST RATE, LOAN TERM, PROGRESS, DETAILS, PAYMENT MODE, PERIOD, PAYMENT DATE) */
+/* Mobile Card Labels & Card Subtitles */
 html.dark .lg\:hidden .text-slate-400,
-html.dark .lg\:hidden .text-slate-500,
 html.dark [class*="rounded-3xl"] .text-slate-400,
-html.dark [class*="rounded-3xl"] .text-slate-500,
-html.dark [class*="rounded-2xl"] .text-slate-400,
-html.dark [class*="rounded-2xl"] .text-slate-500 {
-  color: #94a3b8 !important;
+html.dark [class*="rounded-2xl"] .text-slate-400 {
+  color: #cbd5e1 !important;
   font-weight: 700 !important;
+}
+
+html.dark .lg\:hidden .text-slate-500,
+html.dark [class*="rounded-3xl"] .text-slate-500,
+html.dark [class*="rounded-2xl"] .text-slate-500 {
+  color: #e2e8f0 !important;
 }
 
 /* Mobile Card Amounts, Numbers & Primary Text */

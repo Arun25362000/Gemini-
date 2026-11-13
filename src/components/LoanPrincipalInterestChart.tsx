@@ -239,6 +239,9 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
 
     const regularPayments = payments.filter(p => !p.isExtraPrincipal);
     const totalMonthsPaid = regularPayments.reduce((acc, p) => acc + (p.isAdvance && p.coveredMonths?.length ? p.coveredMonths.length : 1), 0);
+    const nextInstallmentNumber = remainingPrincipal > 0
+      ? Math.min(totalTenure, totalMonthsPaid + 1)
+      : totalTenure;
     const remainingInstallmentsCount = Math.max(0, totalTenure - totalMonthsPaid);
 
     const sanctionedDate = getLoanSanctionDate(currentLoan);
@@ -285,6 +288,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
       remainingPrincipal,
       totalTenure,
       totalMonthsPaid,
+      nextInstallmentNumber,
       remainingInstallmentsCount,
       nextPrincipal,
       nextInterest,
@@ -564,7 +568,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 <CheckCircle2 className="w-4 h-4" />
               </div>
               <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 border border-emerald-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                Recovered
+                {stats.totalMonthsPaid}/{stats.totalTenure}
               </span>
             </div>
             <h4 className="text-emerald-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Total Paid</h4>
@@ -586,7 +590,7 @@ export const LoanPrincipalInterestChart: React.FC<LoanPrincipalInterestChartProp
                 <Calendar className="w-4 h-4" />
               </div>
               <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 border border-indigo-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                {stats.totalMonthsPaid}/{stats.totalTenure}
+                {stats.nextInstallmentNumber}/{stats.totalTenure}
               </span>
             </div>
             <h4 className="text-indigo-950 text-[10.5px] font-bold uppercase tracking-wider line-clamp-1">Next Installment</h4>
