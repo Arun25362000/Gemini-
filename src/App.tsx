@@ -796,7 +796,7 @@ export default function App() {
   const [graphsYear, setGraphsYear] = useState<number>(Math.max(2026, new Date().getFullYear()));
   const [appliedFilter, setAppliedFilter] = useState<{ month: number | 'all'; year: number | 'all' } | null>({ month: new Date().getMonth() + 1, year: new Date().getFullYear() });
   const [sortConfig, setSortConfig] = useState<{ field: 'member' | 'month' | 'amount' | 'date' | 'status' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'desc' });
-  const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | 'activeLoan' | null, direction: 'asc' | 'desc' }>({ field: null, direction: 'asc' });
+  const [memberSortConfig, setMemberSortConfig] = useState<{ field: 'name' | 'contact' | 'joinDate' | 'totalPaid' | 'status' | 'activeLoan' | null, direction: 'asc' | 'desc' }>({ field: 'name', direction: 'asc' });
   const [collectionContribSortConfig, setCollectionContribSortConfig] = useState<{ field: 'sno' | 'member' | 'amount' | 'baseAmount' | 'lateFee' | 'method' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [collectionLoanSortConfig, setCollectionLoanSortConfig] = useState<{ field: 'sno' | 'borrower' | 'principal' | 'interest' | 'lateFee' | 'total' | 'mode' | 'date', direction: 'asc' | 'desc' }>({ field: 'sno', direction: 'asc' });
   const [isContribListExpanded, setIsContribListExpanded] = useState<boolean>(true);
@@ -1979,10 +1979,13 @@ export default function App() {
         const bContribs = contributions.filter(c => isContribMatchUser(c, b));
         
         switch (memberSortConfig.field) {
-          case 'name':
-            const nameA = a.displayName || '';
-            const nameB = b.displayName || '';
-            return memberSortConfig.direction === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+          case 'name': {
+            const nameA = getSafeMemberDisplayName(a, a.phoneNumber, a.email);
+            const nameB = getSafeMemberDisplayName(b, b.phoneNumber, b.email);
+            return memberSortConfig.direction === 'asc'
+              ? nameA.localeCompare(nameB, undefined, { sensitivity: 'base' })
+              : nameB.localeCompare(nameA, undefined, { sensitivity: 'base' });
+          }
           case 'contact':
             const emailA = a.email || '';
             const emailB = b.email || '';
@@ -10702,7 +10705,7 @@ ${scheduleHighlights}
                         </span>
                       </div>
                       <p className="text-xs text-slate-500 font-medium mt-0.5">
-                        Add new members individually or via Excel, broadcast reminder notifications, and trigger cloud backups
+                        Add members, reminders &amp; backups
                       </p>
                     </div>
                   </div>
@@ -10869,7 +10872,7 @@ ${scheduleHighlights}
                 </div>
                 <div>
                   <h4 className="font-bold text-xs sm:text-sm text-slate-900">Export Member Details</h4>
-                  <p className="text-[11px] text-slate-500 font-medium">Export print-ready A4 member directory with phone numbers, addresses, emails &amp; joining dates</p>
+                  <p className="text-[11px] text-slate-500 font-medium">Member directory PDF</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 self-end sm:self-center">
@@ -10913,7 +10916,7 @@ ${scheduleHighlights}
                       </h4>
                     </div>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
-                      12-month rolling contribution history, consistency rate, loan dues &amp; audit statements for each member
+                      Contributions, loans &amp; audit
                     </p>
                   </div>
                 </div>
@@ -10952,7 +10955,7 @@ ${scheduleHighlights}
                       <ChevronDown className={cn("w-4 h-4 text-indigo-500 group-hover:text-indigo-600 transition-transform duration-200", isMemberDetailsCollapsed && "-rotate-90")} />
                     </h4>
                     <p className="text-xs text-slate-500 font-medium mt-0.5">
-                      Overview of registered group members, payment status, contact details, and administration controls
+                      Member directory &amp; status
                     </p>
                   </div>
                 </div>
@@ -11758,7 +11761,7 @@ ${scheduleHighlights}
                         </div>
                         <div>
                           <h4 className="font-bold text-xs sm:text-sm text-slate-900">Loan Applications Statement</h4>
-                          <p className="text-[11px] text-slate-500 font-medium">Export print-ready statement of member loan applications (active and closed) with member details</p>
+                          <p className="text-[11px] text-slate-500 font-medium">Active &amp; closed loans PDF</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 self-end sm:self-center">
@@ -13448,7 +13451,7 @@ ${scheduleHighlights}
                               </div>
                               <div>
                                 <h4 className="font-bold text-xs sm:text-sm text-slate-900">Active Loan Statement</h4>
-                                <p className="text-[11px] text-slate-500 font-medium">Export print-ready audit statement with pending amounts &amp; live statuses</p>
+                                <p className="text-[11px] text-slate-500 font-medium">Pending balances &amp; statuses PDF</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
@@ -13569,7 +13572,7 @@ ${scheduleHighlights}
                               </span>
                             </div>
                             <p className="text-xs text-slate-500 font-medium mt-0.5">
-                              Calculate future EMI payments, interest and month-by-month repayment projections for members before recording loan
+                              EMI &amp; repayment preview
                             </p>
                           </div>
                         </div>
@@ -13812,7 +13815,7 @@ ${scheduleHighlights}
                       <div className="p-3.5 bg-blue-50/70 rounded-2xl border border-blue-200/80 flex items-start gap-3">
                         <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                         <p className="text-xs text-blue-900 leading-relaxed font-medium">
-                          Share this projection with members prior to sanctioning and disbursement so they are fully aware of their monthly principal (₹5,000/mo), reducing interest, and exact due dates.
+                          Share projection before sanction: ₹5,000/mo principal, reducing interest &amp; due dates.
                         </p>
                       </div>
                     </div>
@@ -15067,7 +15070,7 @@ ${scheduleHighlights}
                       </div>
                       <div>
                         <h4 className="font-bold text-xs sm:text-sm text-slate-900">Monthly Collection Statement</h4>
-                        <p className="text-[11px] text-slate-500 font-medium">Export print-ready audit statement with summary, member collections &amp; loan repayments</p>
+                        <p className="text-[11px] text-slate-500 font-medium">Collections &amp; repayments PDF</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 self-end sm:self-center">
@@ -15520,7 +15523,7 @@ ${scheduleHighlights}
                               </span>
                             </div>
                             <p className="text-xs text-slate-500 font-medium mt-0.5">
-                              Filter records by month or view full year contributions across all members
+                              Filter by month or full year
                             </p>
                           </div>
                         </div>

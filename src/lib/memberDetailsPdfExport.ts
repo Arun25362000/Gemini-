@@ -24,7 +24,12 @@ export interface MemberDetailsPdfResult {
 }
 
 export function generateMemberDetailsPdfDoc(options: MemberDetailsPdfOptions): MemberDetailsPdfResult {
-  const { members, title = 'Member Directory & Details Statement' } = options;
+  const { members: rawMembers, title = 'Member Directory & Details Statement' } = options;
+  const members = [...rawMembers].sort((a, b) => {
+    const nameA = getSafeMemberDisplayName(a.displayName || 'Unnamed', a.phoneNumber || (a as any).phone, a.email);
+    const nameB = getSafeMemberDisplayName(b.displayName || 'Unnamed', b.phoneNumber || (b as any).phone, b.email);
+    return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+  });
   const now = new Date();
   const exportDateStr = format(now, 'dd-MMM-yyyy hh:mm a');
 

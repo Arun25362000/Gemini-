@@ -90,7 +90,7 @@ html.dark {
 }
 
 html.dark body {
-  background-color: #0b1120 !important;
+  background-color: #1e293b !important;
   color: #f1f5f9 !important;
 }
 
@@ -98,44 +98,44 @@ html.dark body {
 html.dark .min-h-screen.bg-slate-50,
 html.dark main.bg-slate-50,
 html.dark body {
-  background-color: #0b1120 !important;
+  background-color: #1e293b !important;
 }
 
 /* Nested panels, inner grid boxes, and sub-cards inside cards (Desktop, Tablet, and Mobile) */
 html.dark .bg-slate-50,
 html.dark [class*="bg-slate-50/"] {
-  background-color: #131d2e !important;
-  border-color: #2b3a55 !important;
+  background-color: #243044 !important;
+  border-color: #41526e !important;
 }
 
 /* Mild Card Surfaces across application */
 html.dark header.bg-white,
 html.dark .bg-white:not(.keep-white) {
-  background-color: #1e293b !important;
+  background-color: #293548 !important;
   color: #f8fafc !important;
-  border-color: #334155 !important;
+  border-color: #41526e !important;
 }
 
 html.dark .bg-slate-100 {
-  background-color: #1e293b !important;
+  background-color: #2f3d54 !important;
 }
 
 html.dark .bg-slate-200 {
-  background-color: #2b3a55 !important;
+  background-color: #3a4a66 !important;
 }
 
 html.dark .hover\:bg-slate-50:hover,
 html.dark .hover\:bg-slate-50\/70:hover {
-  background-color: #27364f !important;
+  background-color: #334155 !important;
 }
 
 html.dark .hover\:bg-slate-100:hover,
 html.dark .hover\:bg-slate-100\/80:hover {
-  background-color: #2c3e5d !important;
+  background-color: #3b4b66 !important;
 }
 
 html.dark .hover\:bg-slate-200:hover {
-  background-color: #33476b !important;
+  background-color: #465878 !important;
 }
 
 /* ==========================================================================
@@ -148,9 +148,9 @@ html.dark [role="tablist"],
 html.dark div[role="button"][aria-label*="navigation tabs"],
 html.dark [aria-label="Admin Navigation Tabs"],
 html.dark [aria-label="Member Navigation Tabs"] {
-  background-color: #1e293b !important;
-  border-color: #3b4e76 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  background-color: #293548 !important;
+  border-color: #475a7d !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
 }
 
 /* Inactive tabs filled with light color and bold dark text */
@@ -190,8 +190,8 @@ html.dark [role="tablist"] button[role="tab"][title*="Active"] span {
 /* Sub-tabs inside tabs (e.g. Loan Applications, Loan Repayment, Loan Summary, LoanProjection) */
 html.dark .border-indigo-200\/80.rounded-2xl.w-fit,
 html.dark [class*="border-indigo-200/80 rounded-2xl w-fit"] {
-  background: #1e293b !important;
-  border-color: #3b4e76 !important;
+  background: #293548 !important;
+  border-color: #475a7d !important;
 }
 
 /* Inactive sub-tab buttons filled with crisp light color */
@@ -236,46 +236,46 @@ html.dark [class*="rounded-2xl w-fit"] button.bg-blue-600 svg {
 html.dark [class*="via-slate-50"],
 html.dark [class*="via-white"],
 html.dark [class*="to-white"] {
-  --tw-gradient-via: #1e293b !important;
-  --tw-gradient-to: #182236 !important;
+  --tw-gradient-via: #293548 !important;
+  --tw-gradient-to: #243044 !important;
 }
 
 /* Mild Indigo Cards (Financial Insights, Status, Next Installment) */
 html.dark [class*="from-indigo-50"] {
-  background-color: #1e2c4a !important;
-  border-color: #3b4e78 !important;
+  background-color: #29385c !important;
+  border-color: #475d94 !important;
 }
 
 /* Mild Emerald Cards (Savings, Paid, Group Funds) */
 html.dark [class*="from-emerald-50"] {
-  background-color: #16362e !important;
-  border-color: #275c4e !important;
+  background-color: #21473d !important;
+  border-color: #356e5e !important;
 }
 
 /* Mild Amber Cards (Outstanding Loans, Pending, Avg. Monthly) */
 html.dark [class*="from-amber-50"] {
-  background-color: #332918 !important;
-  border-color: #5c4722 !important;
+  background-color: #423521 !important;
+  border-color: #6e5735 !important;
 }
 
 /* Mild Purple / Violet Cards (Advance, Total Sanctioned, Consistency) */
 html.dark [class*="from-purple-50"],
 html.dark [class*="from-violet-50"] {
-  background-color: #2a1f42 !important;
-  border-color: #523b7a !important;
+  background-color: #382b57 !important;
+  border-color: #604b94 !important;
 }
 
 /* Mild Cyan / Blue Cards (Liquid, Available Balance) */
 html.dark [class*="from-blue-50"],
 html.dark [class*="from-cyan-50"] {
-  background-color: #182e44 !important;
-  border-color: #275273 !important;
+  background-color: #213c57 !important;
+  border-color: #37628c !important;
 }
 
 /* Mild Rose Cards (Outstanding Dues, Overdue) */
 html.dark [class*="from-rose-50"] {
-  background-color: #381a24 !important;
-  border-color: #692a3a !important;
+  background-color: #472633 !important;
+  border-color: #783e54 !important;
 }
 
 /* ==========================================================================
@@ -388,12 +388,12 @@ html.dark [class*="border-cyan-100"],
 html.dark [class*="border-rose-100"],
 html.dark [class*="border-slate-100"],
 html.dark [class*="border-slate-200"] {
-  border-color: #334155 !important;
+  border-color: #41526e !important;
 }
 
 html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
 html.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
-  border-color: #334155 !important;
+  border-color: #41526e !important;
 }
 
 /* Card badges & metric pills in dark mode */
@@ -442,9 +442,9 @@ html.dark [class*="bg-rose-100"] {
 /* Status Badges & Table Pills in Dark Mode (Paid, Pending, Completed, Closed, Settled, Active) */
 html.dark .bg-emerald-50,
 html.dark [class*="bg-emerald-50"] {
-  background-color: #14352b !important;
+  background-color: #1b473a !important;
   color: #6ee7b7 !important;
-  border-color: #059669 !important;
+  border-color: #10b981 !important;
 }
 
 html.dark .bg-emerald-50 span,
@@ -460,7 +460,7 @@ html.dark [class*="bg-emerald-50"] svg {
 
 html.dark .bg-amber-50,
 html.dark [class*="bg-amber-50"] {
-  background-color: #3b2b14 !important;
+  background-color: #4a371b !important;
   color: #fcd34d !important;
   border-color: #d97706 !important;
 }
@@ -478,9 +478,9 @@ html.dark [class*="bg-amber-50"] svg {
 
 html.dark .bg-blue-50,
 html.dark [class*="bg-blue-50"] {
-  background-color: #1e2e4a !important;
+  background-color: #263c61 !important;
   color: #93c5fd !important;
-  border-color: #2563eb !important;
+  border-color: #3b82f6 !important;
 }
 
 html.dark .bg-blue-50 span,
@@ -491,9 +491,9 @@ html.dark [class*="bg-blue-50"] span {
 
 html.dark .bg-indigo-50,
 html.dark [class*="bg-indigo-50"] {
-  background-color: #1e2952 !important;
+  background-color: #283566 !important;
   color: #c7d2fe !important;
-  border-color: #3730a3 !important;
+  border-color: #4f46e5 !important;
 }
 
 html.dark .bg-indigo-50 span,
@@ -504,9 +504,9 @@ html.dark [class*="bg-indigo-50"] span {
 
 html.dark .bg-cyan-50,
 html.dark [class*="bg-cyan-50"] {
-  background-color: #103847 !important;
+  background-color: #184759 !important;
   color: #a5f3fc !important;
-  border-color: #0891b2 !important;
+  border-color: #06b6d4 !important;
 }
 
 html.dark .bg-cyan-50 span,
@@ -517,7 +517,7 @@ html.dark [class*="bg-cyan-50"] span {
 
 html.dark .bg-sky-50,
 html.dark [class*="bg-sky-50"] {
-  background-color: #0c3656 !important;
+  background-color: #154569 !important;
   color: #bae6fd !important;
   border-color: #0284c7 !important;
 }
@@ -530,7 +530,7 @@ html.dark [class*="bg-sky-50"] span {
 
 html.dark .bg-violet-50,
 html.dark [class*="bg-violet-50"] {
-  background-color: #2b1f52 !important;
+  background-color: #372966 !important;
   color: #ddd6fe !important;
   border-color: #7c3aed !important;
 }
@@ -543,7 +543,7 @@ html.dark [class*="bg-violet-50"] span {
 
 html.dark .bg-rose-50,
 html.dark [class*="bg-rose-50"] {
-  background-color: #431628 !important;
+  background-color: #521e33 !important;
   color: #fecdd3 !important;
   border-color: #e11d48 !important;
 }
@@ -558,13 +558,13 @@ html.dark [class*="bg-rose-50"] span {
 html.dark input:not([type="checkbox"]):not([type="radio"]),
 html.dark textarea,
 html.dark select {
-  background-color: #1e293b !important;
+  background-color: #243044 !important;
   color: #f8fafc !important;
-  border-color: #334155 !important;
+  border-color: #475569 !important;
 }
 
 html.dark select option {
-  background-color: #1e293b !important;
+  background-color: #243044 !important;
   color: #f8fafc !important;
 }
 
@@ -575,21 +575,25 @@ html.dark textarea::placeholder {
 
 /* Modals & Dialogs */
 html.dark .fixed .bg-white {
-  background-color: #1e293b !important;
-  border-color: #334155 !important;
+  background-color: #293548 !important;
+  border-color: #475569 !important;
   color: #f8fafc !important;
 }
 
 /* Tables in Dark Mode */
+html.dark table {
+  background-color: #293548 !important;
+}
+
 html.dark table thead tr,
 html.dark table thead th {
-  background-color: #1e293b !important;
-  color: #cbd5e1 !important;
-  border-color: #334155 !important;
+  background-color: #303e56 !important;
+  color: #e2e8f0 !important;
+  border-color: #425370 !important;
 }
 
 html.dark table tbody tr:hover {
-  background-color: #27364f !important;
+  background-color: #34435c !important;
 }
 
 /* ==========================================================================
@@ -637,10 +641,10 @@ html.dark text[class*="recharts-label"] {
 html.dark .recharts-default-tooltip,
 html.dark .recharts-tooltip-wrapper [class*="bg-white"],
 html.dark .recharts-tooltip-wrapper div {
-  background-color: #1e293b !important;
-  border-color: #3b4e76 !important;
+  background-color: #293548 !important;
+  border-color: #475a7d !important;
   color: #f8fafc !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3) !important;
 }
 
 html.dark .recharts-tooltip-wrapper .text-slate-900,
@@ -694,25 +698,25 @@ html.dark .recharts-legend-item-text {
 html.dark .overflow-x-auto,
 html.dark .scrollbar-visible,
 html.dark div[class*="overflow-x-auto"] {
-  scrollbar-color: #334155 #0b1120;
+  scrollbar-color: #475569 #1e293b;
 }
 
 html.dark .overflow-x-auto::-webkit-scrollbar-track,
 html.dark .scrollbar-visible::-webkit-scrollbar-track,
 html.dark div[class*="overflow-x-auto"]::-webkit-scrollbar-track {
-  background: #0b1120;
+  background: #1e293b;
 }
 
 html.dark .overflow-x-auto::-webkit-scrollbar-thumb,
 html.dark .scrollbar-visible::-webkit-scrollbar-thumb,
 html.dark div[class*="overflow-x-auto"]::-webkit-scrollbar-thumb {
-  background-color: #334155;
-  border: 2px solid #0b1120;
+  background-color: #475569;
+  border: 2px solid #1e293b;
 }
 
 html.dark .overflow-x-auto::-webkit-scrollbar-thumb:hover,
 html.dark .scrollbar-visible::-webkit-scrollbar-thumb:hover {
-  background-color: #475569;
+  background-color: #64748b;
 }
 
 /* ==========================================================================
@@ -725,8 +729,8 @@ html.dark .lg\:hidden .bg-white,
 html.dark .lg\:hidden [class*="bg-white"],
 html.dark .lg\:hidden .rounded-3xl,
 html.dark .lg\:hidden > div {
-  background-color: #1e293b !important;
-  border-color: #334155 !important;
+  background-color: #293548 !important;
+  border-color: #41526e !important;
   color: #f8fafc !important;
 }
 
@@ -738,19 +742,19 @@ html.dark [class*="rounded-3xl"] .bg-slate-50,
 html.dark [class*="rounded-3xl"] [class*="bg-slate-50/"],
 html.dark [class*="rounded-2xl"] .bg-slate-50,
 html.dark [class*="rounded-2xl"] [class*="bg-slate-50/"] {
-  background-color: #131d2e !important;
-  border-color: #2b3a55 !important;
+  background-color: #243044 !important;
+  border-color: #41526e !important;
 }
 
 /* Mobile QuickSort pills */
 html.dark .no-scrollbar button:not(.bg-indigo-600) {
-  background-color: #1e293b !important;
+  background-color: #293548 !important;
   color: #cbd5e1 !important;
-  border-color: #334155 !important;
+  border-color: #41526e !important;
 }
 
 html.dark .no-scrollbar button:not(.bg-indigo-600):hover {
-  background-color: #2b3a55 !important;
+  background-color: #36455e !important;
   color: #ffffff !important;
 }
 
@@ -790,77 +794,77 @@ html.dark [class*="rounded-3xl"] .text-slate-600 {
 html.dark [key*="loan-schedule"] [class*="bg-white/90"],
 html.dark [key*="admin-loan-schedule"] [class*="bg-white/90"],
 html.dark [class*="backdrop-blur"] {
-  background-color: #131d2e !important;
-  border-color: #2b3a55 !important;
+  background-color: #243044 !important;
+  border-color: #41526e !important;
 }
 
 html.dark [class*="from-emerald-50/90"][class*="via-teal-50"] {
-  background: linear-gradient(135deg, #133328 0%, #0e2920 100%) !important;
-  border-color: #059669 !important;
+  background: linear-gradient(135deg, #1f473a 0%, #193b30 100%) !important;
+  border-color: #10b981 !important;
 }
 
 html.dark [class*="from-amber-50/95"][class*="via-orange-50"] {
-  background: linear-gradient(135deg, #332612 0%, #261c0d 100%) !important;
+  background: linear-gradient(135deg, #47361d 0%, #3b2c17 100%) !important;
   border-color: #d97706 !important;
 }
 
 html.dark [class*="from-indigo-50"][class*="border-indigo-400"] {
-  background: linear-gradient(135deg, #1e2952 0%, #161e3d 100%) !important;
+  background: linear-gradient(135deg, #2b396b 0%, #232f59 100%) !important;
   border-color: #6366f1 !important;
 }
 
 html.dark [class*="from-slate-50/95"][class*="border-slate-200/90"] {
-  background: linear-gradient(135deg, #182235 0%, #111a29 100%) !important;
-  border-color: #334155 !important;
+  background: linear-gradient(135deg, #293548 0%, #222d40 100%) !important;
+  border-color: #41526e !important;
 }
 
 html.dark [class*="from-rose-50/90"][class*="via-orange-50"] {
-  background: linear-gradient(135deg, #381622 0%, #291019 100%) !important;
+  background: linear-gradient(135deg, #4d2232 0%, #3d1b27 100%) !important;
   border-color: #e11d48 !important;
 }
 
 /* Mobile schedule index pill */
 html.dark .absolute.top-0.right-0.bg-slate-900,
 html.dark .absolute.top-0.right-0.bg-indigo-100 {
-  background-color: #0f172a !important;
-  color: #94a3b8 !important;
-  border-color: #334155 !important;
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+  border-color: #41526e !important;
 }
 
 /* Member Loan Accordion Header (L1, L2, L3) */
 html.dark [class*="from-slate-50/90"][class*="via-white"][class*="to-indigo-50/30"] {
-  background: linear-gradient(90deg, #182438 0%, #1e293b 50%, #1c2742 100%) !important;
-  border-color: #334155 !important;
+  background: linear-gradient(90deg, #263347 0%, #293548 50%, #293654 100%) !important;
+  border-color: #41526e !important;
 }
 
 /* Repayment Schedule Accordion Bar */
 html.dark [class*="from-indigo-50/70"][class*="via-white"][class*="to-indigo-50/30"] {
-  background: linear-gradient(90deg, #1a2540 0%, #1e293b 50%, #1a2540 100%) !important;
-  border-color: #334155 !important;
+  background: linear-gradient(90deg, #283554 0%, #293548 50%, #283554 100%) !important;
+  border-color: #41526e !important;
 }
 
 /* Member Action Buttons on Mobile / Tablet */
 html.dark .border-indigo-100.bg-white,
 html.dark .border-indigo-200\/90.bg-white {
-  background-color: #1e293b !important;
-  border-color: #3b4e78 !important;
+  background-color: #293548 !important;
+  border-color: #475d8c !important;
 }
 
 /* Member Card Advance Banner */
 html.dark [class*="from-purple-50"][class*="via-indigo-50"][class*="to-purple-50"] {
-  background: linear-gradient(90deg, #2b1d44 0%, #1e2b48 50%, #2b1d44 100%) !important;
-  border-color: #523b7a !important;
+  background: linear-gradient(90deg, #382857 0%, #2a395c 50%, #382857 100%) !important;
+  border-color: #604b94 !important;
 }
 html.dark [class*="from-purple-50"][class*="via-indigo-50"] .bg-white {
-  background-color: #1e293b !important;
-  border-color: #523b7a !important;
+  background-color: #293548 !important;
+  border-color: #604b94 !important;
   color: #d8b4fe !important;
 }
 
 /* Search bar on Mobile / Tablet */
 html.dark [class*="via-indigo-50/25"] {
-  background: #1e293b !important;
-  border-color: #334155 !important;
+  background: #293548 !important;
+  border-color: #41526e !important;
 }
 html.dark [class*="via-indigo-50/25"] input {
   background-color: transparent !important;

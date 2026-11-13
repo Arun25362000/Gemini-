@@ -656,7 +656,7 @@ const Graphs: React.FC<GraphsProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Live counts of member subscriptions paid and loan repayments paid for each month (strictly matches Monthly Collection Summary)
+                  Monthly paid subscriptions &amp; loan repayments
                 </p>
               </div>
             </div>
@@ -918,7 +918,7 @@ const Graphs: React.FC<GraphsProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Month-by-month loan disbursements sanctioned vs repayments collected (principal + interest)
+                    Monthly sanctioned loans vs repayments
                   </p>
                 </div>
               </div>
@@ -1168,7 +1168,7 @@ const Graphs: React.FC<GraphsProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Individual member audit comparing total loan principal sanctioned vs total repayments collected (principal + interest)
+                    Member-wise principal borrowed vs repaid
                   </p>
                 </div>
               </div>
@@ -1439,7 +1439,7 @@ const Graphs: React.FC<GraphsProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Chronological loan disbursements by month with active and closed loan portfolio breakdown
+                    Monthly disbursements &amp; loan portfolio
                   </p>
                 </div>
               </div>
@@ -1708,7 +1708,7 @@ const Graphs: React.FC<GraphsProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Consolidated capital reserves, loan deployment, principal recovery, and liquid balance audit
+                    Capital reserves, loans &amp; liquid balance
                   </p>
                 </div>
               </div>
